@@ -125,8 +125,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.5.2";
+const APP_VERSION = "1.5.3";
 const RELEASES = [
+  {v:"1.5.3", d:"2026-11-15", notes:"SIP fund picker and lists show folio number to distinguish schemes."},
   {v:"1.5.2", d:"2026-11-15", notes:"Edit account nickname from account details."},
   {v:"1.5.1", d:"2026-11-15", notes:"Sample recipient placeholder name updated."},
   {v:"1.5.0", d:"2026-11-15", notes:"Auto-apply due SIPs on unlock; salary schedules per member/account with auto credit when due."},
@@ -263,6 +264,7 @@ const toDisplay = (n,cur) => cur===S.display ? n : (cur==="EUR" ? n*S.rate : n/S
 const toDisplayAt = (n,cur,rate) => cur===S.display ? n : (cur==="EUR" ? n*(rate||S.rate) : n/(rate||S.rate));
 const parseAmt = v => { const n = parseFloat(String(v).replace(/,/g,".").replace(/[^0-9.]/g,"")); return isFinite(n)?n:0; };
 const acct = id => S.accounts.find(a=>a.id===id);
+const fundLabel = h => { if(!h) return "Fund"; const bits=[h.name]; if(h.folio) bits.push("Folio "+h.folio); if(h.owner&&h.owner!=="Me") bits.push(h.owner); return bits.join(" · "); };
 
 /* ---------- ledger: every transaction = balanced postings; balances are derived ---------- */
 function balance(a){
@@ -707,7 +709,7 @@ function viewPlan(){
   <button class="btn alt" data-newlend>Add lending record</button>
   <h2>SIPs</h2>
   <p class="muted">Due SIPs are posted automatically when you unlock the app (bank debit + units from current price if set). You can still open a SIP to mark missed or stop it.</p>
-  ${S.sips.map(x=>{const h=S.holdings.find(v=>v.id===x.hold)||{},d=daysTo(x.next);const hist=x.history||[];const paid=hist.filter(i=>i.status==="paid").length,missed=hist.filter(i=>i.status==="missed").length;const st=x.status||"active";return `<div class="card" data-sip="${x.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted">${fmt(x.amt,x.cur)} · ${({1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1])} · next ${x.next}${st==="stopped"?" · stopped":""}${paid||missed?` · ${paid} paid / ${missed} missed`:""}</div></div><b class="${st==="stopped"?"muted":d<=0?"warn":"muted"}">${st==="stopped"?"stopped":dl(d)}</b></div></div>`}).join("")||`<div class="muted">No SIPs yet.</div>`}
+  ${S.sips.map(x=>{const h=S.holdings.find(v=>v.id===x.hold)||{},d=daysTo(x.next);const hist=x.history||[];const paid=hist.filter(i=>i.status==="paid").length,missed=hist.filter(i=>i.status==="missed").length;const st=x.status||"active";return `<div class="card" data-sip="${x.id}"><div class="row"><div><b>${esc(h.name)}</b>${h.folio?`<div class="muted">Folio ${esc(h.folio)}</div>`:""}<div class="muted">${fmt(x.amt,x.cur)} · ${({1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1])} · next ${x.next}${st==="stopped"?" · stopped":""}${paid||missed?` · ${paid} paid / ${missed} missed`:""}</div></div><b class="${st==="stopped"?"muted":d<=0?"warn":"muted"}">${st==="stopped"?"stopped":dl(d)}</b></div></div>`}).join("")||`<div class="muted">No SIPs yet.</div>`}
   <button class="btn alt" data-newsip>Add SIP</button>
   <h2>Salaries</h2>
   <p class="muted">Recurring salary credit into a member’s account. Posted automatically when due if auto-salary is on.</p>
@@ -726,7 +728,7 @@ function dueHtml(){
     if(d<=14){
       const h=S.holdings.find(v=>v.id===x.hold)||{};
       const label=d<0?"Overdue SIP":d===0?"SIP due today":"SIP";
-      r.push([d, label+" · "+esc(h.name||"Fund"), fmt(x.amt,x.cur), `data-sip="${x.id}"`, d<0?"warn":""]);
+      r.push([d, label+" · "+esc(h.name||"Fund")+(h.folio?" · Folio "+esc(h.folio):""), fmt(x.amt,x.cur), `data-sip="${x.id}"`, d<0?"warn":""]);
     }
   }
   for(const x of S.salaries){
@@ -1094,12 +1096,13 @@ document.addEventListener("click", async e=>{
   if(d.salarystop){
     const x=S.salaries.find(v=>v.id===d.salarystop); if(x){ x.status=x.status==="stopped"?"active":"stopped"; save(); } closeSheet(); render(); return;
   }
-  if("newsip" in d){ if(!S.holdings.some(h=>h.type==="fund")){ alert("Add a mutual fund first, under Money."); return; } fs("New SIP","fs1",[["sh","Fund","select",S.holdings.filter(h=>h.type==="fund").map(h=>[h.id,h.name])],["sa","Debit account","select",accOpts()],["sm","Amount","num"],["sf","Frequency","select",[["1","Monthly"],["3","Quarterly"],["6","Half-yearly"],["12","Yearly"]]],["sd","Next debit date","date"]],"Save SIP"); return; }
+  if("newsip" in d){ if(!S.holdings.some(h=>h.type==="fund")){ alert("Add a mutual fund first, under Money."); return; } fs("New SIP","fs1",[["sh","Fund (with folio)","select",S.holdings.filter(h=>h.type==="fund").map(h=>[h.id,fundLabel(h)])],["sa","Debit account","select",accOpts()],["sm","Amount","num"],["sf","Frequency","select",[["1","Monthly"],["3","Quarterly"],["6","Half-yearly"],["12","Yearly"]]],["sd","Next debit date","date"]],"Save SIP"); return; }
   if(d.sip){ const x=S.sips.find(v=>v.id===d.sip); if(!x) return; const h=S.holdings.find(v=>v.id===x.hold)||{};
     const hist=(x.history||[]).slice().reverse();
     const paid=hist.filter(i=>i.status==="paid").length, missed=hist.filter(i=>i.status==="missed").length;
     const histHtml=hist.length?`<h2 style="font-size:15px;margin:16px 0 8px">Payment ledger</h2><div class="card">${hist.slice(0,12).map(i=>`<div class="row"><div><b class="${i.status==="missed"?"warn":"in"}">${i.status==="paid"?"Paid":"Missed"}</b><div class="muted">${esc(i.date)}${i.units?` · ${i.units} units`:""}</div></div><b class="num">${i.amount?fmt(i.amount,x.cur):""}</b></div>`).join("")}${hist.length>12?`<div class="muted">Showing latest 12 of ${hist.length}</div>`:""}</div>`:`<p class="muted" style="margin-top:12px">No payments recorded yet. Confirm only when the bank has actually debited.</p>`;
     openSheet(`<h2 style="margin-top:0">SIP · ${esc(h.name)}</h2>
+    <div class="muted">${[h.folio?"Folio "+esc(h.folio):"",h.amc?esc(h.amc):"",h.isin?"ISIN "+esc(h.isin):"",h.owner&&h.owner!=="Me"?esc(h.owner):""].filter(Boolean).join(" · ")||"Mutual fund"}</div>
     <div class="card">
       <div class="row"><span>Amount</span><b class="num">${fmt(x.amt,x.cur)}</b></div>
       <div class="row"><span>Frequency</span><b>${({1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1]||"Custom")}</b></div>
