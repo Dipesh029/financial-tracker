@@ -125,8 +125,10 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.4.1";
+const APP_VERSION = "1.4.3";
 const RELEASES = [
+  {v:"1.4.3", d:"2026-11-15", notes:"Folder backup write path fixed (directory getFileHandle); clearer permission and fallback messages."},
+  {v:"1.4.2", d:"2026-11-15", notes:"Optional linked debit card (last4, network, expiry) when adding a bank account; Debit in card type; expiry on Due soon."},
   {v:"1.4.1", d:"2026-11-15", notes:"Bank account number / IBAN on own and family accounts (add, edit, masked display, copy)."},
   {v:"1.4.0", d:"2026-11-15", notes:"UI polish: motion, clearer hierarchy, amount quick-chips, card limit bars, debounced search, stronger empty and overdue states."},
   {v:"1.3.0", d:"2026-11-15", notes:"SIP paid/missed ledger with history; stronger due-soon strip (SIPs, card bills, premiums); release notes robust on unlock."},
@@ -151,26 +153,48 @@ async function backupHandleGet(){const db=await backupDb();return new Promise((r
 async function backupHandleSet(handle){const db=await backupDb();return new Promise((resolve,reject)=>{const tx=db.transaction(BACKUP_STORE,"readwrite");tx.objectStore(BACKUP_STORE).put(handle,BACKUP_HANDLE_KEY);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error);};tx.onabort=()=>{db.close();reject(tx.error);};});}
 async function backupHandleForget(){const db=await backupDb();return new Promise((resolve,reject)=>{const tx=db.transaction(BACKUP_STORE,"readwrite");tx.objectStore(BACKUP_STORE).delete(BACKUP_HANDLE_KEY);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error);};});}
 async function backupPermission(handle,request=false){if(!handle)return "missing";try{if(!handle.queryPermission)return "unsupported";let p=await handle.queryPermission({mode:"readwrite"});if(p!=="granted"&&request&&handle.requestPermission)p=await handle.requestPermission({mode:"readwrite"});return p;}catch(e){return "denied";}}
-async function backupDestinationStatus(){const node=$("#backupFolderStatus");if(!node)return;if(!("showDirectoryPicker" in window)){node.textContent="Folder picker unsupported here. Use Save backup file for the browser download/file picker.";return;}try{const h=await backupHandleGet();if(!h){node.textContent="No folder selected. Encrypted backups use download fallback.";return;}const p=await backupPermission(h,false);node.textContent=p==="granted"?"Selected folder: "+(h.name||"Device folder")+" · Ready":p==="prompt"?"Selected folder: "+(h.name||"Device folder")+" · Permission required when saving":"Selected folder: "+(h.name||"Device folder")+" · Permission unavailable; select again or use download fallback.";}catch(e){node.textContent="Folder preference unavailable. Download backup remains available.";}}
-async function chooseBackupFolder(){if(!("showDirectoryPicker" in window)){toast("Folder picker unsupported; use Save backup file.");return;}try{const h=await window.showDirectoryPicker({mode:"readwrite"});await backupHandleSet(h);await backupDestinationStatus();toast("Backup folder selected: "+(h.name||"folder"));}catch(e){if(e.name!=="AbortError")alert("Could not select backup folder. "+(e.message||""));}}
-async function forgetBackupFolder(){try{await backupHandleForget();await backupDestinationStatus();toast("Backup folder forgotten");}catch(e){alert("Could not forget backup folder.");}}
-
-const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],policies:[],purchases:[],snaps:[],history:[],lending:[],bankContacts:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null});
-let S=null, CK=null, SALT=null, BIO=null, KDF_ITER=600000, chain=Promise.resolve(), homeOwner="All family";
-const LBL={adjust:"Portfolio sync · ",adjustment:"Balance adjust · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to "};
-function b64(u){let t="";for(const x of new Uint8Array(u))t+=String.fromCharCode(x);return btoa(t);}
-const unb64=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
-async function deriveKey(p,salt,iterations=KDF_ITER,extractable=false){const m=await crypto.subtle.importKey("raw",new TextEncoder().encode(p),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations,hash:"SHA-256"},m,{name:"AES-GCM",length:256},extractable,["encrypt","decrypt"]);}
-async function seal(o){const iv=crypto.getRandomValues(new Uint8Array(12));const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},CK,new TextEncoder().encode(JSON.stringify(o)));return JSON.stringify({enc:2,salt:b64(SALT),iterations:KDF_ITER,iv:b64(iv),data:b64(ct),bio:BIO||null});}
-async function unseal(env,key){const ct=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(env.iv)},key,unb64(env.data));return JSON.parse(new TextDecoder().decode(ct));}
-function save(){ if(!CK||!S) return; chain=chain.then(async()=>store.set(await seal(S))).catch(()=>{}); }
-function migrate(){
-  for(const k of ["accounts","holdings","sips","policies","purchases","snaps","history","lending","bankContacts","people","txns","audit"]) S[k]=S[k]||[];
-  S.v=2;
-  for(const a of S.accounts){a.owner=a.owner||"Me";a.bank=a.bank||"";a.ifsc=a.ifsc||"";a.branchCode=a.branchCode||"";a.branch=a.branch||"";a.accountNumber=a.accountNumber||"";a.accountMasked=a.accountMasked||"";}
-  if(!Array.isArray(S.people)||!S.people.length)S.people=["Me","Father","Mother"];
-  for(const h of S.holdings){h.owner=h.owner||"Me";h.folio=h.folio||"";h.isin=h.isin||"";h.symbol=h.symbol||"";h.exchange=h.exchange||"";h.demat=h.demat||"";h.broker=h.broker||"";h.amc=h.amc||"";h.notes=h.notes||"";}
-  for(const t of S.txns){if(t.fxRate==null)t.fxRate=S.rate||104.16;if(!t.owner&&t.postings?.[0])t.owner=(S.accounts.find(a=>a.id===t.postings[0].acct)||{}).owner||"Me";}
+async function backupDestinationStatus(){
+  const node=$("#backupFolderStatus"); if(!node) return;
+  if(!("showDirectoryPicker" in window)){
+    node.textContent="Folder picker not available on this browser/device. Save backup file uses Downloads.";
+    return;
+  }
+  try{
+    const h=await backupHandleGet();
+    if(!h){ node.textContent="No folder selected yet. Choose a folder, then Save backup file writes the .enc there."; return; }
+    const p=await backupPermission(h,false);
+    const name=h.name||"Device folder";
+    if(p==="granted") node.textContent="Selected: "+name+" · Ready (Save backup file writes here)";
+    else if(p==="prompt") node.textContent="Selected: "+name+" · Will ask permission on next save";
+    else node.textContent="Selected: "+name+" · Permission lost — choose the folder again";
+  }catch(e){
+    node.textContent="Could not read folder preference. Download backup still works.";
+  }
+}
+async function chooseBackupFolder(){
+  if(!("showDirectoryPicker" in window)){
+    toast("Folder picker not supported in this browser. Use Save backup file (Downloads).");
+    return;
+  }
+  try{
+    const h=await window.showDirectoryPicker({mode:"readwrite",id:"myfinance-backup"});
+    // Verify we can create a file handle API on this handle
+    if(typeof h.getFileHandle!=="function"){
+      alert("This browser selected a folder but cannot write files into it. Backups will use download.");
+      return;
+    }
+    const perm=await backupPermission(h,true);
+    if(perm!=="granted"){
+      alert("Write permission was not granted for that folder. Try again and allow access when prompted.");
+      return;
+    }
+    await backupHandleSet(h);
+    await backupDestinationStatus();
+    toast("Backup folder ready: "+(h.name||"folder"));
+  }catch(e){
+    if(e&&e.name==="AbortError")return;
+    alert("Could not select backup folder: "+(e&&e.message?e.message:e));
+  }
 }
 function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2)); }
 function log(action, id){ S.audit.push({ts:new Date().toISOString(), action, id}); }
@@ -348,7 +372,7 @@ function viewAccounts(){
   ${S.accounts.filter(a=>!a.archived).map(a=>{ const b=balance(a);
     const used=a.type==="card"&&a.limit?Math.min(100,Math.round(Math.max(0,-b)/a.limit*100)):0;
     const barCls=used>=90?"out":used>=70?"warn":"";
-    return `<div class="card tap" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · ${a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank"}${a.bank?" · "+esc(a.bank):""}${a.accountMasked?" · "+esc(a.accountMasked):""}${a.cardMeta?.last4?" · •••• "+esc(a.cardMeta.last4):""} · ${a.cur}</div></div>
+    return `<div class="card tap" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · ${a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank"}${a.type==="bank"&&a.cardMeta?.last4?" + debit":""}${a.bank?" · "+esc(a.bank):""}${a.accountMasked?" · "+esc(a.accountMasked):""}${a.cardMeta?.last4?" · •••• "+esc(a.cardMeta.last4):""}${a.cardMeta?.expiry?" · exp "+esc(a.cardMeta.expiry):""} · ${a.cur}</div></div>
     <div style="text-align:right"><b class="num ${b<0?"out":""}">${fmt(b,a.cur)}</b>${a.type==="card"&&b<0?`<div class="muted">outstanding</div>`:""}</div></div>
     ${a.type==="card"&&a.limit?`<div class="bar ${barCls}"><i style="width:${used}%"></i></div><div class="limit-meta"><span>Limit ${fmt(a.limit,a.cur)}</span><span>${used}% used</span></div>`:""}
     </div>`; }).join("")}
@@ -602,6 +626,20 @@ function dueHtml(){
     const d=daysTo(p.expiry);
     if(d>=0&&d<=30) r.push([d, "Warranty · "+esc(p.item), "", "", ""]);
   }
+  for(const a of S.accounts){
+    if(a.archived) continue;
+    const exp=(a.cardMeta||{}).expiry;
+    if(!exp || !/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(exp)) continue;
+    const [mm,yy]=exp.split("/");
+    const end="20"+yy+"-"+mm+"-01";
+    // treat as due in the expiry month (1st); show within 60 days before
+    const d=daysTo(end);
+    if(d>=-31 && d<=60){
+      const kind=a.type==="card"?"Credit card":"Debit card";
+      const last=(a.cardMeta||{}).last4?(" ••••"+a.cardMeta.last4):"";
+      r.push([Math.max(0,d), kind+" expires · "+esc(a.name)+last, exp, `data-acct="${a.id}"`, d<=30?"warn":""]);
+    }
+  }
   if(!r.length) return "";
   r.sort((a,b)=>a[0]-b[0]);
   return `<h2>Due soon</h2><div class="card">${r.map(x=>{
@@ -634,6 +672,13 @@ function newAcctSheet(){
     <label>IFSC code</label><input id="aifsc" autocapitalize="characters" placeholder="e.g. HDFC0001234">
     <label>Branch code</label><input id="abranchcode" placeholder="Optional">
     <div class="muted" style="margin-top:6px">Account number is stored only in your encrypted vault. Lists show a masked version.</div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:14px 0 8px">
+    <b style="font-size:13px">Linked debit card (optional)</b>
+    <p class="muted" style="margin:4px 0 0">A debit card spends from this bank balance — it is not a separate account.</p>
+    <label>Last 4 digits</label><input id="adlast4" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off">
+    <label>Network</label><select id="adnetwork"><option value="">—</option><option>Visa</option><option>Mastercard</option><option>RuPay</option><option>Amex</option><option>Other</option></select>
+    <label>Expiry (MM/YY)</label><input id="adexpiry" inputmode="numeric" placeholder="08/28" maxlength="5">
+    <div class="muted" style="margin-top:6px">CVV and PIN are never stored. Expiry can appear under Due soon.</div>
   </div>
   <div id="cardFields" style="display:none">
     <label>Card issuer / bank</label><input id="cbank" placeholder="e.g. HDFC, Axis, SBI">
@@ -688,11 +733,11 @@ function acctSheet(id){
 <label>Branch code</label><input id="abranchcodeEdit" value="${esc(a.branchCode||"")}">
 <div class="muted">Stored encrypted on this phone. Shown masked in lists.</div>
 <button type="button" class="btn alt" data-copyownbank="${a.id}" style="margin-top:10px">Copy account details</button>`:""}
-  <b>${a.type==="card"?"Credit card details":"Linked debit card details (optional)"}</b>
+  <b>${a.type==="card"?"Credit card details":"Linked debit card (optional)"}</b>${a.type==="bank"?`<p class="muted" style="margin:4px 0 0">Not a separate balance — spends from this bank account. Useful for last digits and expiry reminders.</p>`:""}
   ${a.type==="card"?`<label>Card issuer / bank</label><input id="abankEdit" value="${esc(a.bank||"")}">`:""}
   <label>Last 4 digits</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc((a.cardMeta||{}).last4||"")}" placeholder="1234" autocomplete="off">
   <label>Network</label><select id="network"><option value="">—</option>${["Visa","Mastercard","RuPay","Amex","Other"].map(n=>`<option ${((a.cardMeta||{}).network||"")===n?"selected":""}>${n}</option>`).join("")}</select>
-  <label>Card type</label><select id="cardType"><option value="">—</option>${["Credit","Charge","Corporate","Other"].map(n=>`<option ${((a.cardMeta||{}).cardType||"")===n?"selected":""}>${n}</option>`).join("")}</select>
+  <label>Card type</label><select id="cardType"><option value="">—</option>${["Debit","Credit","Charge","Corporate","Other"].map(n=>`<option ${((a.cardMeta||{}).cardType||"")===n?"selected":""}>${n}</option>`).join("")}</select>
   <label>Expiry (MM/YY)</label><input id="expiry" inputmode="numeric" value="${esc((a.cardMeta||{}).expiry||"")}" placeholder="08/28" maxlength="5">
   <div class="muted">CVV/CVC and PIN are never collected or stored.</div>
   <label>Annual fee</label><input id="annualFee" inputmode="decimal" value="${(a.cardMeta||{}).annualFee||""}">
@@ -763,7 +808,36 @@ function download(name, text, type){
 }
 async function exportJSON(){
   const filename=`finance-backup-${today()}.enc`, encrypted=await seal(S);
-  try{const h=await backupHandleGet();if(h){const permission=await backupPermission(h,true);if(permission==="granted"&&h.createWritable){const file=await h.getFileHandle(filename,{create:true}),writable=await file.createWritable();try{await writable.write(new Blob([encrypted],{type:"application/octet-stream"}));await writable.close();}catch(err){try{await writable.abort();}catch(_){}throw err;}toast("Encrypted backup saved to "+(h.name||"selected folder"));await backupDestinationStatus();return;}await backupDestinationStatus();toast("Folder permission unavailable. Opening download fallback.");}}catch(err){console.warn("Folder backup failed; fallback download",err);toast("Folder save failed. Opening download fallback.");}
+  try{
+    const h=await backupHandleGet();
+    if(h){
+      // Directory handles expose getFileHandle; createWritable is only on file handles.
+      const permission=await backupPermission(h,true);
+      if(permission==="granted" && typeof h.getFileHandle==="function"){
+        const file=await h.getFileHandle(filename,{create:true});
+        const writable=await file.createWritable();
+        try{
+          await writable.write(new Blob([encrypted],{type:"application/octet-stream"}));
+          await writable.close();
+        }catch(err){
+          try{await writable.abort();}catch(_){}
+          throw err;
+        }
+        toast("Encrypted backup saved to "+(h.name||"selected folder"));
+        await backupDestinationStatus();
+        return;
+      }
+      await backupDestinationStatus();
+      if(permission!=="granted"){
+        toast("Folder permission not granted. Re-choose the folder, then try again. Downloading instead.");
+      }else{
+        toast("This browser cannot write into the selected folder. Downloading instead.");
+      }
+    }
+  }catch(err){
+    console.warn("Folder backup failed; fallback download",err);
+    toast("Folder save failed ("+(err&&err.message?err.message:"error")+"). Downloading instead.");
+  }
   download(filename,encrypted,"application/octet-stream");
 }
 function exportCSV(){
@@ -798,7 +872,7 @@ document.addEventListener("click", async e=>{
 <button class="btn" type="submit">Update balance</button></form>
 <button class="btn alt" data-close>Cancel</button>`);return;}
   if("newacct" in d){ newAcctSheet(); return; }
-  if("newbank" in d){ openSheet(`<h2 style="margin-top:0">Friend / recipient bank account</h2><form id="fbank"><label>Person / recipient name</label><input id="bp" required placeholder="e.g. Shubham GG"><label>Account holder name</label><input id="bh" required><label>Bank name</label><input id="bb" required><label>Account number / IBAN</label><input id="ba" required autocomplete="off"><label>IFSC code (India)</label><input id="bi" autocapitalize="characters"><label>Branch name</label><input id="br"><label>Branch code</label><input id="bc"><label>Currency</label><select id="bcur"><option>INR</option><option>EUR</option></select><label>Nickname (optional)</label><input id="bn"><div class="security-note">These details are stored inside your encrypted vault. The account number is masked in lists, but is present in encrypted backup data.</div><button class="btn" type="submit">Save recipient account</button></form>`);return; }
+  if("newbank" in d){ openSheet(`<h2 style="margin-top:0">Friend / recipient bank account</h2><form id="fbank"><label>Person / recipient name</label><input id="bp" required placeholder="e.g. Rahul Sharma"><label>Account holder name</label><input id="bh" required><label>Bank name</label><input id="bb" required><label>Account number / IBAN</label><input id="ba" required autocomplete="off"><label>IFSC code (India)</label><input id="bi" autocapitalize="characters"><label>Branch name</label><input id="br"><label>Branch code</label><input id="bc"><label>Currency</label><select id="bcur"><option>INR</option><option>EUR</option></select><label>Nickname (optional)</label><input id="bn"><div class="security-note">These details are stored inside your encrypted vault. The account number is masked in lists, but is present in encrypted backup data.</div><button class="btn" type="submit">Save recipient account</button></form>`);return; }
   if("releases" in d){
     openSheet(`<h2 style="margin-top:0">Release notes</h2>
     <div class="muted" style="margin-bottom:10px">Current version <b>v${esc(APP_VERSION)}</b></div>
@@ -1128,6 +1202,14 @@ document.addEventListener("submit", e=>{
       accountNumber:rawNum,
       accountMasked:rawNum?(rawNum.length>4?"••••"+rawNum.slice(-4):"••••"):"",
       owner:($("#aowner").value.trim()||"Me"),type,cur:$("#ac").value,opening:o,archived:false};
+    if(type==="bank"){
+      const last4=($("#adlast4")?.value||"").replace(/\D/g,"").slice(-4);
+      const expiry=($("#adexpiry")?.value||"").trim();
+      if(expiry && !/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){ alert("Enter debit card expiry as MM/YY."); return; }
+      if(last4 || expiry || ($("#adnetwork")?.value||"").trim()){
+        a.cardMeta={last4, network:($("#adnetwork")?.value||"").trim(), cardType:"Debit", expiry, annualFee:0};
+      }
+    }
     if(type==="card"){
       const last4=(($("#clast4")?.value)||"").replace(/\D/g,"").slice(-4);
       const expiry=(($("#cexpiry")?.value)||"").trim();
