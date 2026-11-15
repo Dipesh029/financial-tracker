@@ -125,8 +125,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.4.3";
+const APP_VERSION = "1.4.4";
 const RELEASES = [
+  {v:"1.4.4", d:"2026-11-15", notes:"Fix blank screen: restore missing vault state globals (S, CK, BIO, SALT)."},
   {v:"1.4.3", d:"2026-11-15", notes:"Folder backup write path fixed (directory getFileHandle); clearer permission and fallback messages."},
   {v:"1.4.2", d:"2026-11-15", notes:"Optional linked debit card (last4, network, expiry) when adding a bank account; Debit in card type; expiry on Due soon."},
   {v:"1.4.1", d:"2026-11-15", notes:"Bank account number / IBAN on own and family accounts (add, edit, masked display, copy)."},
@@ -231,8 +232,11 @@ function addTxn(t){ t.id=uid(); t.status="posted"; t.created=new Date().toISOStr
 function voidTxn(id){ const t=S.txns.find(x=>x.id===id); if(t){ t.status="voided"; log("void",id); save(); } }
 function unvoid(id){ const t=S.txns.find(x=>x.id===id); if(t){ t.status="posted"; log("restore",id); save(); } }
 
+/* ---------- app state (vault) ---------- */
+let S=null, CK=null, BIO=null, SALT=null, KDF_ITER=250000, chain=Promise.resolve();
+
 /* ---------- UI state ---------- */
-let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="";
+let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family";
 const $ = s => document.querySelector(s);
 
 function render(){
