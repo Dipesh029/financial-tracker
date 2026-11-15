@@ -4,6 +4,15 @@ Local-first, encrypted family finance Progressive Web App. Continues the existin
 
 ## What this package changes
 
+### Added in v1.1.0 (this package)
+- Version badge on Home with **Release notes** sheet (tracks each update).
+- **Investments** summary on Home: count, cost, current value, unrealized P/L %.
+- **Portfolio growth** chart from stock import snapshots (value vs invested).
+- Mutual fund / stock detail: returns %, **Estimate future value** calculator (current value + optional monthly SIP, expected return, years).
+- Balance adjustments labeled clearly in Activity.
+- Holdings list shows owner and return %.
+
+
 ### Priority-1 fixes implemented
 - **Set current balance** on every account (opens the existing reconcile flow with clearer wording). Enter the real balance from your bank/statement; the difference is posted as one adjustment transaction so history stays consistent.
 - **Copy** button on friend/recipient bank accounts. Copies a ready-to-paste block: name, account holder, bank, full account number, IFSC, branch, currency.
@@ -73,4 +82,4 @@ Local-first, encrypted family finance Progressive Web App. Continues the existin
 - Folder permission revocation, WebAuthn PRF, offline launch, and backup restore require testing on the target Android device/browser.
 
 ## Cache version
-Service worker shell cache: `myfinance-shell-v7`.
+Service worker shell cache: `myfinance-shell-v8`.

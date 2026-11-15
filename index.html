@@ -87,6 +87,11 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);ou
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
+const APP_VERSION = "1.1.0";
+const RELEASES = [
+  {v:"1.1.0", d:"2026-11-15", notes:"Historical holdings, stock import owner, set balance, copy recipient details, investment returns & projections, version badge"},
+  {v:"1.0.0", d:"2026-11", notes:"Local encrypted vault, accounts, transfers, stocks/MF, SIPs, lending, backup location"}
+];
 const EXPENSE_CATS = ["Groceries","Rent / housing","Utilities","Transport","Dining out","Shopping","Health","Insurance premium","Travel","Subscriptions","Education","Taxes","Bank fees","Gifts","Other"];
 const INCOME_CATS = ["Salary","Interest","Rental income","Business","Gift received","Other income"];
 const mem = {};
@@ -108,7 +113,7 @@ async function forgetBackupFolder(){try{await backupHandleForget();await backupD
 
 const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],policies:[],purchases:[],snaps:[],history:[],lending:[],bankContacts:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null});
 let S=null, CK=null, SALT=null, BIO=null, KDF_ITER=600000, chain=Promise.resolve(), homeOwner="All family";
-const LBL={adjust:"Portfolio sync · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to "};
+const LBL={adjust:"Portfolio sync · ",adjustment:"Balance adjust · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to "};
 function b64(u){let t="";for(const x of new Uint8Array(u))t+=String.fromCharCode(x);return btoa(t);}
 const unb64=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
 async function deriveKey(p,salt,iterations=KDF_ITER,extractable=false){const m=await crypto.subtle.importKey("raw",new TextEncoder().encode(p),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations,hash:"SHA-256"},m,{name:"AES-GCM",length:256},extractable,["encrypt","decrypt"]);}
@@ -179,7 +184,52 @@ function netWorth(owner){
   return {assets,owed,total:assets-owed};
 }
 function historyHtml(owner){const hs=(S.history||[]).filter(x=>owner?x.owner===owner:!x.owner).slice(-12).reverse();return `<h2>Net worth history</h2><div class="card">${hs.length?hs.map(x=>`<div class="row"><span>${esc(x.date)}</span><b class="num">${fmt(toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate),S.display)}</b></div>`).join(""):`<div class="muted">No saved snapshots yet for this view.</div>`}<button class="btn alt" data-snapshot>Save this month's snapshot</button></div>`;}
-function viewHome(){ const b=viewHome0(); return S.accounts.length?b+dueHtml()+historyHtml(homeOwner==="All family"?null:homeOwner):b; }
+function investSummaryHtml(owner){
+  let cost=0,val=0,n=0;
+  for(const h of S.holdings){
+    if(owner&&h.owner!==owner)continue;
+    const p=holdPos(h); if(p.u<=0&&p.c<=0)continue;
+    cost+=toDisplay(p.c,h.cur); val+=toDisplay(p.v,h.cur); n++;
+  }
+  if(!n) return "";
+  const pl=val-cost, pct=cost>0?Math.round(pl/cost*1000)/10:0;
+  const bar=cost>0?Math.min(100,Math.max(0,Math.round(val/Math.max(cost,val)*100))):0;
+  return `<h2>Investments</h2><div class="card">
+  <div class="row"><span>Holdings</span><b>${n}</b></div>
+  <div class="row"><span>Invested (cost)</span><b class="num">${fmt(cost,S.display)}</b></div>
+  <div class="row"><span>Current value</span><b class="num">${fmt(val,S.display)}</b></div>
+  <div class="row"><span>Unrealized P/L</span><b class="num ${pl<0?"out":"in"}">${fmt(pl,S.display)} · ${pct}%</b></div>
+  <div class="bar" style="margin-top:10px"><i style="width:${bar}%"></i></div>
+  <div class="muted" style="margin-top:6px">Bar shows current value vs cost. Prices are manual unless updated from a portfolio import.</div>
+  </div>`;
+}
+function portfolioGrowthHtml(){
+  const snaps=(S.snaps||[]).slice(-8);
+  if(snaps.length<2) return "";
+  const vals=snaps.map(x=>x.val||0), invs=snaps.map(x=>x.inv||0);
+  const lo=Math.min(...vals,...invs), hi=Math.max(...vals,...invs), span=Math.max(1,hi-lo);
+  const w=320,h=130;
+  const pts=(arr)=>arr.map((v,i)=>`${18+i*(284/Math.max(1,arr.length-1))},${100-(v-lo)/span*70}`).join(" ");
+  const labels=snaps.map((x,i)=>`<text x="${18+i*(284/Math.max(1,snaps.length-1))}" y="118" text-anchor="middle" font-size="8" fill="var(--muted)">${esc((x.date||"").slice(5,10))}</text>`).join("");
+  const last=snaps[snaps.length-1], pl=(last.val||0)-(last.inv||0);
+  return `<h2>Portfolio growth</h2><div class="card">
+  <svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Portfolio value vs invested">
+  <line x1="12" y1="100" x2="308" y2="100" stroke="var(--line)"/>
+  <polyline points="${pts(invs)}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="4 3"/>
+  <polyline points="${pts(vals)}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>
+  ${labels}</svg>
+  <div class="chart-legend"><span><i class="dot" style="background:var(--accent)"></i>Market value</span><span><i class="dot" style="background:var(--muted)"></i>Invested</span></div>
+  <div class="muted" style="margin-top:6px">Latest import: value ${fmt(last.val||0,"INR")} · invested ${fmt(last.inv||0,"INR")} · P/L ${fmt(pl,"INR")}</div>
+  </div>`;
+}
+function versionBadgeHtml(){
+  const latest=RELEASES[0];
+  return `<div class="row" style="margin:4px 0 8px;align-items:flex-start">
+  <div class="muted" style="font-size:12px">My Finance · v${esc(APP_VERSION)}</div>
+  <button class="chip" data-releases style="padding:4px 10px;font-size:12px">Release notes</button>
+  </div>`;
+}
+function viewHome(){ const b=viewHome0(); const o=homeOwner==="All family"?null:homeOwner; return S.accounts.length?versionBadgeHtml()+b+investSummaryHtml(o)+portfolioGrowthHtml()+dueHtml()+historyHtml(o):versionBadgeHtml()+b; }
 function chartHtml(owner){
   const ms=[];let d=today().slice(0,8)+"01";for(let i=5;i>=0;i--){const dt=addM(d,-i);ms.push(dt.slice(0,7));}
   const rows=ms.map(m=>({m,...monthTotals(m,owner)}));const max=Math.max(1,...rows.map(x=>Math.max(x.inc,x.exp)));
@@ -261,7 +311,7 @@ function viewAccounts(){
   <p class="muted">Save recipient bank details here. They are encrypted with the rest of your local vault and are reference details only; transfers to them do not change your own account balances automatically.</p>
   ${S.bankContacts.map(b=>`<div class="card"><div class="row"><div><b>${esc(b.person)} · ${esc(b.bank)}</b><div class="muted">${esc(b.holder)} · ${esc(b.accountMasked||"Account saved")} · ${esc(b.cur)}${b.ifsc?" · IFSC "+esc(b.ifsc):""}${b.branchCode?" · Branch "+esc(b.branchCode):""}</div></div><div style="display:flex;gap:6px;flex-shrink:0"><button class="chip" data-copybank="${b.id}">Copy</button><button class="chip" data-delbank="${b.id}">Remove</button></div></div></div>`).join("")||`<div class="muted">No recipient accounts saved.</div>`}
   <button class="btn alt" data-newbank>Add friend / recipient bank account</button>
-  <h2>Investments</h2>${S.holdings.map(h=>{const p=holdPos(h);return `<div class="card" data-hold="${h.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted num">${p.u} units · cost ${fmt(p.c,h.cur)}</div></div><div style="text-align:right"><b class="num">${fmt(p.v,h.cur)}</b><div class="muted num ${p.v-p.c<0?"out":"in"}">${h.price?fmt(p.v-p.c,h.cur):"set price"}</div></div></div></div>`}).join("")||`<div class="muted">No holdings yet.</div>`}
+  <h2>Investments</h2>${S.holdings.map(h=>{const p=holdPos(h);const pl=p.v-p.c;const pct=p.c>0?Math.round(pl/p.c*1000)/10:0;return `<div class="card" data-hold="${h.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted num">${esc(h.owner||"Me")} · ${p.u} units · cost ${fmt(p.c,h.cur)}</div></div><div style="text-align:right"><b class="num">${fmt(p.v,h.cur)}</b><div class="muted num ${pl<0?"out":"in"}">${h.price?(fmt(pl,h.cur)+" · "+pct+"%"):"set price"}</div></div></div></div>`}).join("")||`<div class="muted">No holdings yet.</div>`}
   <button class="btn alt" data-newhold>Add fund or stock</button>
   ${S.snaps.length>1?`<div class="muted" style="margin-top:8px">Stock portfolio at each import:<br>${S.snaps.slice(-5).map(x=>x.date+" · value "+fmt(x.val,"INR")+" · invested "+fmt(x.inv,"INR")).join("<br>")}</div>`:""}
   <h2>People (lending)</h2>${Object.entries(personPos()).map(([n,v])=>`<div class="card"><div class="row"><b>${esc(n)}</b><b class="num ${v<0?"out":"in"}">${v<0?"You owe ":"Owes you "}${fmt(Math.abs(v),S.display)}</b></div></div>`).join("")||`<div class="muted">Record a loan with + then Lend.</div>`}`;
@@ -388,7 +438,7 @@ function newHoldSheet(){
     if(cb&&box) cb.addEventListener("change",()=>{box.style.display=cb.checked?"block":"none";});
   },30);
 }
-function holdSheet(id){const h=S.holdings.find(x=>x.id===id);if(!h)return;const p=holdPos(h);const pl=p.v-p.c;const meta=[esc(h.owner||"Me"),h.type==="stock"?"Stock":"Mutual fund",h.symbol?esc(h.symbol):"",h.exchange?esc(h.exchange):"",h.folio?"Folio "+esc(h.folio):"",h.isin?"ISIN "+esc(h.isin):"",h.demat?"Demat "+esc(h.demat):"",h.broker?esc(h.broker):"",h.amc?esc(h.amc):""].filter(Boolean).join(" · ");
+function holdSheet(id){const h=S.holdings.find(x=>x.id===id);if(!h)return;const p=holdPos(h);const pl=p.v-p.c;const pct=p.c>0?Math.round(pl/p.c*1000)/10:0;const meta=[esc(h.owner||"Me"),h.type==="stock"?"Stock":"Mutual fund",h.symbol?esc(h.symbol):"",h.exchange?esc(h.exchange):"",h.folio?"Folio "+esc(h.folio):"",h.isin?"ISIN "+esc(h.isin):"",h.demat?"Demat "+esc(h.demat):"",h.broker?esc(h.broker):"",h.amc?esc(h.amc):""].filter(Boolean).join(" · ");
 openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2>
 <div class="muted">${meta}</div>
 <div class="card" style="margin-top:12px">
@@ -397,32 +447,22 @@ openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2>
 <div class="row"><span>Total cost basis</span><b class="num">${fmt(p.c,h.cur)}</b></div>
 <div class="row"><span>Current price</span><b class="num">${h.price?fmt(h.price,h.cur):"not set"}</b></div>
 <div class="row"><span>Market value</span><b class="num">${fmt(p.v,h.cur)}</b></div>
-<div class="row"><span>Unrealized P/L</span><b class="num ${pl<0?"out":"in"}">${h.price?fmt(pl,h.cur):"set price"}</b></div>
+<div class="row"><span>Unrealized P/L</span><b class="num ${pl<0?"out":"in"}">${h.price?fmt(pl,h.cur)+" · "+pct+"%":"set price"}</b></div>
 </div>
 ${h.notes?`<p class="muted">${esc(h.notes)}</p>`:""}
 <form id="fp"><input type="hidden" id="hid" value="${h.id}">
 <label>Current price per unit (${h.cur})</label><input id="hp" inputmode="decimal" value="${h.price||""}">
 <button class="btn" type="submit">Update price</button></form>
-<button class="btn alt" data-close>Close</button>`);}
-const mk=(ym,d)=>{const last=new Date(+ym.slice(0,4),+ym.slice(5,7),0).getDate();return ym+"-"+String(Math.min(d,last)).padStart(2,"0");};
-function nextDue(day){const t=today();let c=mk(t.slice(0,7),day);if(daysTo(c)<0)c=mk(addM(t.slice(0,8)+"01",1).slice(0,7),day);return c;}
-function csvRows(t){const l0=t.split(/\r?\n/)[0];const dl=l0.includes("\t")?"\t":(l0.includes(";")&&!l0.includes(","))?";":",";const rows=[];let r=[],c="",q=false;for(let i=0;i<t.length;i++){const ch=t[i];if(q){if(ch==='"'){if(t[i+1]==='"'){c+='"';i++;}else q=false;}else c+=ch;}else if(ch==='"')q=true;else if(ch===dl){r.push(c);c="";}else if(ch==="\n"||ch==="\r"){if(ch==="\r"&&t[i+1]==="\n")i++;r.push(c);c="";if(r.some(x=>x!==""))rows.push(r);r=[];}else c+=ch;}r.push(c);if(r.some(x=>x!==""))rows.push(r);return rows;}
-function csvNum(v){v=String(v).replace(/[^0-9.,-]/g,"");if(v.includes(",")&&v.includes(".")){v=v.lastIndexOf(",")>v.lastIndexOf(".")?v.replace(/\./g,"").replace(",","."):v.replace(/,/g,"");}else if(v.includes(","))v=v.replace(",",".");const n=parseFloat(v);return isFinite(n)?n:0;}
-function csvDate(v){v=String(v).trim();let m=v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);if(m)return m[1]+"-"+m[2].padStart(2,"0")+"-"+m[3].padStart(2,"0");m=v.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);return m?m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0"):null;}
-function importCSV(text){
-  const rows=csvRows(text.replace(/^\uFEFF/,"")); const h=(rows.shift()||[]).map(x=>x.trim().toLowerCase()); const ix=n=>h.indexOf(n);
-  if(["date","type","account","amount"].some(n=>ix(n)<0)){ alert("The first row must have these headings: date, type, category, account, amount, note (and optional id)."); return; }
-  const have=new Set(S.txns.map(t=>t.ext||"").filter(Boolean)); const sig=t=>[t.date,t.type,t.cat||"",t.postings[0].acct,Math.abs(t.postings[0].amt),t.note||""].join("|"); const seen=new Set(S.txns.filter(t=>t.status==="posted").map(sig));
-  let ok=0,dup=0; const errs=[];
-  rows.forEach((r,i)=>{ const g=n=>ix(n)<0?"":(r[ix(n)]||"").trim(); const ln=i+2;
-    const date=csvDate(g("date")), type=g("type").toLowerCase(), a=S.accounts.find(x=>x.name.toLowerCase()===g("account").toLowerCase()), amt=Math.abs(csvNum(g("amount")));
-    if(!date) return errs.push("Row "+ln+": bad date"); if(type!=="expense"&&type!=="income") return errs.push("Row "+ln+": type must be expense or income");
-    if(!a) return errs.push("Row "+ln+": unknown account '"+g("account")+"'"); if(amt<=0) return errs.push("Row "+ln+": bad amount");
-    const ext=g("id"); const t={id:uid(),type,status:"posted",date,cat:g("category")||(type==="income"?"Other income":"Other"),note:g("note"),created:new Date().toISOString(),fxRate:S.rate,owner:a.owner||"Me",postings:[{acct:a.id,amt:type==="income"?amt:-amt,cur:a.cur}]}; if(ext) t.ext=ext;
-    if((ext&&have.has(ext))||seen.has(sig(t))) return dup++; S.txns.push(t); seen.add(sig(t)); if(ext)have.add(ext); ok++; });
-  if(ok){ log("import",ok+" rows"); save(); render(); }
-  openSheet(`<h2 style="margin-top:0">Import finished</h2><p>${ok} added, ${dup} skipped as duplicates, ${errs.length} rows with problems.</p>${errs.length?`<ul class="muted">${errs.slice(0,15).map(x=>`<li>${esc(x)}</li>`).join("")}</ul>${errs.length>15?`<div class="muted">and ${errs.length-15} more</div>`:""}`:""}<div class="muted">Transfers, investments and loans are not imported from CSV. Enter those in the app.</div><button class="btn alt" data-close>Close</button>`);
-}
+<hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
+<h2 style="margin:0 0 8px;font-size:16px">Estimate future value</h2>
+<p class="muted" style="margin:0 0 8px">Simple projection from current market value. Not advice — just a calculator.</p>
+<form id="ffv"><input type="hidden" id="fvid" value="${h.id}">
+<label>Expected annual return (%)</label><input id="fvr" inputmode="decimal" value="12">
+<label>Years</label><input id="fvy" inputmode="decimal" value="5">
+<label>Extra monthly investment (optional)</label><input id="fvs" inputmode="decimal" value="0" placeholder="0">
+<button class="btn alt" type="submit">Calculate</button></form>
+<div id="fvOut" class="card" style="display:none;margin-top:10px"></div>
+<button class="btn alt" data-close style="margin-top:12px">Close</button>`);}
 let pendH=null;
 const hMatch=(h,it)=>(h.isin&&it.isin&&h.isin===it.isin)||h.name.toUpperCase()===it.sym.toUpperCase();
 function holdParse(text){
@@ -645,7 +685,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-copybank],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-copybank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if("close" in d){ if(el.classList.contains("sheet-bg") && e.target!==el) return; closeSheet(); return; }
@@ -668,6 +708,13 @@ document.addEventListener("click", async e=>{
 <button class="btn alt" data-close>Cancel</button>`);return;}
   if("newacct" in d){ newAcctSheet(); return; }
   if("newbank" in d){ openSheet(`<h2 style="margin-top:0">Friend / recipient bank account</h2><form id="fbank"><label>Person / recipient name</label><input id="bp" required placeholder="e.g. Rahul Sharma"><label>Account holder name</label><input id="bh" required><label>Bank name</label><input id="bb" required><label>Account number / IBAN</label><input id="ba" required autocomplete="off"><label>IFSC code (India)</label><input id="bi" autocapitalize="characters"><label>Branch name</label><input id="br"><label>Branch code</label><input id="bc"><label>Currency</label><select id="bcur"><option>INR</option><option>EUR</option></select><label>Nickname (optional)</label><input id="bn"><div class="security-note">These details are stored inside your encrypted vault. The account number is masked in lists, but is present in encrypted backup data.</div><button class="btn" type="submit">Save recipient account</button></form>`);return; }
+  if(d.releases){
+    openSheet(`<h2 style="margin-top:0">Release notes</h2>
+    <div class="muted" style="margin-bottom:10px">Current version <b>${esc(APP_VERSION)}</b></div>
+    ${RELEASES.map(r=>`<div class="card"><div class="row"><b>v${esc(r.v)}</b><span class="muted">${esc(r.d)}</span></div><div class="muted" style="margin-top:6px">${esc(r.notes)}</div></div>`).join("")}
+    <button class="btn alt" data-close>Close</button>`);
+    return;
+  }
   if(d.copybank){
     const b=S.bankContacts.find(x=>x.id===d.copybank);
     if(!b)return;
@@ -872,6 +919,24 @@ document.addEventListener("submit", e=>{
     toast(hist?"Historical holding saved (no bank debit)":"Holding saved");
   }
   if(e.target.id==="fp"){ const h=S.holdings.find(x=>x.id===$("#hid").value); if(h){ h.price=parseAmt($("#hp").value); save(); } closeSheet(); render(); }
+  if(e.target.id==="ffv"){
+    const h=S.holdings.find(x=>x.id===$("#fvid").value); if(!h)return;
+    const p=holdPos(h), R=parseAmt($("#fvr").value), Y=parseAmt($("#fvy").value), Smt=parseAmt($("#fvs").value||"0");
+    if(Y<=0){alert("Enter years greater than zero.");return;}
+    const r=R/100/12, n=Math.round(Y*12), V=p.v;
+    let fv=V;
+    if(Math.abs(r)<1e-12) fv=V+Smt*n;
+    else fv=V*Math.pow(1+r,n)+Smt*(Math.pow(1+r,n)-1)/r;
+    fv=Math.round(fv*100)/100;
+    const gain=fv-V-Smt*n;
+    const out=$("#fvOut");
+    if(out){ out.style.display="block"; out.innerHTML=`<div class="row"><span>Starting value</span><b class="num">${fmt(V,h.cur)}</b></div>
+    <div class="row"><span>Extra invested</span><b class="num">${fmt(Smt*n,h.cur)}</b></div>
+    <div class="row"><span>Projected value</span><b class="num in">${fmt(fv,h.cur)}</b></div>
+    <div class="row"><span>Projected gain</span><b class="num ${gain<0?"out":"in"}">${fmt(gain,h.cur)}</b></div>
+    <div class="muted" style="margin-top:8px">${Y} years · ${R}% p.a. · monthly compounding. Illustration only.</div>`; }
+    return;
+  }
   if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today()}); save(); closeSheet(); render(); }
   if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=parseAmt($("#su").value); if(!x||u<=0){ $("#su").focus(); return; } addTxn({type:"buy",date:x.next,note:"SIP",hold:x.hold,units:u,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]}); x.next=addM(x.next,x.freq||1); save(); closeSheet(); render(); toast("SIP recorded"); }
   if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n) return; S.policies.push({id:uid(),name:n,policyNo:$("#pno").value.trim(),provider:$("#pp").value.trim(),owner:$("#po").value||"Me",start:$("#pstart").value||"",sum:parseAmt($("#ps").value),bonus:parseAmt($("#bonus").value),premium:parseAmt($("#pa").value),ppt:parseAmt($("#ppt").value),term:parseAmt($("#pt").value),maturity:$("#mat").value||"",cur:$("#pc").value,freq:+$("#pf").value,next:$("#pd").value||today()}); save(); closeSheet(); render(); }

@@ -88,3 +88,10 @@ See README section “Safe update on the existing hosted origin”.
 ## Additional updates (same package)
 - **Set current balance** button on account detail sheet (clearer label + wording for the existing adjustment flow).
 - **Copy** on recipient bank contacts — copies full account number, IFSC, holder, bank, branch into the clipboard for pasting into UPI / NEFT forms or messages.
+
+
+### v1.1.0 extras
+- Home version badge + release notes.
+- Investment summary + portfolio growth chart.
+- Holding future-value projection calculator.
+- Clearer adjustment labels in activity.
