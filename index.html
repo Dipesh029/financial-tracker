@@ -87,10 +87,11 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);ou
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.1.1";
+const APP_VERSION = "1.2.0";
 const RELEASES = [
-  {v:"1.1.1", d:"2026-11-15", notes:"Service worker network-first for HTML so updates show after deploy; clearer cache refresh"},
-  {v:"1.1.0", d:"2026-11-15", notes:"Historical holdings, stock import owner, set balance, copy recipient details, investment returns & projections, version badge"},
+  {v:"1.2.0", d:"2026-11-15", notes:"Fixed release notes; unlock screen version; full credit-card fields on add account; richer MF/stock future projection with year chart; more investment visuals"},
+  {v:"1.1.1", d:"2026-11-15", notes:"Service worker network-first for HTML so updates show after deploy"},
+  {v:"1.1.0", d:"2026-11-15", notes:"Historical holdings, stock import owner, set balance, copy recipient details, investment returns & projections"},
   {v:"1.0.0", d:"2026-11", notes:"Local encrypted vault, accounts, transfers, stocks/MF, SIPs, lending, backup location"}
 ];
 const EXPENSE_CATS = ["Groceries","Rent / housing","Utilities","Transport","Dining out","Shopping","Health","Insurance premium","Travel","Subscriptions","Education","Taxes","Bank fees","Gifts","Other"];
@@ -334,6 +335,7 @@ function readmeHtml(){return `<h2 style="margin-top:0">My Finance · App guide</
 
 function viewSettings(){
   return `<h2 style="margin-top:4px">Settings</h2>
+  <div class="card"><div class="row"><span class="muted">App version</span><b>v${esc(APP_VERSION)}</b></div><button class="btn alt" data-releases style="margin-top:10px">Release notes</button></div>
   <div class="card"><label style="margin-top:0">Exchange rate: INR per 1 EUR</label>
   <input id="rate" inputmode="decimal" value="${S.rate}"><div class="muted" style="margin-top:6px">Used only to show totals in one currency. Each account keeps its own currency.</div></div>
   <div class="card"><b>Security</b><div class="muted">AES-256-GCM encrypted vault. New passphrases use PBKDF2-HMAC-SHA-256 with 600,000 iterations. Your passphrase is never stored.</div>
@@ -439,7 +441,8 @@ function newHoldSheet(){
     if(cb&&box) cb.addEventListener("change",()=>{box.style.display=cb.checked?"block":"none";});
   },30);
 }
-function holdSheet(id){const h=S.holdings.find(x=>x.id===id);if(!h)return;const p=holdPos(h);const pl=p.v-p.c;const pct=p.c>0?Math.round(pl/p.c*1000)/10:0;const meta=[esc(h.owner||"Me"),h.type==="stock"?"Stock":"Mutual fund",h.symbol?esc(h.symbol):"",h.exchange?esc(h.exchange):"",h.folio?"Folio "+esc(h.folio):"",h.isin?"ISIN "+esc(h.isin):"",h.demat?"Demat "+esc(h.demat):"",h.broker?esc(h.broker):"",h.amc?esc(h.amc):""].filter(Boolean).join(" · ");
+function holdSheet(id){const h=S.holdings.find(x=>x.id===id);if(!h)return;const p=holdPos(h);const pl=p.v-p.c;const pct=p.c>0?Math.round(pl/p.c*1000)/10:0;const meta=[esc(h.owner||"Me"),h.type==="stock"?"Stock":"Mutual fund",h.symbol?esc(h.symbol):"",h.exchange?esc(h.exchange):"",h.folio?"Folio "+esc(h.folio):"",h.isin?"ISIN "+esc(h.isin):"",h.demat?"Demat "+esc(h.demat):"",h.amc?esc(h.amc):""].filter(Boolean).join(" · ");
+const barW=p.c>0?Math.min(100,Math.max(2,Math.round(p.v/Math.max(p.c,p.v)*100))):0;
 openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2>
 <div class="muted">${meta}</div>
 <div class="card" style="margin-top:12px">
@@ -449,46 +452,22 @@ openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2>
 <div class="row"><span>Current price</span><b class="num">${h.price?fmt(h.price,h.cur):"not set"}</b></div>
 <div class="row"><span>Market value</span><b class="num">${fmt(p.v,h.cur)}</b></div>
 <div class="row"><span>Unrealized P/L</span><b class="num ${pl<0?"out":"in"}">${h.price?fmt(pl,h.cur)+" · "+pct+"%":"set price"}</b></div>
+<div class="bar" style="margin-top:10px"><i style="width:${barW}%"></i></div>
 </div>
 ${h.notes?`<p class="muted">${esc(h.notes)}</p>`:""}
 <form id="fp"><input type="hidden" id="hid" value="${h.id}">
 <label>Current price per unit (${h.cur})</label><input id="hp" inputmode="decimal" value="${h.price||""}">
 <button class="btn" type="submit">Update price</button></form>
 <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
-<h2 style="margin:0 0 8px;font-size:16px">Estimate future value</h2>
-<p class="muted" style="margin:0 0 8px">Simple projection from current market value. Not advice — just a calculator.</p>
+<h2 style="margin:0 0 6px;font-size:16px">Future value forecast</h2>
+<p class="muted" style="margin:0 0 10px">Projects from today’s market value with optional monthly top-ups. Illustration only — not advice.</p>
 <form id="ffv"><input type="hidden" id="fvid" value="${h.id}">
-<label>Expected annual return (%)</label><input id="fvr" inputmode="decimal" value="12">
-<label>Years</label><input id="fvy" inputmode="decimal" value="5">
-<label>Extra monthly investment (optional)</label><input id="fvs" inputmode="decimal" value="0" placeholder="0">
-<button class="btn alt" type="submit">Calculate</button></form>
-<div id="fvOut" class="card" style="display:none;margin-top:10px"></div>
+<label>Expected annual return (%)</label><input id="fvr" inputmode="decimal" value="${h.type==="fund"?"12":"10"}">
+<label>Years to project</label><input id="fvy" inputmode="decimal" value="5">
+<label>Extra monthly investment</label><input id="fvs" inputmode="decimal" value="0" placeholder="0">
+<button class="btn alt" type="submit">Show forecast</button></form>
+<div id="fvOut" style="display:none;margin-top:12px"></div>
 <button class="btn alt" data-close style="margin-top:12px">Close</button>`);}
-let pendH=null;
-const hMatch=(h,it)=>(h.isin&&it.isin&&h.isin===it.isin)||h.name.toUpperCase()===it.sym.toUpperCase();
-function holdParse(text){
-  const rows=csvRows(String(text).replace(/^\uFEFF/,"")); const h=(rows.shift()||[]).map(x=>x.trim().toLowerCase()); const ix=k=>h.findIndex(x=>x.includes(k));
-  const c={sym:ix("symbol"),isin:ix("isin"),sec:ix("sector"),qa:ix("quantity available"),qd:ix("quantity discrepant"),qm:ix("pledged (margin)"),ql:ix("pledged (loan)"),avg:ix("average price"),prev:ix("previous closing"),pl:ix("unrealized p&l")};
-  if(c.sym<0||c.qa<0||c.avg<0){ alert("Could not find the Symbol, Quantity Available and Average Price headings. Include the heading row."); return; }
-  const g=(r,k)=>c[k]<0?0:csvNum(r[c[k]]||"0"); const items=[]; let mm=0, skip=0;
-  for(const r of rows){ const sym=(r[c.sym]||"").trim(); const qty=g(r,"qa")+g(r,"qd")+g(r,"qm")+g(r,"ql"); if(!sym||qty<=0){ skip++; continue; }
-    const it={sym,isin:c.isin<0?"":(r[c.isin]||"").trim(),sec:c.sec<0?"":(r[c.sec]||"").trim(),qty,avg:g(r,"avg"),prev:g(r,"prev")||g(r,"avg")};
-    if(c.pl>=0 && Math.abs(qty*(it.prev-it.avg)-g(r,"pl"))>1) mm++; items.push(it); }
-  if(!items.length){ alert("No holdings found in that data."); return; }
-  const plan=items.map(it=>{ const H=S.holdings.find(x=>x.type==="stock"&&hMatch(x,it)); const cur=H?holdPos(H):{u:0,c:0}; const nc=Math.round(it.qty*it.avg*100)/100;
-    const du=Math.round((it.qty-cur.u)*1e6)/1e6, dc=Math.round((nc-cur.c)*100)/100; return {it,H,cur,du,dc,kind:!H?"new":(Math.abs(du)<1e-6&&Math.abs(dc)<=1)?"same":"changed"}; });
-  const missing=S.holdings.filter(x=>x.type==="stock"&&holdPos(x).u>1e-6&&!items.some(it=>hMatch(x,it)));
-  const ownerSel=($("#howner")||{}).value||"Me"; pendH={plan,missing,items,owner:ownerSel};
-  const nw=plan.filter(p=>p.kind==="new").length, sm=plan.filter(p=>p.kind==="same").length, ch=plan.filter(p=>p.kind==="changed");
-  const inv=items.reduce((a,x)=>a+x.qty*x.avg,0), val=items.reduce((a,x)=>a+x.qty*x.prev,0);
-  openSheet(`<h2 style="margin-top:0">Review portfolio file</h2><p>${items.length} stocks · invested ${fmt(inv,"INR")} · value ${fmt(val,"INR")}</p>
-  <p class="${mm?"warn":"muted"}">${mm?mm+" rows where quantity × (price − average price) does not match the file's unrealized P&L. Check the quantity columns before importing.":"Unrealized P&L matches the file on every row."}</p>
-  <div class="card"><div class="row"><span>New stocks</span><b>${nw}</b></div><div class="row"><span>Price updated only</span><b>${sm}</b></div><div class="row"><span>Quantity or cost changed</span><b>${ch.length}</b></div><div class="row"><span>In the app but not in the file</span><b class="${missing.length?"warn":""}">${missing.length}</b></div></div>
-  ${ch.length?`<div class="muted">${ch.slice(0,8).map(p=>esc(p.it.sym)+": "+p.cur.u+" → "+p.it.qty).join("<br>")}${ch.length>8?"<br>and "+(ch.length-8)+" more":""}</div>`:""}
-  ${missing.length?`<label style="display:flex;gap:10px;align-items:flex-start;color:var(--ink);margin-top:14px"><input type="checkbox" id="hmiss" checked style="width:auto;margin-top:4px"><span>Treat these as sold and set them to zero:<br><span class="muted">${missing.slice(0,8).map(x=>esc(x.name)).join(", ")}${missing.length>8?" and "+(missing.length-8)+" more":""}</span></span></label><div class="muted">No cash is recorded for these sales. Add the proceeds as income to an account if you want your balance to reflect them.</div>`:""}
-  <label>Date of this file</label><input type="date" id="hdate" value="${today()}">
-  <button class="btn" data-doholds>Apply to my data</button><button class="btn alt" data-close>Cancel</button>`);
-}
 function doHolds(){
   const P=pendH; if(!P) return; const date=($("#hdate")||{}).value||today(), killMissing=!!($("#hmiss")&&$("#hmiss").checked);
   let added=0, changed=0, price=0, sold=0;
@@ -565,21 +544,49 @@ function reportHtml(){
   return `<h2>Last 6 months (${S.display})</h2><div class="card">${rows.map(([m,t])=>`<div style="margin:8px 0"><div class="row"><b>${m}</b><span class="muted num">saved ${fmt(t.inc-t.exp,S.display)}</span></div><div class="bar"><i style="width:${Math.round(t.inc/mx*100)}%;background:var(--in)"></i></div><div class="bar"><i style="width:${Math.round(t.exp/mx*100)}%;background:var(--out)"></i></div></div>`).join("")}<div class="muted">Green is income, red is spending (refunds reduce spending).</div></div>`;
 }
 function newAcctSheet(){
+  const people=S.people.map(n=>`<option value="${esc(n)}">`).join("");
   openSheet(`<h2 style="margin-top:0">New account</h2>
   <form id="fa2" autocomplete="off">
-  <label>Account nickname</label><input id="an" placeholder="e.g. ING current" required>
-  <label>Bank / provider (optional)</label><input id="abank" placeholder="e.g. ING, HDFC, SBI">
-  <label>Branch name (optional)</label><input id="abranch" placeholder="Branch name">
-  <label>IFSC code (India, optional)</label><input id="aifsc" autocapitalize="characters" placeholder="e.g. HDFC0001234">
-  <label>Branch code (optional)</label><input id="abranchcode" placeholder="Branch code">
-  <label>Owner</label><input id="aowner" list="owners" value="Me"><datalist id="owners">${S.people.map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
-  <label>Type</label><select id="at"><option value="bank">Bank account</option><option value="cash">Cash</option><option value="card">Credit card</option></select>
-  <label>Currency</label><select id="ac"><option>EUR</option><option>INR</option></select>
+  <label>Account nickname</label><input id="an" placeholder="e.g. HDFC Salary / SBI Credit Card" required>
+  <label>Owner</label><input id="aowner" list="owners" value="Me" required><datalist id="owners">${people}</datalist>
+  <label>Type</label><select id="at">
+    <option value="bank">Bank account</option>
+    <option value="cash">Cash</option>
+    <option value="card">Credit card</option>
+  </select>
+  <label>Currency</label><select id="ac"><option>INR</option><option>EUR</option></select>
+  <div id="bankFields">
+    <label>Bank / provider</label><input id="abank" placeholder="e.g. HDFC, SBI, ICICI">
+    <label>Branch name</label><input id="abranch" placeholder="Optional">
+    <label>IFSC code</label><input id="aifsc" autocapitalize="characters" placeholder="e.g. HDFC0001234">
+    <label>Branch code</label><input id="abranchcode" placeholder="Optional">
+  </div>
+  <div id="cardFields" style="display:none">
+    <label>Card issuer / bank</label><input id="cbank" placeholder="e.g. HDFC, Axis, SBI">
+    <label>Card network</label><select id="cnetwork"><option value="">—</option><option>Visa</option><option>Mastercard</option><option>RuPay</option><option>Amex</option><option>Other</option></select>
+    <label>Card type</label><select id="ctype"><option value="">—</option><option>Credit</option><option>Charge</option><option>Corporate</option><option>Other</option></select>
+    <label>Last 4 digits only</label><input id="clast4" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off">
+    <label>Expiry (MM/YY)</label><input id="cexpiry" inputmode="numeric" placeholder="08/28" maxlength="5">
+    <label>Credit limit</label><input id="climit" inputmode="decimal" placeholder="Optional">
+    <label>Statement day (1–31)</label><input id="cstmt" inputmode="numeric" placeholder="e.g. 15">
+    <label>Payment due day (1–31)</label><input id="cdue" inputmode="numeric" placeholder="e.g. 5">
+    <label>Annual fee</label><input id="cfee" inputmode="decimal" placeholder="0">
+    <div class="muted" style="margin-top:6px">CVV and PIN are never collected or stored.</div>
+  </div>
   <label id="obl">Current balance</label><input id="ao" inputmode="decimal" placeholder="0">
   <div class="muted" id="oh" style="margin-top:6px"></div>
-  <button class="btn" type="submit">Save account</button></form>`);
-  const sync=()=>{ const c=$("#at").value==="card"; $("#obl").textContent=c?"Amount currently owed":"Current balance"; $("#oh").textContent=c?"Enter what you owe today as a positive number.":""; };
-  $("#at").onchange=sync; sync();
+  <button class="btn" type="submit">Save account</button></form>
+  <button class="btn alt" data-close>Cancel</button>`);
+  const sync=()=>{
+    const t=$("#at").value;
+    const isCard=t==="card", isCash=t==="cash";
+    const bf=$("#bankFields"), cf=$("#cardFields");
+    if(bf) bf.style.display=isCash?"none":"block";
+    if(cf) cf.style.display=isCard?"block":"none";
+    if($("#obl")) $("#obl").textContent=isCard?"Amount currently owed":"Current / opening balance";
+    if($("#oh")) $("#oh").textContent=isCard?"Enter what you owe today as a positive number. It is stored as a liability.":isCash?"Cash on hand right now.":"Balance available in this account.";
+  };
+  const at=$("#at"); if(at){ at.onchange=sync; sync(); }
 }
 
 function txnSheet(id){
@@ -601,11 +608,12 @@ function acctSheet(id){
   <form id="fcard"><input type="hidden" id="cid" value="${a.id}">
   ${a.type==="bank"?`<b>Bank account details</b><label>Bank / provider</label><input id="abankEdit" value="${esc(a.bank||"")}"><label>Branch name</label><input id="abranchEdit" value="${esc(a.branch||"")}"><label>IFSC code</label><input id="aifscEdit" autocapitalize="characters" value="${esc(a.ifsc||"")}"><label>Branch code</label><input id="abranchcodeEdit" value="${esc(a.branchCode||"")}">`:""}
   <b>${a.type==="card"?"Credit card details":"Linked debit card details (optional)"}</b>
-  <label>Card number (only last four digits are saved)</label><input id="cardnumber" inputmode="numeric" autocomplete="off" maxlength="23" placeholder="Enter card number to update last four digits">
-  <label>Saved last 4 digits</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc((a.cardMeta||{}).last4||"")}">
-  <label>Network</label><input id="network" value="${esc((a.cardMeta||{}).network||"")}" placeholder="Visa / Mastercard">
-  <label>Expiry (MM/YY)</label><input id="expiry" inputmode="numeric" value="${esc((a.cardMeta||{}).expiry||"")}" placeholder="MM/YY">
-  <div class="muted">For safety, CVV/CVC is never collected or stored. Do not enter your PIN or full card details into notes.</div>
+  ${a.type==="card"?`<label>Card issuer / bank</label><input id="abankEdit" value="${esc(a.bank||"")}">`:""}
+  <label>Last 4 digits</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc((a.cardMeta||{}).last4||"")}" placeholder="1234" autocomplete="off">
+  <label>Network</label><select id="network"><option value="">—</option>${["Visa","Mastercard","RuPay","Amex","Other"].map(n=>`<option ${((a.cardMeta||{}).network||"")===n?"selected":""}>${n}</option>`).join("")}</select>
+  <label>Card type</label><select id="cardType"><option value="">—</option>${["Credit","Charge","Corporate","Other"].map(n=>`<option ${((a.cardMeta||{}).cardType||"")===n?"selected":""}>${n}</option>`).join("")}</select>
+  <label>Expiry (MM/YY)</label><input id="expiry" inputmode="numeric" value="${esc((a.cardMeta||{}).expiry||"")}" placeholder="08/28" maxlength="5">
+  <div class="muted">CVV/CVC and PIN are never collected or stored.</div>
   <label>Annual fee</label><input id="annualFee" inputmode="decimal" value="${(a.cardMeta||{}).annualFee||""}">
   ${a.type==="card"?`<label>Credit limit</label><input id="cl" inputmode="decimal" value="${a.limit||""}"><label>Statement day of month</label><input id="cs" inputmode="numeric" value="${a.stmtDay||""}"><label>Payment due day of month</label><input id="cd" inputmode="numeric" value="${a.dueDay||""}">`:""}
   <button class="btn alt" type="submit">Save card details</button></form>
@@ -709,9 +717,9 @@ document.addEventListener("click", async e=>{
 <button class="btn alt" data-close>Cancel</button>`);return;}
   if("newacct" in d){ newAcctSheet(); return; }
   if("newbank" in d){ openSheet(`<h2 style="margin-top:0">Friend / recipient bank account</h2><form id="fbank"><label>Person / recipient name</label><input id="bp" required placeholder="e.g. Rahul Sharma"><label>Account holder name</label><input id="bh" required><label>Bank name</label><input id="bb" required><label>Account number / IBAN</label><input id="ba" required autocomplete="off"><label>IFSC code (India)</label><input id="bi" autocapitalize="characters"><label>Branch name</label><input id="br"><label>Branch code</label><input id="bc"><label>Currency</label><select id="bcur"><option>INR</option><option>EUR</option></select><label>Nickname (optional)</label><input id="bn"><div class="security-note">These details are stored inside your encrypted vault. The account number is masked in lists, but is present in encrypted backup data.</div><button class="btn" type="submit">Save recipient account</button></form>`);return; }
-  if(d.releases){
+  if("releases" in d){
     openSheet(`<h2 style="margin-top:0">Release notes</h2>
-    <div class="muted" style="margin-bottom:10px">Current version <b>${esc(APP_VERSION)}</b></div>
+    <div class="muted" style="margin-bottom:10px">Current version <b>v${esc(APP_VERSION)}</b></div>
     ${RELEASES.map(r=>`<div class="card"><div class="row"><b>v${esc(r.v)}</b><span class="muted">${esc(r.d)}</span></div><div class="muted" style="margin-top:6px">${esc(r.notes)}</div></div>`).join("")}
     <button class="btn alt" data-close>Close</button>`);
     return;
@@ -923,19 +931,48 @@ document.addEventListener("submit", e=>{
   if(e.target.id==="ffv"){
     const h=S.holdings.find(x=>x.id===$("#fvid").value); if(!h)return;
     const p=holdPos(h), R=parseAmt($("#fvr").value), Y=parseAmt($("#fvy").value), Smt=parseAmt($("#fvs").value||"0");
-    if(Y<=0){alert("Enter years greater than zero.");return;}
-    const r=R/100/12, n=Math.round(Y*12), V=p.v;
-    let fv=V;
-    if(Math.abs(r)<1e-12) fv=V+Smt*n;
-    else fv=V*Math.pow(1+r,n)+Smt*(Math.pow(1+r,n)-1)/r;
-    fv=Math.round(fv*100)/100;
-    const gain=fv-V-Smt*n;
+    if(!(Y>0) || Y>50){alert("Enter years between 1 and 50.");return;}
+    if(R<-50||R>50){alert("Enter a realistic annual return between -50% and 50%.");return;}
+    const r=R/100/12, n=Math.round(Y*12), V0=p.v;
+    const yearRows=[];
+    let v=V0, contrib=0;
+    for(let y=1;y<=Math.round(Y);y++){
+      for(let m=0;m<12;m++){
+        if(Math.abs(r)<1e-12){ v=v+Smt; }
+        else { v=v*(1+r)+Smt; }
+        contrib+=Smt;
+      }
+      yearRows.push({y, v:Math.round(v*100)/100, contrib:Math.round(contrib*100)/100, gain:Math.round((v-V0-contrib)*100)/100});
+    }
+    const fv=yearRows[yearRows.length-1].v;
+    const totalExtra=yearRows[yearRows.length-1].contrib;
+    const gain=yearRows[yearRows.length-1].gain;
+    const maxV=Math.max(V0, ...yearRows.map(x=>x.v), 1);
+    const bars=yearRows.map(x=>{
+      const hgt=Math.max(4, Math.round(x.v/maxV*90));
+      return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+        <div class="muted" style="font-size:10px">${fmt(x.v,h.cur).replace(/[^0-9.,]/g,"").slice(0,6)}</div>
+        <div style="width:100%;max-width:28px;height:90px;display:flex;align-items:flex-end"><div style="width:100%;height:${hgt}px;background:var(--accent);border-radius:6px 6px 2px 2px"></div></div>
+        <div class="muted" style="font-size:11px">Y${x.y}</div>
+      </div>`;
+    }).join("");
     const out=$("#fvOut");
-    if(out){ out.style.display="block"; out.innerHTML=`<div class="row"><span>Starting value</span><b class="num">${fmt(V,h.cur)}</b></div>
-    <div class="row"><span>Extra invested</span><b class="num">${fmt(Smt*n,h.cur)}</b></div>
-    <div class="row"><span>Projected value</span><b class="num in">${fmt(fv,h.cur)}</b></div>
-    <div class="row"><span>Projected gain</span><b class="num ${gain<0?"out":"in"}">${fmt(gain,h.cur)}</b></div>
-    <div class="muted" style="margin-top:8px">${Y} years · ${R}% p.a. · monthly compounding. Illustration only.</div>`; }
+    if(out){
+      out.style.display="block";
+      out.innerHTML=`<div class="card">
+        <div class="row"><span>Starting value</span><b class="num">${fmt(V0,h.cur)}</b></div>
+        <div class="row"><span>Extra invested</span><b class="num">${fmt(totalExtra,h.cur)}</b></div>
+        <div class="row"><span>Projected value</span><b class="num in">${fmt(fv,h.cur)}</b></div>
+        <div class="row"><span>Projected gain</span><b class="num ${gain<0?"out":"in"}">${fmt(gain,h.cur)}</b></div>
+        <div class="muted" style="margin-top:8px">${Math.round(Y)} years · ${R}% p.a. · monthly compounding</div>
+      </div>
+      <h2 style="font-size:15px;margin:14px 0 8px">Year-by-year</h2>
+      <div class="card" style="overflow-x:auto">
+        <div style="display:flex;gap:6px;min-width:${Math.max(240, yearRows.length*40)}px;align-items:flex-end;padding-top:8px">${bars}</div>
+      </div>
+      <div class="card" style="margin-top:10px">${yearRows.map(x=>`<div class="row"><span>Year ${x.y}</span><b class="num">${fmt(x.v,h.cur)}</b></div>`).join("")}</div>
+      <div class="muted" style="margin-top:8px">This is a simple mathematical illustration. Markets do not return a fixed rate every year.</div>`;
+    }
     return;
   }
   if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today()}); save(); closeSheet(); render(); }
@@ -944,13 +981,27 @@ document.addEventListener("submit", e=>{
   if(e.target.id==="fpay"){ const p=S.policies.find(v=>v.id===$("#pid").value), a=acct($("#pacc").value); if(!p||!a) return; if(a.cur!==p.cur){ alert("Pay from an account in "+p.cur+"."); return; } addTxn({type:"expense",date:today(),cat:"Insurance premium",note:p.name,postings:[{acct:a.id,amt:-p.premium,cur:a.cur}]}); p.next=addM(p.next,p.freq); save(); closeSheet(); render(); toast("Premium recorded"); }
   if(e.target.id==="fpur"){ const it=$("#un").value.trim(), am=parseAmt($("#ua").value), a=acct($("#uc").value), w=Math.round(parseAmt($("#uw").value)), dt=$("#ud").value||today(); if(!it||am<=0||!a) return; addTxn({type:"expense",date:dt,cat:"Shopping",note:it,postings:[{acct:a.id,amt:-am,cur:a.cur}]}); S.purchases.push({id:uid(),item:it,date:dt,amt:am,cur:a.cur,expiry:w>0?addM(dt,w):null}); save(); closeSheet(); render(); }
   if(e.target.id==="fbank"){const number=$("#ba").value.trim().replace(/\s/g,"");const person=$("#bp").value.trim(),holder=$("#bh").value.trim(),bank=$("#bb").value.trim();if(!number||!person||!holder||!bank)return;const b={id:uid(),person,holder,bank,accountNumber:number,accountMasked:number.length>8?"••••"+number.slice(-4):"••••"+number.slice(-4),ifsc:$("#bi").value.trim().toUpperCase(),branch:$("#br").value.trim(),branchCode:$("#bc").value.trim(),cur:$("#bcur").value,nickname:$("#bn").value.trim()};S.bankContacts.push(b);if(!S.people.includes(person))S.people.push(person);log("recipient-bank",b.id);save();closeSheet();render();toast("Recipient account saved");return;}
-  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const entered=($("#cardnumber")?.value||"").replace(/\D/g,""); const last4=entered?entered.slice(-4):($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expiry=($("#expiry")?.value||"").trim(); if(expiry&&!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){alert("Enter expiry as MM/YY.");return;} a.cardMeta={last4,network:($("#network")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";} if(a.type==="card"){a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value);} log("account-details",a.id);save(); } closeSheet(); render(); }
+  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const last4=($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expiry=($("#expiry")?.value||"").trim(); if(expiry&&!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){alert("Enter expiry as MM/YY.");return;} a.cardMeta={last4,network:($("#network")?.value||"").trim(),cardType:($("#cardType")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";} if(a.type==="card"){ if($("#abankEdit")) a.bank=($("#abankEdit").value||"").trim()||a.bank||""; a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value);} log("account-details",a.id);save(); } closeSheet(); render(); toast("Account details saved"); }
   if(e.target.id==="fa2"){
     const name=$("#an").value.trim(); if(!name) return;
     let o=parseAmt($("#ao").value); const type=$("#at").value;
-    if(type==="card") o=-o;
-    const a={id:uid(),name,bank:$("#abank").value.trim(),branch:$("#abranch").value.trim(),ifsc:$("#aifsc").value.trim().toUpperCase(),branchCode:$("#abranchcode").value.trim(),owner:($("#aowner").value.trim()||"Me"),type,cur:$("#ac").value,opening:o,archived:false};
-    S.accounts.push(a); if(!S.people.includes(a.owner))S.people.push(a.owner); log("account",a.id); save(); closeSheet(); render();
+    if(type==="card") o=-Math.abs(o);
+    const a={id:uid(),name,
+      bank:(type==="card"?($("#cbank")?.value||""):($("#abank")?.value||"")).trim(),
+      branch:($("#abranch")?.value||"").trim(),
+      ifsc:($("#aifsc")?.value||"").trim().toUpperCase(),
+      branchCode:($("#abranchcode")?.value||"").trim(),
+      owner:($("#aowner").value.trim()||"Me"),type,cur:$("#ac").value,opening:o,archived:false};
+    if(type==="card"){
+      const last4=(($("#clast4")?.value)||"").replace(/\D/g,"").slice(-4);
+      const expiry=(($("#cexpiry")?.value)||"").trim();
+      if(expiry && !/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){ alert("Enter expiry as MM/YY."); return; }
+      a.cardMeta={last4, network:($("#cnetwork")?.value||"").trim(), cardType:($("#ctype")?.value||"").trim(), expiry, annualFee:parseAmt($("#cfee")?.value||"0")};
+      a.limit=parseAmt($("#climit")?.value||"0");
+      const day=v=>{const n=Math.round(parseAmt(v||"0")); return n>=1&&n<=31?n:0;};
+      a.stmtDay=day($("#cstmt")?.value); a.dueDay=day($("#cdue")?.value);
+    }
+    S.accounts.push(a); if(!S.people.includes(a.owner))S.people.push(a.owner); log("account",a.id); save(); closeSheet(); render(); toast(type==="card"?"Credit card added":"Account added");
   }
 });
 
@@ -959,7 +1010,17 @@ function boot(){
   try{ const d=JSON.parse(store.get()); if(d&&d.enc) env=d; else if(d&&d.v===1) legacy=d; }catch(e){}
   BIO=env?.bio||null;KDF_ITER=env?.iterations||250000;
   $("#nav").innerHTML="";$("#layer").innerHTML="";
-  $("#app").innerHTML=`<div style="padding-top:42px"><div class="big" style="font-size:28px">My Finance</div><p class="muted">${env?"Your encrypted finance vault is locked.":"Create a strong passphrase. It encrypts your data on this phone and in backup files."}</p><form id="pf"><input id="pp" type="password" autocomplete="current-password" placeholder="Passphrase" required>${env?"":`<input id="pp2" type="password" autocomplete="new-password" placeholder="Repeat passphrase" style="margin-top:8px">`}<div id="pe" class="out" style="margin-top:8px"></div><button class="btn" type="submit">${env?"Unlock with passphrase":"Create secure vault"}</button></form>${env?.bio?`<button class="btn alt" data-bio-unlock>Use fingerprint / device passkey</button>`:""}<div class="security-note" style="margin-top:18px">Encryption: AES-256-GCM. Passphrase key derivation: PBKDF2-HMAC-SHA-256. Never share your passphrase. If you lose it and have no working biometric unlock, encrypted data cannot be recovered.</div></div>`;
+  $("#app").innerHTML=`<div style="padding-top:42px">
+  <div class="row" style="align-items:center;margin-bottom:4px">
+    <div class="big" style="font-size:28px">My Finance</div>
+    <span class="chip" style="padding:4px 10px;font-size:12px">v${esc(APP_VERSION)}</span>
+  </div>
+  <p class="muted">${env?"Your encrypted finance vault is locked.":"Create a strong passphrase. It encrypts your data on this phone and in backup files."}</p>
+  <form id="pf"><input id="pp" type="password" autocomplete="current-password" placeholder="Passphrase" required>${env?"":`<input id="pp2" type="password" autocomplete="new-password" placeholder="Repeat passphrase" style="margin-top:8px">`}<div id="pe" class="out" style="margin-top:8px"></div><button class="btn" type="submit">${env?"Unlock with passphrase":"Create secure vault"}</button></form>
+  ${env?.bio?`<button class="btn alt" data-bio-unlock>Use fingerprint / device passkey</button>`:""}
+  <button class="btn alt" data-releases style="margin-top:10px">Release notes · v${esc(APP_VERSION)}</button>
+  <div class="security-note" style="margin-top:18px">Encryption: AES-256-GCM. Passphrase key derivation: PBKDF2-HMAC-SHA-256. Never share your passphrase. If you lose it and have no working biometric unlock, encrypted data cannot be recovered.</div>
+  </div>`;
   $("#pf").onsubmit=async e=>{
     e.preventDefault();const p=$("#pp").value,er=m=>{$("#pe").textContent=m;};
     try{
