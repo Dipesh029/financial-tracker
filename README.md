@@ -1,85 +1,117 @@
-# My Finance — Android PWA (Priority-1 update)
+# My Finance
 
-Local-first, encrypted family finance Progressive Web App. Continues the existing application; does **not** replace the vault or accounting data model.
+Local-first, encrypted family finance **Progressive Web App** (PWA).  
+Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-## What this package changes
+**Current version:** 1.5.0
 
-### Added in v1.1.0 (this package)
-- Version badge on Home with **Release notes** sheet (tracks each update).
-- **Investments** summary on Home: count, cost, current value, unrealized P/L %.
-- **Portfolio growth** chart from stock import snapshots (value vs invested).
-- Mutual fund / stock detail: returns %, **Estimate future value** calculator (current value + optional monthly SIP, expected return, years).
-- Balance adjustments labeled clearly in Activity.
-- Holdings list shows owner and return %.
+---
 
+## What it is
 
-### Priority-1 fixes implemented
-- **Set current balance** on every account (opens the existing reconcile flow with clearer wording). Enter the real balance from your bank/statement; the difference is posted as one adjustment transaction so history stays consistent.
-- **Copy** button on friend/recipient bank accounts. Copies a ready-to-paste block: name, account holder, bank, full account number, IFSC, branch, currency.
+- **Private:** AES-256-GCM vault; passphrase never stored. Optional fingerprint unlock (WebAuthn PRF where supported).
+- **Offline-first:** No server, no cloud sync, no bank feeds.
+- **Family-aware:** Owners (Me, Father, Mother, …) on accounts and holdings; Home filter by person.
+- **Installable:** Standard PWA (`manifest` + service worker).
 
-- **New holding form expanded**
-  - Stock fields: symbol/ticker, exchange (NSE / BSE / Other), demat/broker reference.
-  - Mutual-fund fields: AMC/platform, folio, ISIN.
-  - Owner required (Self / Father / Mother / other people already in the vault).
-  - Notes field.
-- **Explicit historical / existing holding path**
-  - Checkbox “This is an existing / historical holding”.
-  - Enter purchase/acquisition date, units/shares already owned, and total invested amount (cost basis).
-  - Optional current market price.
-  - Creates an `open` transaction with **empty postings** — no bank account is debited.
-  - Correctly reflected in net worth and investment value.
-- **Stock CSV import**
-  - Owner selector before import.
-  - New holdings receive the selected owner.
-  - Existing matching logic (symbol / ISIN), preview, quantity/cost adjust, optional “treat missing as sold” preserved.
-- **Holding detail sheet**
-  - Shows owner, type, symbol, exchange, folio, ISIN, demat, AMC.
-  - Units, average cost, total cost basis, current price, market value, unrealized P/L.
-- **Schema migration**
-  - New optional fields (`symbol`, `exchange`, `demat`, `broker`, `amc`, `notes`) default to empty strings on existing holdings.
-  - Vault version remains compatible; no data wipe.
+Vault storage key: `myfinance.v1` (do not change origin or this key when updating).
 
-### Preserved (unchanged)
-- AES-256-GCM + PBKDF2-HMAC-SHA-256 vault encryption.
-- Optional WebAuthn PRF biometric unlock.
-- All existing transaction types and postings model.
-- Account balances, transfers, income, expenses, refunds.
-- Lending / borrowing with simple interest.
-- SIP reminders (still confirmation-based).
-- Encrypted backup export/restore + Backup Location (File System Access API).
-- Storage key `myfinance.v1`, origin, and PWA identity.
-- Manual EUR/INR rate and per-transaction `fxRate`.
+---
 
-## Accounting notes (documented behaviour)
-- **Average-cost method** for holdings: buys / opens increase units and cost; sells reduce units and cost proportionally.
-- Historical / imported opening positions use type `open` (or `adjust` on portfolio sync) with empty `postings` so bank balances are not touched.
-- A normal buy from the Invest sheet still debits the chosen account.
-- Transfers move value between own accounts only; they never create income or expense.
-- Lending principal is not an expense; interest received is income; interest paid is expense.
-- Credit-card purchases increase liability (negative balance); bill payment reduces bank balance and liability without double-counting the expense.
+## Features
 
-## Remaining limitations (not in this Priority-1 drop)
-- Full Excel workbook import workflow.
-- SIP actual-payment / missed-payment ledger (reminders only).
-- Folio-wise deep transaction history and switch-in/out / dividend types.
-- Multiple tax lots / FIFO cost basis.
-- Full transaction field editing with automatic reverse accounting.
-- Account statement reconciliation.
-- Live market prices (manual price entry only).
-- Advanced owner-wise investment reports beyond the existing Home filter and Money tab.
+### Money
+- Bank, cash, and **credit card** accounts (limit, statement/due days, last-4, network, expiry).
+- Bank details: account number/IBAN, IFSC, branch; **copy** for own accounts and for saved recipients.
+- Optional **linked debit card** on a bank account (not a separate balance).
+- Income, expense, transfer, refund; **set current balance** (adjustment posting).
+- Friends’ / recipients’ bank details for transfer notes.
 
-## Safe update on the existing hosted origin
-1. From the installed app, create and verify an encrypted backup first.
-2. Upload `index.html`, `manifest.webmanifest`, `sw.js`, and `icon.svg` together to the **same HTTPS origin and path**. Do not change the origin, scope, or storage keys.
-3. Open the exact hosted URL, reload, then fully close and reopen the installed PWA.
-4. Unlock with the current passphrase. Confirm accounts, holdings, and transactions are still present. If anything looks missing, stop and restore the verified backup; do not erase site data.
-5. Optional: open Settings → Backup Location and re-select the folder if the browser asks for permission again.
-6. Test: create a historical stock holding and a historical mutual-fund holding; run a stock CSV import with an owner selected.
+### Investments
+- Stocks and mutual funds (owner, folio/ISIN/symbol, cost, units, manual price).
+- Historical opening positions (no bank debit).
+- Stock CSV import with owner.
+- Returns, portfolio summary, growth from import snapshots.
+- Per-holding **future value** estimate (rate, years, optional monthly top-up).
 
-## Verification boundaries
-- Basic HTML/JS structure and ZIP integrity checked.
-- This is **not** a live Android-device test, a full browser API simulation against a real pre-existing vault, or an independent security audit.
-- Folder permission revocation, WebAuthn PRF, offline launch, and backup restore require testing on the target Android device/browser.
+### Recurring
+- **SIPs:** debit account + fund; **auto-posted on unlock** when due (units from price if set). Can mark missed or stop.
+- **Salaries:** member + account + amount + schedule; **auto-credited on unlock** when due.
+- Toggles under **More → Automatic postings**.
+- Insurance premiums and purchase warranty reminders on **Due soon**.
 
-## Cache version
-Service worker shell cache: `myfinance-shell-v8`.
+### Other
+- Lending / borrowing with simple interest estimates.
+- Encrypted `.enc` backup (download or device folder where the browser allows).
+- EUR/INR display rate (manual); release notes from the small version control on unlock/Home.
+
+---
+
+## Files
+
+| File | Role |
+|------|------|
+| `index.html` | App (UI + logic + encryption) |
+| `sw.js` | Service worker (network-first HTML so updates show) |
+| `manifest.webmanifest` | PWA install metadata |
+| `icon.svg` | App icon |
+| `FUNCTIONAL_AUDIT.md` | Technical notes / known limits |
+
+---
+
+## Deploy / update (same origin)
+
+1. **Backup** from the app (Settings → Save backup file) and verify you can keep the file safe.
+2. Upload **all** of: `index.html`, `sw.js`, `manifest.webmanifest`, `icon.svg` to the **same HTTPS path** as before.
+3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
+4. Fully close and reopen the installed PWA.
+5. Confirm the unlock screen shows the expected version (e.g. **v1.5.0**).
+6. Unlock with your existing passphrase.
+
+If the UI looks old, the service worker is still serving a cached shell — clear cache and reopen once more.
+
+---
+
+## Accounting behaviour (short)
+
+- Balances come from **postings** on posted transactions (plus opening balance).
+- **Transfers** move value between your accounts only; not income/expense.
+- **Credit cards** are liabilities (negative balance). Paying the card reduces bank and liability.
+- Holdings use **average cost**; historical `open` positions have empty postings (no bank debit).
+- Auto SIP posts a `buy` + bank debit; auto salary posts `income` into the chosen account.
+- Auto runs **when you unlock**, not in the background while the app is closed.
+
+---
+
+## Security notes
+
+- Use a strong, unique passphrase (12+ characters recommended).
+- Prefer HTTPS and the installed PWA.
+- CVV/PIN are never collected.
+- Account numbers and backups live only in the encrypted vault / your `.enc` files.
+- This project is not an independently audited banking product.
+
+---
+
+## Known limitations
+
+- No live market prices or bank APIs.
+- No multi-device sync (use encrypted backup to move data).
+- SIP units on auto-post need a **fund price**; otherwise cost is stored with 0 units until you set a price.
+- Folder backup needs a browser with the File System Access API; otherwise use download.
+- No Excel workbook importer, FIFO lots, or full dividend/switch transaction types yet.
+
+---
+
+## Version highlights
+
+| Version | Notes |
+|---------|--------|
+| **1.5.0** | Auto SIP debit + salary schedules on unlock |
+| 1.4.x | Account numbers, debit card meta, folder backup fix, unlock/crypto fixes, UI polish |
+| 1.3.0 | SIP paid/missed ledger, stronger Due soon |
+| 1.2.x | Credit-card fields, projections, release notes |
+| 1.1.x | Historical holdings, set balance, copy recipients |
+| 1.0.0 | Core encrypted vault, accounts, transfers, stocks/MF |
+
+Tap the small **v…** control on unlock or Home for in-app release notes.

@@ -1,97 +1,62 @@
-# My Finance — Functional Audit & Priority-1 Delivery Notes
+# Functional audit — My Finance PWA
 
-Date: 2026-11-15  
-Package: myfinance-updated (Priority-1)
+Last reviewed against app version **1.5.0**.
 
-## 1. Fully implemented and working (pre-existing + preserved)
-- Local AES-256-GCM vault (PBKDF2-HMAC-SHA-256, optional WebAuthn PRF).
-- Encrypted backup export/restore + Backup Location (directory picker).
-- Accounts (bank, cash, credit card) with owner and bank details.
-- Income, expense, transfer (linked postings), refund.
-- Balance from opening + postings.
-- Family net-worth and owner filter on Home.
-- Holdings model, buy/sell, average-cost `holdPos`.
-- Stock broker CSV import (preview + apply).
-- SIP reminders.
-- Informal lending/borrowing with simple interest.
-- Recipient bank contacts.
-- INR/EUR with stored per-transaction FX rate.
-- PWA shell and offline shell cache.
+## Architecture
 
-## 2. Partially implemented (improved in this drop)
-- New holding creation → now includes symbol, exchange, demat, AMC, notes, and historical path.
-- Historical positions → one-step form that creates `open` with no bank debit.
-- Stock CSV import → owner selection and assignment to new holdings.
-- Holding detail view → richer metrics and metadata.
+- Single-page PWA: `index.html` (HTML/CSS/JS), `sw.js`, `manifest.webmanifest`.
+- Vault: `localStorage` key `myfinance.v1`, payload `{ enc, salt, iterations, iv, data, bio? }`.
+- Crypto: PBKDF2-HMAC-SHA-256 → AES-256-GCM. Optional WebAuthn PRF biometric key wrap.
+- Service worker: **network-first** for HTML navigation so deploys are visible; shell assets cache-first.
+- Optional backup folder handle in IndexedDB (`myfinance.backup-destination`).
 
-## 3. Missing (intentionally deferred; Priority 2–4)
-- Excel workbook import with sheet/column mapping.
-- SIP paid / missed ledger.
-- Folio-wise deep reports, switch, dividend.
-- Full transaction edit with reverse accounting.
-- Account reconciliation.
-- Live prices / FIFO lots.
-- Advanced analytics beyond existing dashboard.
+## Data model (high level)
 
-## 4. Incorrect calculations / integrity notes
-- Average-cost method is consistent and now documented.
-- Historical and import `open`/`adjust` correctly leave bank balances untouched.
-- Owner on imported stocks previously defaulted incorrectly; fixed.
-- No double-counting of transfers or investment cost observed in the postings model.
+| Collection | Purpose |
+|------------|---------|
+| `accounts` | Bank / cash / card; opening; optional `accountNumber`, `cardMeta`, limits |
+| `txns` | Postings-based ledger (`posted` / `voided`) |
+| `holdings` | Stock / fund positions; price manual |
+| `sips` | Recurring invest; `history[]`; auto on unlock if `autoSip` |
+| `salaries` | Recurring income; `history[]`; auto on unlock if `autoSalary` |
+| `lending` | Friends & family principal + simple interest estimate |
+| `bankContacts` | Recipient bank reference details |
+| `people` | Owner / member names |
+| `history` | Net-worth snapshots |
+| `policies` / `purchases` | Premium / warranty due dates |
 
-## 5. Broken / incomplete UI actions addressed
-- Missing fields on new holding form → added.
-- Stock import without owner → owner selector added.
-- Historical entry was multi-step and easy to misuse → single form with explicit checkbox.
+Balances are **derived** from opening + posted postings (not stored as a separate running total).
 
-## 6. Security
-- Architecture unchanged and preserved.
-- No CVV/PIN storage; only last-4 for cards.
-- Backup folder handle stored outside the finance vault.
-- Sensitive data remains encrypted locally.
+## Verified behaviours
 
-## 7. Implemented features in this package
-1. Expanded new-holding form (stock + fund fields).
-2. Historical holding entry (units + cost + date, no bank debit).
-3. Owner selection on stock CSV import.
-4. Owner assignment on newly imported stocks.
-5. Richer holding detail sheet (units, average cost, unrealized P/L).
-6. Migration defaults for new optional fields.
-7. Service worker cache bumped to `myfinance-shell-v6`.
-8. Updated README with accounting notes and safe-update steps.
+- Unlock / create vault; migrate defaults; save re-seals.
+- Set current balance → adjustment transaction.
+- Transfer, income, expense, refund; void/restore.
+- Credit card liability and limit bar; bank account number + copy.
+- Linked debit card metadata on bank accounts; expiry on Due soon.
+- Holdings open/historical, buy/sell, CSV stock import with owner.
+- SIP confirm paid/missed; **auto SIP** when `next ≤ today` on unlock.
+- **Salary schedules** + auto credit on unlock.
+- Folder backup write via `directory.getFileHandle` + file `createWritable`.
+- Release notes via `"releases" in d` (empty `data-releases` attribute).
 
-## 8. Fixed bugs
-- Stock import created holdings without an owner.
-- No clear path to record pre-app investments without affecting today’s cash.
-- Holding form lacked required stock/MF identity fields.
+## Intentionally not automated
 
-## 9. Remaining limitations
-See README “Remaining limitations”.
+- No background jobs while the app is closed.
+- No live NAV/price feeds or bank aggregation.
+- Auto SIP units require a holding price for a non-zero unit count.
 
-## 10. Test results (automated / static)
-- HTML/JS structure loads; key markers present after edit.
-- Migration line sets defaults for new fields.
-- Historical path emits `open` with empty postings.
-- Import path stores selected owner on new holdings.
-- **Not tested on a physical Android device or against a real pre-existing encrypted vault in this environment.**
+## Residual gaps (product backlog)
 
-## 11. Database / schema migration details
-- Vault version remains `v:2`.
-- New optional holding fields: `symbol`, `exchange`, `demat`, `broker`, `amc`, `notes`.
-- `migrate()` sets empty-string defaults; existing records stay valid.
-- No change to storage key `myfinance.v1` or encryption envelope format.
+- Excel workbook import.
+- Dividend / switch-in / switch-out transaction types.
+- FIFO / tax lots (currently average cost only).
+- Deep folio reports and multi-statement reconciliation history UI.
+- Cross-device sync (encrypted file exchange only).
 
-## 12. Safe update instructions
-See README section “Safe update on the existing hosted origin”.
+## Safe change rules
 
-
-## Additional updates (same package)
-- **Set current balance** button on account detail sheet (clearer label + wording for the existing adjustment flow).
-- **Copy** on recipient bank contacts — copies full account number, IFSC, holder, bank, branch into the clipboard for pasting into UPI / NEFT forms or messages.
-
-
-### v1.1.0 extras
-- Home version badge + release notes.
-- Investment summary + portfolio growth chart.
-- Holding future-value projection calculator.
-- Clearer adjustment labels in activity.
+1. Never change `KEY` (`myfinance.v1`) or hosted origin without a migration plan.
+2. Prefer additive fields + `migrate()` defaults.
+3. Bump `APP_VERSION`, `RELEASES[]`, and service worker `CACHE` name together on each ship.
+4. Always recommend an encrypted backup before deploy.
