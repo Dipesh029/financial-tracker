@@ -125,8 +125,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.4.1";
 const RELEASES = [
+  {v:"1.4.1", d:"2026-11-15", notes:"Bank account number / IBAN on own and family accounts (add, edit, masked display, copy)."},
   {v:"1.4.0", d:"2026-11-15", notes:"UI polish: motion, clearer hierarchy, amount quick-chips, card limit bars, debounced search, stronger empty and overdue states."},
   {v:"1.3.0", d:"2026-11-15", notes:"SIP paid/missed ledger with history; stronger due-soon strip (SIPs, card bills, premiums); release notes robust on unlock."},
   {v:"1.2.1", d:"2026-11-15", notes:"Compact version control on unlock and home (corner, small). Tap v… for release notes."},
@@ -166,7 +167,7 @@ function save(){ if(!CK||!S) return; chain=chain.then(async()=>store.set(await s
 function migrate(){
   for(const k of ["accounts","holdings","sips","policies","purchases","snaps","history","lending","bankContacts","people","txns","audit"]) S[k]=S[k]||[];
   S.v=2;
-  for(const a of S.accounts){a.owner=a.owner||"Me";a.bank=a.bank||"";a.ifsc=a.ifsc||"";a.branchCode=a.branchCode||"";a.branch=a.branch||"";}
+  for(const a of S.accounts){a.owner=a.owner||"Me";a.bank=a.bank||"";a.ifsc=a.ifsc||"";a.branchCode=a.branchCode||"";a.branch=a.branch||"";a.accountNumber=a.accountNumber||"";a.accountMasked=a.accountMasked||"";}
   if(!Array.isArray(S.people)||!S.people.length)S.people=["Me","Father","Mother"];
   for(const h of S.holdings){h.owner=h.owner||"Me";h.folio=h.folio||"";h.isin=h.isin||"";h.symbol=h.symbol||"";h.exchange=h.exchange||"";h.demat=h.demat||"";h.broker=h.broker||"";h.amc=h.amc||"";h.notes=h.notes||"";}
   for(const t of S.txns){if(t.fxRate==null)t.fxRate=S.rate||104.16;if(!t.owner&&t.postings?.[0])t.owner=(S.accounts.find(a=>a.id===t.postings[0].acct)||{}).owner||"Me";}
@@ -347,7 +348,7 @@ function viewAccounts(){
   ${S.accounts.filter(a=>!a.archived).map(a=>{ const b=balance(a);
     const used=a.type==="card"&&a.limit?Math.min(100,Math.round(Math.max(0,-b)/a.limit*100)):0;
     const barCls=used>=90?"out":used>=70?"warn":"";
-    return `<div class="card tap" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · ${a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank"}${a.bank?" · "+esc(a.bank):""}${a.cardMeta?.last4?" · •••• "+esc(a.cardMeta.last4):""} · ${a.cur}</div></div>
+    return `<div class="card tap" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · ${a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank"}${a.bank?" · "+esc(a.bank):""}${a.accountMasked?" · "+esc(a.accountMasked):""}${a.cardMeta?.last4?" · •••• "+esc(a.cardMeta.last4):""} · ${a.cur}</div></div>
     <div style="text-align:right"><b class="num ${b<0?"out":""}">${fmt(b,a.cur)}</b>${a.type==="card"&&b<0?`<div class="muted">outstanding</div>`:""}</div></div>
     ${a.type==="card"&&a.limit?`<div class="bar ${barCls}"><i style="width:${used}%"></i></div><div class="limit-meta"><span>Limit ${fmt(a.limit,a.cur)}</span><span>${used}% used</span></div>`:""}
     </div>`; }).join("")}
@@ -628,9 +629,11 @@ function newAcctSheet(){
   <label>Currency</label><select id="ac"><option>INR</option><option>EUR</option></select>
   <div id="bankFields">
     <label>Bank / provider</label><input id="abank" placeholder="e.g. HDFC, SBI, ICICI">
+    <label>Account number / IBAN</label><input id="aacctno" inputmode="numeric" autocomplete="off" placeholder="Full account number">
     <label>Branch name</label><input id="abranch" placeholder="Optional">
     <label>IFSC code</label><input id="aifsc" autocapitalize="characters" placeholder="e.g. HDFC0001234">
     <label>Branch code</label><input id="abranchcode" placeholder="Optional">
+    <div class="muted" style="margin-top:6px">Account number is stored only in your encrypted vault. Lists show a masked version.</div>
   </div>
   <div id="cardFields" style="display:none">
     <label>Card issuer / bank</label><input id="cbank" placeholder="e.g. HDFC, Axis, SBI">
@@ -677,7 +680,14 @@ function acctSheet(id){
   <div class="big num" style="font-size:28px">${fmt(balance(a),a.cur)}</div>
   <div class="muted">${esc(a.owner||"Me")} ${a.bank?"· "+esc(a.bank):""}</div>
   <form id="fcard"><input type="hidden" id="cid" value="${a.id}">
-  ${a.type==="bank"?`<b>Bank account details</b><label>Bank / provider</label><input id="abankEdit" value="${esc(a.bank||"")}"><label>Branch name</label><input id="abranchEdit" value="${esc(a.branch||"")}"><label>IFSC code</label><input id="aifscEdit" autocapitalize="characters" value="${esc(a.ifsc||"")}"><label>Branch code</label><input id="abranchcodeEdit" value="${esc(a.branchCode||"")}">`:""}
+  ${a.type==="bank"?`<b>Bank account details</b>
+<label>Bank / provider</label><input id="abankEdit" value="${esc(a.bank||"")}">
+<label>Account number / IBAN</label><input id="aacctnoEdit" inputmode="numeric" autocomplete="off" value="${esc(a.accountNumber||"")}" placeholder="Full account number">
+<label>Branch name</label><input id="abranchEdit" value="${esc(a.branch||"")}">
+<label>IFSC code</label><input id="aifscEdit" autocapitalize="characters" value="${esc(a.ifsc||"")}">
+<label>Branch code</label><input id="abranchcodeEdit" value="${esc(a.branchCode||"")}">
+<div class="muted">Stored encrypted on this phone. Shown masked in lists.</div>
+<button type="button" class="btn alt" data-copyownbank="${a.id}" style="margin-top:10px">Copy account details</button>`:""}
   <b>${a.type==="card"?"Credit card details":"Linked debit card details (optional)"}</b>
   ${a.type==="card"?`<label>Card issuer / bank</label><input id="abankEdit" value="${esc(a.bank||"")}">`:""}
   <label>Last 4 digits</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc((a.cardMeta||{}).last4||"")}" placeholder="1234" autocomplete="off">
@@ -765,7 +775,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-copybank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if("close" in d){ if(el.classList.contains("sheet-bg") && e.target!==el) return; closeSheet(); return; }
@@ -822,6 +832,24 @@ document.addEventListener("click", async e=>{
       try{document.execCommand("copy");done();}catch(e){alert(lines);}
       document.body.removeChild(ta);
     }
+    return;
+  }
+  if(d.copyownbank){
+    const a=acct(d.copyownbank); if(!a)return;
+    const lines=[
+      a.name?("Account: "+a.name):"",
+      a.owner?("Owner: "+a.owner):"",
+      a.bank?("Bank: "+a.bank):"",
+      a.accountNumber?("Account number: "+a.accountNumber):"",
+      a.ifsc?("IFSC: "+a.ifsc):"",
+      a.branch?("Branch: "+a.branch):"",
+      a.branchCode?("Branch code: "+a.branchCode):"",
+      a.cur?("Currency: "+a.cur):""
+    ].filter(Boolean).join("\n");
+    const done=()=>toast("Account details copied");
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(lines).then(done).catch(()=>{ const ta=document.createElement("textarea");ta.value=lines;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");done();}catch(e){alert(lines);}document.body.removeChild(ta);});
+    }else{ const ta=document.createElement("textarea");ta.value=lines;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");done();}catch(e){alert(lines);}document.body.removeChild(ta); }
     return;
   }
   if(d.delbank){if(confirm("Remove this saved recipient bank account? Past transfers keep their recorded reference text only.")){S.bankContacts=S.bankContacts.filter(x=>x.id!==d.delbank);save();render();}return;}
@@ -1086,16 +1114,19 @@ document.addEventListener("submit", e=>{
   if(e.target.id==="fpay"){ const p=S.policies.find(v=>v.id===$("#pid").value), a=acct($("#pacc").value); if(!p||!a) return; if(a.cur!==p.cur){ alert("Pay from an account in "+p.cur+"."); return; } addTxn({type:"expense",date:today(),cat:"Insurance premium",note:p.name,postings:[{acct:a.id,amt:-p.premium,cur:a.cur}]}); p.next=addM(p.next,p.freq); save(); closeSheet(); render(); toast("Premium recorded"); }
   if(e.target.id==="fpur"){ const it=$("#un").value.trim(), am=parseAmt($("#ua").value), a=acct($("#uc").value), w=Math.round(parseAmt($("#uw").value)), dt=$("#ud").value||today(); if(!it||am<=0||!a) return; addTxn({type:"expense",date:dt,cat:"Shopping",note:it,postings:[{acct:a.id,amt:-am,cur:a.cur}]}); S.purchases.push({id:uid(),item:it,date:dt,amt:am,cur:a.cur,expiry:w>0?addM(dt,w):null}); save(); closeSheet(); render(); }
   if(e.target.id==="fbank"){const number=$("#ba").value.trim().replace(/\s/g,"");const person=$("#bp").value.trim(),holder=$("#bh").value.trim(),bank=$("#bb").value.trim();if(!number||!person||!holder||!bank)return;const b={id:uid(),person,holder,bank,accountNumber:number,accountMasked:number.length>8?"••••"+number.slice(-4):"••••"+number.slice(-4),ifsc:$("#bi").value.trim().toUpperCase(),branch:$("#br").value.trim(),branchCode:$("#bc").value.trim(),cur:$("#bcur").value,nickname:$("#bn").value.trim()};S.bankContacts.push(b);if(!S.people.includes(person))S.people.push(person);log("recipient-bank",b.id);save();closeSheet();render();toast("Recipient account saved");return;}
-  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const last4=($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expiry=($("#expiry")?.value||"").trim(); if(expiry&&!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){alert("Enter expiry as MM/YY.");return;} a.cardMeta={last4,network:($("#network")?.value||"").trim(),cardType:($("#cardType")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";} if(a.type==="card"){ if($("#abankEdit")) a.bank=($("#abankEdit").value||"").trim()||a.bank||""; a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value);} log("account-details",a.id);save(); } closeSheet(); render(); toast("Account details saved"); }
+  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const last4=($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expiry=($("#expiry")?.value||"").trim(); if(expiry&&!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){alert("Enter expiry as MM/YY.");return;} a.cardMeta={last4,network:($("#network")?.value||"").trim(),cardType:($("#cardType")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";const n=($("#aacctnoEdit")?.value||"").replace(/\s/g,"").trim();a.accountNumber=n;a.accountMasked=n?(n.length>4?"••••"+n.slice(-4):"••••"):"";} if(a.type==="card"){ if($("#abankEdit")) a.bank=($("#abankEdit").value||"").trim()||a.bank||""; a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value);} log("account-details",a.id);save(); } closeSheet(); render(); toast("Account details saved"); }
   if(e.target.id==="fa2"){
     const name=$("#an").value.trim(); if(!name) return;
     let o=parseAmt($("#ao").value); const type=$("#at").value;
     if(type==="card") o=-Math.abs(o);
+    const rawNum=(type==="bank"?($("#aacctno")?.value||""):"").replace(/\s/g,"").trim();
     const a={id:uid(),name,
       bank:(type==="card"?($("#cbank")?.value||""):($("#abank")?.value||"")).trim(),
       branch:($("#abranch")?.value||"").trim(),
       ifsc:($("#aifsc")?.value||"").trim().toUpperCase(),
       branchCode:($("#abranchcode")?.value||"").trim(),
+      accountNumber:rawNum,
+      accountMasked:rawNum?(rawNum.length>4?"••••"+rawNum.slice(-4):"••••"):"",
       owner:($("#aowner").value.trim()||"Me"),type,cur:$("#ac").value,opening:o,archived:false};
     if(type==="card"){
       const last4=(($("#clast4")?.value)||"").replace(/\D/g,"").slice(-4);
