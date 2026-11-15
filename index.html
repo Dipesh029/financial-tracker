@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f4fd8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="./manifest.webmanifest">
+<title>My Finance</title>
+<style>
+:root{
+  --bg:#f3f5f8; --card:#ffffff; --ink:#18212b; --muted:#6a7684; --line:#e1e6ec;
+  --accent:#2f4fd8; --accent-ink:#fff; --in:#177a52; --out:#b93a32; --warn:#9a6a00;
+  --radius:16px;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#10151c; --card:#1a222c; --ink:#e8edf3; --muted:#92a0b0; --line:#2a3441;
+    --accent:#7d93ff; --accent-ink:#0d1220; --in:#4fc38f; --out:#ff8a80; --warn:#e3b341; }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px));
+  padding-top:env(safe-area-inset-top,0px)}
+main{max-width:560px;margin:0 auto;padding:16px}
+h1{font-size:15px;font-weight:600;color:var(--muted);margin:4px 0 2px}
+h2{font-size:17px;margin:22px 0 10px}
+.big{font-size:34px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:10px 0}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.row+.row{border-top:1px solid var(--line);margin-top:10px;padding-top:10px}
+.muted{color:var(--muted);font-size:14px}
+.in{color:var(--in)} .out{color:var(--out)} .warn{color:var(--warn)}
+.seg{display:flex;gap:6px;background:var(--bg);border-radius:12px;padding:4px}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted);padding:9px 2px;font-size:13px;border-radius:9px;font:inherit;font-weight:600}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);
+  display:flex;justify-content:space-around;align-items:center;
+  padding:8px 6px calc(8px + env(safe-area-inset-bottom,0px))}
+nav button{flex:1;border:0;background:none;color:var(--muted);font:inherit;font-size:13px;padding:8px 0}
+nav button.on{color:var(--accent);font-weight:700}
+nav .add{flex:0 0 58px;height:58px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+  font-size:32px;line-height:1;margin-top:-30px;box-shadow:0 4px 14px rgba(0,0,0,.25);font-weight:400}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:10}
+.sheet{background:var(--card);width:100%;max-width:560px;border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));
+  max-height:92vh;overflow:auto}
+label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+input,select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.amt{font-size:36px;font-weight:700;text-align:center;padding:14px;letter-spacing:-.01em}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.chip{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:8px 14px;font:inherit;font-size:14px}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn{width:100%;border:0;border-radius:14px;padding:15px;font:inherit;font-weight:700;background:var(--accent);color:var(--accent-ink);margin-top:16px}
+.btn.alt{background:var(--bg);color:var(--ink);border:1px solid var(--line);margin-top:10px}
+.btn.danger{background:var(--bg);color:var(--out);border:1px solid var(--line)}
+.small{font-size:13px;padding:8px 12px;width:auto;margin:0;border-radius:10px}
+.empty{text-align:center;padding:36px 12px;color:var(--muted)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(100px + env(safe-area-inset-bottom,0px));
+  background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;z-index:20;display:flex;gap:14px;align-items:center}
+.toast button{background:none;border:0;color:var(--accent);font:inherit;font-weight:700;filter:brightness(1.4)}
+.void{opacity:.5;text-decoration:line-through}
+.bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--accent)}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<nav id="nav"></nav>
+<div id="layer"></div>
+
+<script>
+"use strict";
+/* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
+const KEY = "myfinance.v1";
+const EXPENSE_CATS = ["Groceries","Rent / housing","Utilities","Transport","Dining out","Shopping","Health","Insurance premium","Travel","Subscriptions","Education","Taxes","Bank fees","Gifts","Other"];
+const INCOME_CATS = ["Salary","Interest","Rental income","Business","Gift received","Other income"];
+const mem = {};
+const store = {
+  get(){ try{ return localStorage.getItem(KEY); }catch(e){ return mem[KEY] || null; } },
+  set(v){ try{ localStorage.setItem(KEY, v); }catch(e){ mem[KEY] = v; } }
+};
+const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],policies:[],purchases:[],snaps:[],history:[],lending:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null});
+let S=null, CK=null, SALT=null, chain=Promise.resolve();
+const LBL={adjust:"Portfolio sync · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to "};
+function b64(u){let t="";for(const x of new Uint8Array(u))t+=String.fromCharCode(x);return btoa(t);}
+const unb64=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
+async function deriveKey(p,salt){const m=await crypto.subtle.importKey("raw",new TextEncoder().encode(p),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:250000,hash:"SHA-256"},m,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);}
+async function seal(o){const iv=crypto.getRandomValues(new Uint8Array(12));const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},CK,new TextEncoder().encode(JSON.stringify(o)));return JSON.stringify({enc:1,salt:b64(SALT),iv:b64(iv),data:b64(ct)});}
+async function unseal(env,key){const ct=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(env.iv)},key,unb64(env.data));return JSON.parse(new TextDecoder().decode(ct));}
+function save(){ if(!CK||!S) return; chain=chain.then(async()=>store.set(await seal(S))).catch(()=>{}); }
+function migrate(){
+  for(const k of ["accounts","holdings","sips","policies","purchases","snaps","history","lending","people","txns","audit"]) S[k]=S[k]||[];
+  S.v=2;
+  for(const a of S.accounts){a.owner=a.owner||"Me";a.bank=a.bank||"";}
+  if(!Array.isArray(S.people)||!S.people.length)S.people=["Me","Father","Mother"];
+  for(const h of S.holdings){h.owner=h.owner||"Me";h.folio=h.folio||"";h.isin=h.isin||"";}
+  for(const t of S.txns){if(t.fxRate==null)t.fxRate=S.rate||104.16;}
+}
+function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2)); }
+function log(action, id){ S.audit.push({ts:new Date().toISOString(), action, id}); }
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const today = () => { const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
+
+/* ---------- money ---------- */
+const fmt = (n,cur) => new Intl.NumberFormat(cur==="INR"?"en-IN":"nl-NL",{style:"currency",currency:cur,maximumFractionDigits:2}).format(n||0);
+const toDisplay = (n,cur) => cur===S.display ? n : (cur==="EUR" ? n*S.rate : n/S.rate);
+const toDisplayAt = (n,cur,rate) => cur===S.display ? n : (cur==="EUR" ? n*(rate||S.rate) : n/(rate||S.rate));
+const parseAmt = v => { const n = parseFloat(String(v).replace(/,/g,".").replace(/[^0-9.]/g,"")); return isFinite(n)?n:0; };
+const acct = id => S.accounts.find(a=>a.id===id);
+
+/* ---------- ledger: every transaction = balanced postings; balances are derived ---------- */
+function balance(a){
+  let b = a.opening || 0;
+  for(const t of S.txns){ if(t.status!=="posted") continue; for(const p of t.postings) if(p.acct===a.id) b += p.amt; }
+  return Math.round(b*100)/100;
+}
+function holdPos(h){let u=0,c=0;for(const t of S.txns){if(t.status!=="posted"||t.hold!==h.id)continue;if(t.type==="buy"||t.type==="open"||t.type==="adjust"){u+=t.units;c+=t.cost;}else if(t.type==="sell"){const f=u?Math.min(1,t.units/u):0;c-=c*f;u-=t.units;}}return{u:Math.round(u*1e6)/1e6,c:Math.round(c*100)/100,v:Math.round(u*(h.price||0)*100)/100};}
+function personPos(){const m={};for(const t of S.txns){if(t.status==="posted"&&t.person&&t.pd&&t.postings?.[0])m[t.person]=(m[t.person]||0)+toDisplayAt(t.pd,t.postings[0].cur,t.fxRate);}return m;}
+function monthKey(d){ return d.slice(0,7); }
+function monthTotals(m){
+  let inc=0, exp=0;
+  for(const t of S.txns){
+    if(t.status!=="posted" || monthKey(t.date)!==m) continue;
+    if(t.type==="income") inc += toDisplayAt(t.postings[0].amt, t.postings[0].cur,t.fxRate);
+    if(t.type==="expense") exp += toDisplayAt(-t.postings[0].amt, t.postings[0].cur,t.fxRate);
+    if(t.type==="refund") exp -= toDisplayAt(t.postings[0].amt, t.postings[0].cur,t.fxRate);
+  }
+  return {inc,exp};
+}
+function addTxn(t){ t.id=uid(); t.status="posted"; t.created=new Date().toISOString(); if(t.fxRate==null)t.fxRate=S.rate; if(!t.owner&&t.postings?.[0])t.owner=(acct(t.postings[0].acct)||{}).owner||"Me"; S.txns.push(t); log("create",t.id); save(); return t; }
+function voidTxn(id){ const t=S.txns.find(x=>x.id===id); if(t){ t.status="voided"; log("void",id); save(); } }
+function unvoid(id){ const t=S.txns.find(x=>x.id===id); if(t){ t.status="posted"; log("restore",id); save(); } }
+
+/* ---------- UI state ---------- */
+let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="";
+const $ = s => document.querySelector(s);
+
+function render(){
+  $("#nav").innerHTML = ["home:Home","activity:Activity","+:+","plan:Plan","accounts:Money","settings:More"].map(x=>{
+    const [k,l]=x.split(":");
+    return k==="+" ? `<button class="add" aria-label="Add transaction" data-add>+</button>` : `<button data-tab="${k}" class="${tab===k?"on":""}">${l}</button>`;
+  }).join("");
+  const v = {home:viewHome,plan:viewPlan, activity:viewActivity, accounts:viewAccounts, settings:viewSettings}[tab];
+  $("#app").innerHTML = v();
+}
+
+function viewHome(){ const b=viewHome0(); return S.accounts.length?b+dueHtml()+reportHtml()+historyHtml():b; }
+function netWorth(){
+  let assets=0,owed=0;
+  for(const a of S.accounts){if(a.archived)continue;const b=toDisplay(balance(a),a.cur);if(b>=0)assets+=b;else owed+=-b;}
+  for(const h of S.holdings){const v=holdPos(h).v;assets+=toDisplay(v,h.cur);}
+  for(const v of Object.values(personPos())){if(v>=0)assets+=v;else owed+=-v;}
+  return {assets,owed,total:assets-owed};
+}
+function historyHtml(){
+  const hs=(S.history||[]).slice(-12).reverse();
+  return `<h2>Net worth history</h2><div class="card">${hs.length?hs.map(x=>`<div class="row"><span>${esc(x.date)}</span><b class="num">${fmt(toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate),S.display)}</b></div>`).join(""):`<div class="muted">No saved snapshots yet.</div>`}<button class="btn alt" data-snapshot>Save this month's snapshot</button></div>`;
+}
+function viewHome0(){
+  if(!S.accounts.length) return `<div class="empty"><div class="big" style="font-size:24px;color:var(--ink)">Welcome</div><p>Add your first account to start. Everything stays on this phone.</p><button class="btn" data-newacct>Add an account</button></div>`;
+  const nw=netWorth(), assets=nw.assets, owed=nw.owed;
+  const m=monthKey(today()), t=monthTotals(m);
+  const recent=S.txns.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.created.localeCompare(a.created)).slice(0,5);
+  const cats={}; for(const x of S.txns){ if(x.status==="posted"&&x.type==="expense"&&monthKey(x.date)===m){ cats[x.cat]=(cats[x.cat]||0)+toDisplayAt(-x.postings[0].amt,x.postings[0].cur,x.fxRate);} }
+  for(const x of S.txns){ if(x.status==="posted"&&x.type==="refund"&&monthKey(x.date)===m&&cats[x.cat]!=null) cats[x.cat]-=toDisplayAt(x.postings[0].amt,x.postings[0].cur,x.fxRate); }
+  const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,4);
+  const max=top.length?top[0][1]:1;
+  return `
+  <h1>Net worth (${S.display})</h1>
+  <div class="big num">${fmt(assets-owed,S.display)}</div>
+  <div class="muted num">Held ${fmt(assets,S.display)} · Owed ${fmt(owed,S.display)}</div>
+  <div class="card">
+    <div class="row"><span class="muted">This month</span><button class="chip" data-toggle>${S.display==="INR"?"Show EUR":"Show INR"}</button></div>
+    <div class="row"><span>Income</span><b class="in num">${fmt(t.inc,S.display)}</b></div>
+    <div class="row"><span>Spent</span><b class="out num">${fmt(t.exp,S.display)}</b></div>
+    <div class="row"><span>Saved</span><b class="num">${fmt(t.inc-t.exp,S.display)}</b></div>
+  </div>
+  ${top.length?`<h2>Where it went</h2><div class="card">${top.map(([c,v])=>`<div style="margin:6px 0"><div class="row"><span>${esc(c)}</span><span class="num">${fmt(v,S.display)}</span></div><div class="bar"><i style="width:${Math.round(v/max*100)}%"></i></div></div>`).join("")}</div>`:""}
+  <h2>Recent</h2>
+  ${recent.length?`<div class="card">${recent.map(txnRow).join("")}</div>`:`<div class="empty">Nothing yet. Tap + to add your first transaction.</div>`}`;
+}
+
+function txnRow(t){
+  const p=t.postings[0]||{amt:t.cost,cur:(S.holdings.find(h=>h.id===t.hold)||{}).cur||"INR"}, a=acct(p.acct);
+  let amt, cls, title;
+  if(t.type==="transfer"){ const to=t.postings[1]; title=`${esc(a?a.name:"?")} → ${esc(acct(to.acct)?acct(to.acct).name:"?")}`; amt=fmt(-p.amt,p.cur); cls=""; }
+  else { title=t.type in LBL?LBL[t.type]+esc(t.person||(S.holdings.find(h=>h.id===t.hold)||{}).name||t.cat||""):esc(t.cat||t.type); amt=(p.amt<0?"−":"+")+fmt(Math.abs(p.amt),p.cur); cls=p.amt<0?"out":"in"; }
+  return `<div class="row ${t.status==="voided"?"void":""}" data-txn="${t.id}">
+    <div><div>${title}</div><div class="muted">${esc(t.date)}${t.note?" · "+esc(t.note):""}${a&&t.type!=="transfer"?" · "+esc(a.name):""}${a&&a.owner&&a.owner!=="Me"?" · "+esc(a.owner):""}</div></div>
+    <b class="${cls} num">${amt}</b></div>`;
+}
+
+function viewActivity(){
+  let list=S.txns.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.created.localeCompare(a.created));
+  if(filterAcct) list=list.filter(t=>t.postings.some(p=>p.acct===filterAcct));
+  if(q){ const s=q.toLowerCase(); list=list.filter(t=>((t.cat||"")+" "+(t.note||"")+" "+t.type).toLowerCase().includes(s)); }
+  return `<h2 style="margin-top:4px">Activity</h2>
+  <input id="q" type="search" placeholder="Search note or category" value="${esc(q)}">
+  <select id="fa" style="margin-top:8px"><option value="">All accounts</option>${S.accounts.map(a=>`<option value="${a.id}" ${filterAcct===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
+  ${list.length?`<div class="card">${list.map(txnRow).join("")}</div>`:`<div class="empty">No transactions match.</div>`}`;
+}
+
+function viewAccounts(){
+  return `<h2 style="margin-top:4px">Accounts</h2>
+  ${S.accounts.length?"":`<div class="empty">No accounts yet.</div>`}
+  ${S.accounts.filter(a=>!a.archived).map(a=>{ const b=balance(a);
+    return `<div class="card" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · ${a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank"}${a.bank?" · "+esc(a.bank):""}${a.cardMeta?.last4?" · •••• "+esc(a.cardMeta.last4):""} · ${a.cur}${a.type==="card"&&a.limit?` · ${Math.round(Math.max(0,-b)/a.limit*100)}% of limit used`:""}</div></div>
+    <div style="text-align:right"><b class="num ${b<0?"out":""}">${fmt(b,a.cur)}</b>${a.type==="card"&&b<0?`<div class="muted">outstanding</div>`:""}</div></div></div>`; }).join("")}
+  <button class="btn" data-newacct>Add account</button>
+  <h2>Investments</h2>${S.holdings.map(h=>{const p=holdPos(h);return `<div class="card" data-hold="${h.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted num">${p.u} units · cost ${fmt(p.c,h.cur)}</div></div><div style="text-align:right"><b class="num">${fmt(p.v,h.cur)}</b><div class="muted num ${p.v-p.c<0?"out":"in"}">${h.price?fmt(p.v-p.c,h.cur):"set price"}</div></div></div></div>`}).join("")||`<div class="muted">No holdings yet.</div>`}
+  <button class="btn alt" data-newhold>Add fund or stock</button>
+  ${S.snaps.length>1?`<div class="muted" style="margin-top:8px">Stock portfolio at each import:<br>${S.snaps.slice(-5).map(x=>x.date+" · value "+fmt(x.val,"INR")+" · invested "+fmt(x.inv,"INR")).join("<br>")}</div>`:""}
+  <h2>People (lending)</h2>${Object.entries(personPos()).map(([n,v])=>`<div class="card"><div class="row"><b>${esc(n)}</b><b class="num ${v<0?"out":"in"}">${v<0?"You owe ":"Owes you "}${fmt(Math.abs(v),S.display)}</b></div></div>`).join("")||`<div class="muted">Record a loan with + then Lend.</div>`}`;
+}
+
+function viewSettings(){
+  return `<h2 style="margin-top:4px">Settings</h2>
+  <div class="card"><label style="margin-top:0">Exchange rate: INR per 1 EUR</label>
+  <input id="rate" inputmode="decimal" value="${S.rate}"><div class="muted" style="margin-top:6px">Used only to show totals in one currency. Each account keeps its own currency.</div></div>
+  <div class="card"><b>Backup</b><div class="muted">Your data is encrypted with your passphrase and stored locally in this browser on this phone. There is no automatic cloud sync in this version. Save encrypted backup files regularly and store them somewhere safe; you need the passphrase to restore them.</div>
+  <button class="btn" data-export>Save backup file</button>
+  <button class="btn alt" data-csv>Export transactions (CSV)</button>
+  <button class="btn alt" data-import>Restore from backup file</button>
+  <button class="btn alt" data-holds>Import stock holdings</button>
+  <button class="btn alt" data-csvimp>Import transactions (CSV)</button>
+  <button class="btn alt" data-csvtpl>Download CSV template</button><input type="file" id="csvf" accept="*/*" hidden>
+  <input type="file" id="file" accept="*/*" hidden></div>
+  <div class="card"><b>Check my data</b><div class="muted">Confirms every transaction balances and points at a real account.</div>
+  <button class="btn alt" data-check>Run check</button></div>
+  <div class="card"><b>Erase everything</b><div class="muted">Deletes all data on this phone. Save a backup first.</div>
+  <button class="btn danger" data-wipe>Erase all data</button></div>`;
+}
+
+/* ---------- sheets ---------- */
+function openSheet(html){ $("#layer").innerHTML = `<div class="sheet-bg" data-close><div class="sheet" role="dialog">${html}</div></div>`; }
+function closeSheet(){ $("#layer").innerHTML=""; }
+function toast(msg, undo){
+  const el=document.createElement("div"); el.className="toast"; el.innerHTML=`<span>${esc(msg)}</span>${undo?`<button>Undo</button>`:""}`;
+  document.body.appendChild(el);
+  const t=setTimeout(()=>el.remove(),5000);
+  if(undo) el.querySelector("button").onclick=()=>{ clearTimeout(t); el.remove(); undo(); };
+}
+
+function addSheet(){
+  if(!S.accounts.length){ newAcctSheet(); return; }
+  if(sheetType==="invest"||sheetType==="lend") return addSheet2();
+  const cats = sheetType==="income"?INCOME_CATS:EXPENSE_CATS;
+  if(!chosenCat || !cats.includes(chosenCat)) chosenCat = cats[0];
+  const def = S.lastAcct && acct(S.lastAcct) ? S.lastAcct : S.accounts[0].id;
+  const opts = (sel)=>S.accounts.filter(a=>!a.archived).map(a=>`<option value="${a.id}" ${a.id===sel?"selected":""}>${esc(a.name)} (${a.cur})</option>`).join("");
+  const other = S.accounts.find(a=>a.id!==def);
+  openSheet(`
+  <div class="seg" id="seg">${["expense","income","transfer","invest","lend"].map(k=>`<button data-type="${k}" class="${sheetType===k?"on":""}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}</div>
+  <form id="f" autocomplete="off">
+    <input class="amt" id="amt" inputmode="decimal" placeholder="0" aria-label="Amount" autofocus>
+    ${sheetType==="transfer"?`
+      <label>From</label><select id="from">${opts(def)}</select>
+      <label>To</label><select id="to">${opts(other?other.id:def)}</select>
+      <div id="recvWrap"></div>`:`
+      <label>Category</label><div class="chips" id="cats">${cats.map(c=>`<button type="button" class="chip ${c===chosenCat?"on":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+      <label>${sheetType==="income"?"Into account":"From account"}</label><select id="from">${opts(def)}</select>`}
+    <label>Date</label><input type="date" id="date" value="${today()}">
+    <label>Note (optional)</label><input id="note" maxlength="80">
+    <button class="btn" type="submit">Save</button>
+  </form>`);
+  setTimeout(()=>{ const a=$("#amt"); if(a) a.focus(); },50);
+  updateRecv();
+}
+function updateRecv(){
+  const w=$("#recvWrap"); if(!w) return;
+  const f=acct($("#from").value), t=acct($("#to").value);
+  w.innerHTML = (f&&t&&f.cur!==t.cur)?`<label>Amount received (${t.cur})</label><input id="recv" inputmode="decimal" placeholder="0">`:"";
+}
+
+function addSheet2(){
+  const opts=S.accounts.filter(x=>!x.archived).map(x=>`<option value="${x.id}" ${x.id===S.lastAcct?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("");
+  const seg=`<div class="seg">${["expense","income","transfer","invest","lend"].map(k=>`<button data-type="${k}" class="${sheetType===k?"on":""}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}</div>`;
+  let mid;
+  if(sheetType==="invest") mid=S.holdings.length?`<label>Action</label><select id="ia"><option value="buy">Buy</option><option value="sell">Sell</option></select><label>Holding</label><select id="ih">${S.holdings.map(h=>`<option value="${h.id}">${esc(h.name)} (${h.cur})</option>`).join("")}</select><label>Units or shares</label><input id="iu" inputmode="decimal">`:`<div class="empty">Add a fund or stock first, under Accounts.</div>`;
+  else mid=`<label>What happened</label><select id="la"><option value="lend">I lent money</option><option value="lendback">They paid me back</option><option value="borrow">I borrowed</option><option value="repay">I repaid</option><option value="intin">Interest I received</option><option value="intout">Interest I paid</option></select><label>Person</label><input id="lp" list="pl" required><datalist id="pl">${Object.keys(personPos()).map(n=>`<option value="${esc(n)}">`).join("")}</datalist>`;
+  openSheet(`${seg}<form id="f2" autocomplete="off"><input class="amt" id="amt" inputmode="decimal" placeholder="0" aria-label="Amount">${mid}<label>Account</label><select id="from">${opts}</select><label>Date</label><input type="date" id="date" value="${today()}"><label>Note (optional)</label><input id="note" maxlength="80"><button class="btn" type="submit">Save</button></form>`);
+}
+function newHoldSheet(){openSheet(`<h2 style="margin-top:0">New holding</h2><form id="fh"><label>Scheme / stock name</label><input id="hn" required placeholder="e.g. Axis Bluechip Fund"><label>Type</label><select id="ht"><option value="fund">Mutual fund</option><option value="stock">Stock</option></select><label>Owner</label><input id="ho" value="Me" list="owners2"><datalist id="owners2">${S.people.map(n=>`<option value="${esc(n)}">`).join("")}</datalist><label>Folio number (mutual funds) / identifier</label><input id="hfolio"><label>ISIN (optional)</label><input id="hisin"><label>Currency</label><select id="hc"><option>INR</option><option>EUR</option></select><button class="btn" type="submit">Save</button></form>`);}
+function holdSheet(id){const h=S.holdings.find(x=>x.id===id);if(!h)return;const p=holdPos(h);openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2><div class="muted num">${esc(h.owner||"Me")} · ${h.folio?"Folio "+esc(h.folio)+" · ":""}${p.u} units · cost ${fmt(p.c,h.cur)} · value ${fmt(p.v,h.cur)}</div><form id="fp"><input type="hidden" id="hid" value="${h.id}"><label>Current price per unit (${h.cur})</label><input id="hp" inputmode="decimal" value="${h.price||""}"><button class="btn" type="submit">Update price</button></form><button class="btn alt" data-close>Close</button>`);}
+const mk=(ym,d)=>{const last=new Date(+ym.slice(0,4),+ym.slice(5,7),0).getDate();return ym+"-"+String(Math.min(d,last)).padStart(2,"0");};
+function nextDue(day){const t=today();let c=mk(t.slice(0,7),day);if(daysTo(c)<0)c=mk(addM(t.slice(0,8)+"01",1).slice(0,7),day);return c;}
+function csvRows(t){const l0=t.split(/\r?\n/)[0];const dl=l0.includes("\t")?"\t":(l0.includes(";")&&!l0.includes(","))?";":",";const rows=[];let r=[],c="",q=false;for(let i=0;i<t.length;i++){const ch=t[i];if(q){if(ch==='"'){if(t[i+1]==='"'){c+='"';i++;}else q=false;}else c+=ch;}else if(ch==='"')q=true;else if(ch===dl){r.push(c);c="";}else if(ch==="\n"||ch==="\r"){if(ch==="\r"&&t[i+1]==="\n")i++;r.push(c);c="";if(r.some(x=>x!==""))rows.push(r);r=[];}else c+=ch;}r.push(c);if(r.some(x=>x!==""))rows.push(r);return rows;}
+function csvNum(v){v=String(v).replace(/[^0-9.,-]/g,"");if(v.includes(",")&&v.includes(".")){v=v.lastIndexOf(",")>v.lastIndexOf(".")?v.replace(/\./g,"").replace(",","."):v.replace(/,/g,"");}else if(v.includes(","))v=v.replace(",",".");const n=parseFloat(v);return isFinite(n)?n:0;}
+function csvDate(v){v=String(v).trim();let m=v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);if(m)return m[1]+"-"+m[2].padStart(2,"0")+"-"+m[3].padStart(2,"0");m=v.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);return m?m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0"):null;}
+function importCSV(text){
+  const rows=csvRows(text.replace(/^\uFEFF/,"")); const h=(rows.shift()||[]).map(x=>x.trim().toLowerCase()); const ix=n=>h.indexOf(n);
+  if(["date","type","account","amount"].some(n=>ix(n)<0)){ alert("The first row must have these headings: date, type, category, account, amount, note (and optional id)."); return; }
+  const have=new Set(S.txns.map(t=>t.ext||"").filter(Boolean)); const sig=t=>[t.date,t.type,t.cat||"",t.postings[0].acct,Math.abs(t.postings[0].amt),t.note||""].join("|"); const seen=new Set(S.txns.filter(t=>t.status==="posted").map(sig));
+  let ok=0,dup=0; const errs=[];
+  rows.forEach((r,i)=>{ const g=n=>ix(n)<0?"":(r[ix(n)]||"").trim(); const ln=i+2;
+    const date=csvDate(g("date")), type=g("type").toLowerCase(), a=S.accounts.find(x=>x.name.toLowerCase()===g("account").toLowerCase()), amt=Math.abs(csvNum(g("amount")));
+    if(!date) return errs.push("Row "+ln+": bad date"); if(type!=="expense"&&type!=="income") return errs.push("Row "+ln+": type must be expense or income");
+    if(!a) return errs.push("Row "+ln+": unknown account '"+g("account")+"'"); if(amt<=0) return errs.push("Row "+ln+": bad amount");
+    const ext=g("id"); const t={id:uid(),type,status:"posted",date,cat:g("category")||(type==="income"?"Other income":"Other"),note:g("note"),created:new Date().toISOString(),fxRate:S.rate,owner:a.owner||"Me",postings:[{acct:a.id,amt:type==="income"?amt:-amt,cur:a.cur}]}; if(ext) t.ext=ext;
+    if((ext&&have.has(ext))||seen.has(sig(t))) return dup++; S.txns.push(t); seen.add(sig(t)); if(ext)have.add(ext); ok++; });
+  if(ok){ log("import",ok+" rows"); save(); render(); }
+  openSheet(`<h2 style="margin-top:0">Import finished</h2><p>${ok} added, ${dup} skipped as duplicates, ${errs.length} rows with problems.</p>${errs.length?`<ul class="muted">${errs.slice(0,15).map(x=>`<li>${esc(x)}</li>`).join("")}</ul>${errs.length>15?`<div class="muted">and ${errs.length-15} more</div>`:""}`:""}<div class="muted">Transfers, investments and loans are not imported from CSV. Enter those in the app.</div><button class="btn alt" data-close>Close</button>`);
+}
+let pendH=null;
+const hMatch=(h,it)=>(h.isin&&it.isin&&h.isin===it.isin)||h.name.toUpperCase()===it.sym.toUpperCase();
+function holdParse(text){
+  const rows=csvRows(String(text).replace(/^\uFEFF/,"")); const h=(rows.shift()||[]).map(x=>x.trim().toLowerCase()); const ix=k=>h.findIndex(x=>x.includes(k));
+  const c={sym:ix("symbol"),isin:ix("isin"),sec:ix("sector"),qa:ix("quantity available"),qd:ix("quantity discrepant"),qm:ix("pledged (margin)"),ql:ix("pledged (loan)"),avg:ix("average price"),prev:ix("previous closing"),pl:ix("unrealized p&l")};
+  if(c.sym<0||c.qa<0||c.avg<0){ alert("Could not find the Symbol, Quantity Available and Average Price headings. Include the heading row."); return; }
+  const g=(r,k)=>c[k]<0?0:csvNum(r[c[k]]||"0"); const items=[]; let mm=0, skip=0;
+  for(const r of rows){ const sym=(r[c.sym]||"").trim(); const qty=g(r,"qa")+g(r,"qd")+g(r,"qm")+g(r,"ql"); if(!sym||qty<=0){ skip++; continue; }
+    const it={sym,isin:c.isin<0?"":(r[c.isin]||"").trim(),sec:c.sec<0?"":(r[c.sec]||"").trim(),qty,avg:g(r,"avg"),prev:g(r,"prev")||g(r,"avg")};
+    if(c.pl>=0 && Math.abs(qty*(it.prev-it.avg)-g(r,"pl"))>1) mm++; items.push(it); }
+  if(!items.length){ alert("No holdings found in that data."); return; }
+  const plan=items.map(it=>{ const H=S.holdings.find(x=>x.type==="stock"&&hMatch(x,it)); const cur=H?holdPos(H):{u:0,c:0}; const nc=Math.round(it.qty*it.avg*100)/100;
+    const du=Math.round((it.qty-cur.u)*1e6)/1e6, dc=Math.round((nc-cur.c)*100)/100; return {it,H,cur,du,dc,kind:!H?"new":(Math.abs(du)<1e-6&&Math.abs(dc)<=1)?"same":"changed"}; });
+  const missing=S.holdings.filter(x=>x.type==="stock"&&holdPos(x).u>1e-6&&!items.some(it=>hMatch(x,it)));
+  pendH={plan,missing,items};
+  const nw=plan.filter(p=>p.kind==="new").length, sm=plan.filter(p=>p.kind==="same").length, ch=plan.filter(p=>p.kind==="changed");
+  const inv=items.reduce((a,x)=>a+x.qty*x.avg,0), val=items.reduce((a,x)=>a+x.qty*x.prev,0);
+  openSheet(`<h2 style="margin-top:0">Review portfolio file</h2><p>${items.length} stocks · invested ${fmt(inv,"INR")} · value ${fmt(val,"INR")}</p>
+  <p class="${mm?"warn":"muted"}">${mm?mm+" rows where quantity × (price − average price) does not match the file's unrealized P&L. Check the quantity columns before importing.":"Unrealized P&L matches the file on every row."}</p>
+  <div class="card"><div class="row"><span>New stocks</span><b>${nw}</b></div><div class="row"><span>Price updated only</span><b>${sm}</b></div><div class="row"><span>Quantity or cost changed</span><b>${ch.length}</b></div><div class="row"><span>In the app but not in the file</span><b class="${missing.length?"warn":""}">${missing.length}</b></div></div>
+  ${ch.length?`<div class="muted">${ch.slice(0,8).map(p=>esc(p.it.sym)+": "+p.cur.u+" → "+p.it.qty).join("<br>")}${ch.length>8?"<br>and "+(ch.length-8)+" more":""}</div>`:""}
+  ${missing.length?`<label style="display:flex;gap:10px;align-items:flex-start;color:var(--ink);margin-top:14px"><input type="checkbox" id="hmiss" checked style="width:auto;margin-top:4px"><span>Treat these as sold and set them to zero:<br><span class="muted">${missing.slice(0,8).map(x=>esc(x.name)).join(", ")}${missing.length>8?" and "+(missing.length-8)+" more":""}</span></span></label><div class="muted">No cash is recorded for these sales. Add the proceeds as income to an account if you want your balance to reflect them.</div>`:""}
+  <label>Date of this file</label><input type="date" id="hdate" value="${today()}">
+  <button class="btn" data-doholds>Apply to my data</button><button class="btn alt" data-close>Cancel</button>`);
+}
+function doHolds(){
+  const P=pendH; if(!P) return; const date=($("#hdate")||{}).value||today(), killMissing=!!($("#hmiss")&&$("#hmiss").checked);
+  let added=0, changed=0, price=0, sold=0;
+  for(const p of P.plan){ let H=p.H;
+    if(!H){ H={id:uid(),name:p.it.sym,type:"stock",cur:"INR",isin:p.it.isin,sector:p.it.sec,price:p.it.prev}; S.holdings.push(H); added++; }
+    else{ H.price=p.it.prev; if(!H.isin) H.isin=p.it.isin; if(p.it.sec) H.sector=p.it.sec; }
+    if(p.kind==="new") addTxn({type:"open",date,note:"Imported opening position",hold:H.id,units:p.it.qty,cost:Math.round(p.it.qty*p.it.avg*100)/100,postings:[]});
+    else if(p.kind==="changed"){ addTxn({type:"adjust",date,note:"Portfolio file sync",hold:H.id,units:p.du,cost:p.dc,postings:[]}); changed++; } else price++; }
+  if(killMissing) for(const h of P.missing){ const q=holdPos(h); addTxn({type:"adjust",date,note:"Not in portfolio file, treated as sold",hold:h.id,units:-q.u,cost:-q.c,postings:[]}); sold++; }
+  S.snaps=S.snaps||[]; S.snaps.push({date,inv:Math.round(P.items.reduce((a,x)=>a+x.qty*x.avg,0)),val:Math.round(P.items.reduce((a,x)=>a+x.qty*x.prev,0))});
+  pendH=null; save(); closeSheet(); render(); toast(added+" new, "+changed+" changed, "+price+" prices, "+sold+" sold");
+}
+const accOpts=()=>S.accounts.filter(a=>!a.archived).map(a=>[a.id,a.name+" ("+a.cur+")"]);
+function addM(t,n){const[y,m,d]=t.split("-").map(Number);const x=new Date(y,m-1+n,1);const last=new Date(x.getFullYear(),x.getMonth()+1,0).getDate();x.setDate(Math.min(d,last));return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");}
+const daysTo=t=>Math.round((new Date(t+"T00:00")-new Date(today()+"T00:00"))/864e5);
+function fs(title,fid,fields,btn){openSheet(`<h2 style="margin-top:0">${title}</h2><form id="${fid}" autocomplete="off">${fields.map(([i,l,t,o])=>`<label>${l}</label>`+(t==="select"?`<select id="${i}">${o.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>`:`<input id="${i}" type="${t==="date"?"date":"text"}" ${t==="num"?'inputmode="decimal"':""} ${t==="date"?`value="${today()}"`:""}>`)).join("")}<button class="btn" type="submit">${btn}</button></form>`);}
+function lendingPosition(l){
+  let principal=l.principal||0;
+  for(const t of S.txns){if(t.status!=="posted"||t.loanId!==l.id||!t.principalReduction)continue;principal-=t.principalReduction;}
+  principal=Math.max(0,principal);
+  const days=Math.max(0,Math.floor((new Date(today()+"T00:00")-new Date((l.start||today())+"T00:00"))/864e5));
+  const accrued=principal*(l.rate||0)/100*days/365.25;
+  const interestPaid=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&t.interestSettlement).reduce((v,t)=>v+Math.abs(t.postings?.[0]?.amt||0),0);
+  const interest=Math.max(0,accrued-interestPaid);
+  return {principal,interest,accrued,interestPaid,total:principal+interest,days};
+}
+function newLendingSheet(){
+  const accounts=accOpts();
+  openSheet(`<h2 style="margin-top:0">New friends & family lending record</h2><form id="flend">
+  <label>Person</label><input id="lpname" list="lpeople" required><datalist id="lpeople">${S.people.map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+  <label>Direction</label><select id="ldir"><option value="lent">I lent money (they owe me)</option><option value="borrowed">I borrowed money (I owe them)</option></select>
+  <label>Principal amount</label><input id="lprincipal" inputmode="decimal" required>
+  <label>Currency</label><select id="lcur"><option>EUR</option><option>INR</option></select>
+  <label>Annual simple interest rate (%) — optional</label><input id="lrate" inputmode="decimal" value="0">
+  <label>Start date</label><input id="lstart" type="date" value="${today()}">
+  <label>Cash account</label><select id="laccount">${accounts.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>
+  <button class="btn" type="submit">Save lending record</button></form>`);
+}
+function lendingPaymentSheet(id){
+  const l=S.lending.find(x=>x.id===id); if(!l)return;
+  const p=lendingPosition(l);
+  openSheet(`<h2 style="margin-top:0">${esc(l.person)}</h2><div class="muted">${l.direction==="lent"?"They owe you":"You owe them"} · outstanding principal ${fmt(p.principal,l.cur)} · estimated interest ${fmt(p.interest,l.cur)}</div>
+  <form id="flr"><input type="hidden" id="lrid" value="${l.id}">
+  <label>Transaction type</label><select id="lrtype"><option value="principal">Principal repayment / return</option><option value="interest">Interest paid / received</option></select>
+  <label>Amount</label><input id="lramt" inputmode="decimal" required>
+  <label>Account</label><select id="lracct">${accOpts().map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>
+  <label>Date</label><input id="lrdate" type="date" value="${today()}">
+  <label>Note</label><input id="lrnote" maxlength="80">
+  <button class="btn" type="submit">Save transaction</button></form>`);
+}
+function viewPlan(){
+  const dl=d=>d<0?`${-d}d overdue`:d===0?"due today":`in ${d}d`;
+  return `<h2 style="margin-top:4px">Friends & family lending</h2>${S.lending.map(l=>{const p=lendingPosition(l);return `<div class="card"><div class="row"><div><b>${esc(l.person)}</b><div class="muted">${l.direction==="lent"?"They owe you":"You owe them"} · ${fmt(l.principal,l.cur)} · ${l.rate||0}% simple interest</div><div class="muted">Outstanding ${fmt(p.principal,l.cur)} · estimated interest ${fmt(p.interest,l.cur)} interest outstanding (estimate)</div><div class="muted">Estimate only: simple interest on remaining principal from start date, not daily reducing-balance accrual.</div></div><button class="chip" data-lendrec="${l.id}">Record</button></div></div>`}).join("")||`<div class="muted">No lending records yet.</div>`}
+  <button class="btn alt" data-newlend>Add lending record</button>
+  <h2>SIPs</h2>${S.sips.map(x=>{const h=S.holdings.find(v=>v.id===x.hold)||{},d=daysTo(x.next);return `<div class="card" data-sip="${x.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted">${fmt(x.amt,x.cur)} · ${({1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1])} · ${x.next}</div></div><b class="${d<=0?"warn":"muted"}">${dl(d)}</b></div></div>`}).join("")||`<div class="muted">No SIPs yet.</div>`}
+  <button class="btn alt" data-newsip>Add SIP</button>
+  <h2>Insurance</h2>${S.policies.map(p=>{const d=daysTo(p.next);return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · ${p.next}</div></div><b class="${d<=30?"warn":"muted"}">${dl(d)}</b></div></div>`}).join("")||`<div class="muted">No policies yet.</div>`}
+  <button class="btn alt" data-newpol>Add policy</button>
+  <h2>Purchases and warranties</h2>${S.purchases.map(p=>{const d=p.expiry?daysTo(p.expiry):null;return `<div class="card"><div class="row"><div><b>${esc(p.item)}</b><div class="muted">${p.date} · ${fmt(p.amt,p.cur)}</div></div><div style="text-align:right"><b class="${d!==null&&d<60?"warn":"muted"}">${d===null?"no warranty":d<0?"expired":d+"d left"}</b><div><button class="chip" data-delpur="${p.id}">Remove</button></div></div></div></div>`}).join("")||`<div class="muted">No purchases yet.</div>`}
+  <button class="btn alt" data-newpur>Add purchase</button>`;
+}
+function dueHtml(){
+  const r=[];
+  for(const x of S.sips){const d=daysTo(x.next);if(d<=7)r.push([d,"SIP · "+esc((S.holdings.find(v=>v.id===x.hold)||{}).name||""),fmt(x.amt,x.cur),`data-sip="${x.id}"`]);}
+  for(const p of S.policies){const d=daysTo(p.next);if(d<=30)r.push([d,"Premium · "+esc(p.name),fmt(p.premium,p.cur),`data-pol="${p.id}"`]);}
+  for(const p of S.purchases){if(!p.expiry)continue;const d=daysTo(p.expiry);if(d>=0&&d<=60)r.push([d,"Warranty ends · "+esc(p.item),"",""]);}
+  for(const a of S.accounts){ if(a.type!=="card"||a.archived||!a.dueDay) continue; const b=balance(a); if(b>=0) continue; const d=daysTo(nextDue(a.dueDay)); if(d<=7) r.push([d,"Card bill · "+esc(a.name),fmt(-b,a.cur),`data-acct="${a.id}"`]); }
+  if(!r.length) return "";
+  return `<h2>Due soon</h2><div class="card">${r.sort((a,b)=>a[0]-b[0]).map(x=>`<div class="row" ${x[3]}><div>${x[1]}<div class="muted">${x[0]<0?-x[0]+" days overdue":x[0]===0?"today":"in "+x[0]+" days"}</div></div><b class="num">${x[2]}</b></div>`).join("")}</div>`;
+}
+function reportHtml(){
+  const ms=[];let d=today().slice(0,8)+"01";for(let i=0;i<6;i++){ms.push(d.slice(0,7));d=addM(d,-1);}
+  const rows=ms.map(m=>[m,monthTotals(m)]);const mx=Math.max(1,...rows.map(r=>Math.max(r[1].inc,r[1].exp)));
+  return `<h2>Last 6 months (${S.display})</h2><div class="card">${rows.map(([m,t])=>`<div style="margin:8px 0"><div class="row"><b>${m}</b><span class="muted num">saved ${fmt(t.inc-t.exp,S.display)}</span></div><div class="bar"><i style="width:${Math.round(t.inc/mx*100)}%;background:var(--in)"></i></div><div class="bar"><i style="width:${Math.round(t.exp/mx*100)}%;background:var(--out)"></i></div></div>`).join("")}<div class="muted">Green is income, red is spending (refunds reduce spending).</div></div>`;
+}
+function newAcctSheet(){
+  openSheet(`<h2 style="margin-top:0">New account</h2>
+  <form id="fa2" autocomplete="off">
+  <label>Account nickname</label><input id="an" placeholder="e.g. ING current" required>
+  <label>Bank / provider (optional)</label><input id="abank" placeholder="e.g. ING, HDFC, SBI">
+  <label>Owner</label><input id="aowner" list="owners" value="Me"><datalist id="owners">${S.people.map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+  <label>Type</label><select id="at"><option value="bank">Bank account</option><option value="cash">Cash</option><option value="card">Credit card</option></select>
+  <label>Currency</label><select id="ac"><option>EUR</option><option>INR</option></select>
+  <label id="obl">Current balance</label><input id="ao" inputmode="decimal" placeholder="0">
+  <div class="muted" id="oh" style="margin-top:6px"></div>
+  <button class="btn" type="submit">Save account</button></form>`);
+  const sync=()=>{ const c=$("#at").value==="card"; $("#obl").textContent=c?"Amount currently owed":"Current balance"; $("#oh").textContent=c?"Enter what you owe today as a positive number.":""; };
+  $("#at").onchange=sync; sync();
+}
+
+function txnSheet(id){
+  const t=S.txns.find(x=>x.id===id); if(!t) return;
+  const p=t.postings[0]||{amt:t.cost,cur:"INR"};
+  openSheet(`<h2 style="margin-top:0">${esc(t.type==="transfer"?"Transfer":(t.cat||t.type))}</h2>
+  <div class="muted">${esc(t.date)} · ${t.status}</div>
+  <div class="big num" style="font-size:28px">${fmt(Math.abs(p.amt),p.cur)}</div>
+  ${t.note?`<p>${esc(t.note)}</p>`:""}
+  ${t.status==="posted"?`${t.type==="expense"?`<button class="btn alt" data-refund="${t.id}">Record a refund</button>`:""}<button class="btn danger" data-void="${t.id}">Void this transaction</button><div class="muted" style="margin-top:6px">Voiding keeps the record but removes it from balances and reports.</div>`:`<button class="btn" data-restore="${t.id}">Restore</button>`}
+  <button class="btn alt" data-close>Close</button>`);
+}
+
+function acctSheet(id){
+  const a=acct(id); if(!a) return;
+  openSheet(`<h2 style="margin-top:0">${esc(a.name)}</h2>
+  <div class="big num" style="font-size:28px">${fmt(balance(a),a.cur)}</div>
+  <div class="muted">${esc(a.owner||"Me")} ${a.bank?"· "+esc(a.bank):""}</div>
+  <form id="fcard"><input type="hidden" id="cid" value="${a.id}">
+  <b>${a.type==="card"?"Credit card details":"Linked debit card details (optional)"}</b>
+  <label>Card last 4 digits only</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc((a.cardMeta||{}).last4||"")}">
+  <label>Network</label><input id="network" value="${esc((a.cardMeta||{}).network||"")}" placeholder="Visa / Mastercard">
+  <label>Expiry (MM/YY)</label><input id="expiry" value="${esc((a.cardMeta||{}).expiry||"")}" placeholder="MM/YY">
+  <label>Annual fee</label><input id="annualFee" inputmode="decimal" value="${(a.cardMeta||{}).annualFee||""}">
+  ${a.type==="card"?`<label>Credit limit</label><input id="cl" inputmode="decimal" value="${a.limit||""}"><label>Statement day of month</label><input id="cs" inputmode="numeric" value="${a.stmtDay||""}"><label>Payment due day of month</label><input id="cd" inputmode="numeric" value="${a.dueDay||""}">`:""}
+  <button class="btn alt" type="submit">Save card details</button></form><button class="btn alt" data-reconcile="${a.id}">Reconcile balance</button><button class="btn alt" data-filter="${a.id}">See transactions</button>
+  <button class="btn danger" data-archive="${a.id}">Archive account</button>
+  <button class="btn alt" data-close>Close</button>`);
+}
+
+/* ---------- integrity check ---------- */
+function runCheck(){
+  const issues=[]; const ids=new Set();
+  for(const t of S.txns){
+    if(ids.has(t.id)) issues.push("Duplicate ID "+t.id); ids.add(t.id);
+    if(!Array.isArray(t.postings)) issues.push("Transaction has no postings");
+    for(const p of (t.postings||[])) if(!acct(p.acct)) issues.push("A transaction points at a missing account");
+    if(t.fxRate!=null&&!(Number(t.fxRate)>0)) issues.push("Invalid historical FX rate on "+t.id);
+    if(t.type==="transfer" && t.postings.length!==2) issues.push("Transfer without two sides");
+    if(t.type!=="transfer" && t.type!=="open" && t.type!=="adjust" && t.type!=="adjustment" && t.postings.length!==1) issues.push("Unexpected postings on "+t.type);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(t.date)) issues.push("Bad date on a transaction");
+  }
+  openSheet(`<h2 style="margin-top:0">${issues.length?"Problems found":"All good"}</h2>
+  <p class="muted">${S.txns.length} transactions, ${S.accounts.length} accounts and ${S.lending.length} lending records checked.</p>
+  ${issues.length?`<ul>${[...new Set(issues)].map(i=>`<li>${esc(i)}</li>`).join("")}</ul>`:""}
+  <button class="btn alt" data-close>Close</button>`);
+}
+
+/* ---------- export / import ---------- */
+function download(name, text, type){
+  const blob=new Blob([text],{type}); const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url); a.remove();},1000);
+}
+async function exportJSON(){ download(`finance-backup-${today()}.enc`, await seal(S), "application/octet-stream"); }
+function exportCSV(){
+  const rows=[["id","date","type","status","category","note","account","account_owner","amount","currency","fx_rate","person","reference"]];
+  for(const t of S.txns) for(const p of t.postings) rows.push([t.id,t.date,t.type,t.status,t.cat||"",t.note||"",(acct(p.acct)||{}).name||"",(acct(p.acct)||{}).owner||"Me",p.amt,p.cur,t.fxRate||S.rate,t.person||"",t.id]);
+  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+  download(`transactions-${today()}.csv`, csv, "text/csv");
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", e=>{
+  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  if(!el){ return; }
+  const d=el.dataset;
+  if("close" in d){ if(el.classList.contains("sheet-bg") && e.target!==el) return; closeSheet(); return; }
+  if(d.tab){ tab=d.tab; render(); window.scrollTo(0,0); return; }
+  if("add" in d){ addSheet(); return; }
+  if(d.type){ sheetType=d.type; addSheet(); return; }
+  if(d.cat){ chosenCat=d.cat; document.querySelectorAll("#cats .chip").forEach(c=>c.classList.toggle("on",c.dataset.cat===chosenCat)); return; }
+  if("toggle" in d){ S.display=S.display==="INR"?"EUR":"INR"; save(); render(); return; }
+  if("snapshot" in d){ const nw=netWorth().total, m=today().slice(0,7); const old=S.history.find(x=>x.month===m); if(old){old.value=nw;old.date=today();old.cur=S.display;old.fxRate=S.rate;}else S.history.push({month:m,date:today(),value:nw,cur:S.display,fxRate:S.rate}); save(); render(); toast("Net worth snapshot saved"); return; }
+  if("newlend" in d){newLendingSheet();return;}
+  if(d.lendrec){lendingPaymentSheet(d.lendrec);return;}
+  if(d.reconcile){const a=acct(d.reconcile);if(!a)return;openSheet(`<h2 style="margin-top:0">Reconcile ${esc(a.name)}</h2><div class="muted">Current recorded balance: ${fmt(balance(a),a.cur)}</div><form id="frecon"><input type="hidden" id="raid" value="${a.id}"><label>Actual balance from bank / statement</label><input id="ractual" inputmode="decimal" required><label>Date</label><input id="rdate" type="date" value="${today()}"><label>Note</label><input id="rnote" value="Balance reconciliation"><button class="btn" type="submit">Post adjustment</button></form>`);return;}
+  if("newacct" in d){ newAcctSheet(); return; }
+  if("newsip" in d){ if(!S.holdings.some(h=>h.type==="fund")){ alert("Add a mutual fund first, under Money."); return; } fs("New SIP","fs1",[["sh","Fund","select",S.holdings.filter(h=>h.type==="fund").map(h=>[h.id,h.name])],["sa","Debit account","select",accOpts()],["sm","Amount","num"],["sf","Frequency","select",[["1","Monthly"],["3","Quarterly"],["6","Half-yearly"],["12","Yearly"]]],["sd","Next debit date","date"]],"Save SIP"); return; }
+  if(d.sip){ const x=S.sips.find(v=>v.id===d.sip); if(!x) return; const h=S.holdings.find(v=>v.id===x.hold)||{}; openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2><div class="muted">${fmt(x.amt,x.cur)} due ${x.next}. Record it only if the money was actually debited.</div><form id="fsu"><input type="hidden" id="sid" value="${x.id}"><label>Units allotted</label><input id="su" inputmode="decimal"><button class="btn" type="submit">Debited</button></form><button class="btn alt" data-sipfail="${x.id}">Failed or skipped</button><button class="btn alt" data-close>Close</button>`); return; }
+  if(d.sipfail){ const x=S.sips.find(v=>v.id===d.sipfail); if(x){ x.next=addM(x.next,x.freq||1); log("sipfail",x.id); save(); } closeSheet(); render(); return; }
+  if("newpol" in d){ fs("New insurance policy","fpol",[["pn","Policy / scheme name","text"],["pno","Policy number","text"],["pp","Provider / insurer","text"],["po","Owner","select",S.people.map(n=>[n,n])],["pstart","Commencement date","date"],["ps","Sum assured","num"],["bonus","Bonus (optional)","num"],["pa","Premium per payment","num"],["ppt","Premium paying term (years)","num"],["pt","Policy term (years)","num"],["mat","Maturity date","date"],["pc","Currency","select",[["INR","INR"],["EUR","EUR"]]],["pf","Paid every","select",[["1","Month"],["3","3 months"],["6","6 months"],["12","Year"]]],["pd","Next premium due","date"]],"Save policy"); return; }
+  if(d.pol){ const p=S.policies.find(v=>v.id===d.pol); if(!p) return; openSheet(`<h2 style="margin-top:0">${esc(p.name)}</h2><div class="muted">${esc(p.provider||"")} ${p.policyNo?"· Policy "+esc(p.policyNo):""}<br>Cover ${fmt(p.sum,p.cur)} · Bonus ${fmt(p.bonus||0,p.cur)}<br>Premium ${fmt(p.premium,p.cur)} every ${p.freq||1} month(s) · next due ${p.next}<br>${p.start?"Started "+esc(p.start)+" · ":""}${p.maturity?"Matures "+esc(p.maturity):""}<br>${p.ppt?"Premium term "+p.ppt+" years · ":""}${p.term?"Policy term "+p.term+" years":""}</div><form id="fpay"><input type="hidden" id="pid" value="${p.id}"><label>Paid from</label><select id="pacc">${accOpts().map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select><button class="btn" type="submit">Mark premium paid</button></form><button class="btn danger" data-delpol="${p.id}">Remove policy</button><button class="btn alt" data-close>Close</button>`); return; }
+  if(d.delpol){ S.policies=S.policies.filter(v=>v.id!==d.delpol); save(); closeSheet(); render(); return; }
+  if("newpur" in d){ fs("New purchase","fpur",[["un","Item","text"],["ua","Amount","num"],["ud","Date","date"],["uc","Paid from","select",accOpts()],["uw","Warranty in months (0 for none)","num"]],"Save purchase"); return; }
+  if(d.delpur){ S.purchases=S.purchases.filter(v=>v.id!==d.delpur); save(); render(); return; }
+  if(d.refund){ const o=S.txns.find(v=>v.id===d.refund); if(!o) return; const was=S.txns.filter(v=>v.refundOf===o.id&&v.status==="posted").reduce((a,v)=>a+v.postings[0].amt,0), left=Math.round((Math.abs(o.postings[0].amt)-was)*100)/100; if(left<=0){ alert("Already fully refunded."); return; } const v=parseAmt(prompt("Refund amount (up to "+left+")",left)); if(v>0&&v<=left){ addTxn({type:"refund",date:today(),cat:o.cat,note:o.note||"",refundOf:o.id,postings:[{acct:o.postings[0].acct,amt:v,cur:o.postings[0].cur}]}); } closeSheet(); render(); return; }
+  if("holds" in d){ openSheet(`<h2 style="margin-top:0">Import stock holdings</h2><p class="muted">Choose your broker file saved as CSV, or paste the table copied from Excel, including the heading row.</p><input type="file" id="hf" accept="*/*"><label>Or paste here</label><textarea id="hpaste" rows="5" style="width:100%;font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:12px"></textarea><button class="btn" data-holdparse>Review</button><button class="btn alt" data-close>Cancel</button>`); return; }
+  if("holdparse" in d){ const v=$("#hpaste").value; if(v.trim()) holdParse(v); return; }
+  if("doholds" in d){ doHolds(); return; }
+  if("csvimp" in d){ $("#csvf").click(); return; }
+  if("csvtpl" in d){ download("import-template.csv","id,date,type,category,account,amount,note\nX-1,2026-11-01,expense,Groceries,ING current,42.10,Albert Heijn\nX-2,2026-11-01,income,Salary,ING current,3500,October salary\n","text/csv"); return; }
+  if("newhold" in d){ newHoldSheet(); return; }
+  if(d.hold){ holdSheet(d.hold); return; }
+  if(d.txn){ txnSheet(d.txn); return; }
+  if(d.acct){ acctSheet(d.acct); return; }
+  if(d.void){ voidTxn(d.void); closeSheet(); render(); toast("Voided",()=>{unvoid(d.void);render();}); return; }
+  if(d.restore){ unvoid(d.restore); closeSheet(); render(); return; }
+  if(d.filter){ filterAcct=d.filter; tab="activity"; closeSheet(); render(); return; }
+  if(d.archive){ const a=acct(d.archive); if(a){ a.archived=true; log("archive",a.id); save(); } closeSheet(); render(); return; }
+  if("export" in d){ exportJSON(); return; }
+  if("csv" in d){ exportCSV(); return; }
+  if("import" in d){ $("#file").click(); return; }
+  if("check" in d){ runCheck(); return; }
+  if("wipe" in d){ if(confirm("Erase all data on this phone? This cannot be undone.")){ S=blank(); save(); render(); toast("All data erased"); } return; }
+});
+
+document.addEventListener("change", e=>{
+  if(e.target.id==="fa"){ filterAcct=e.target.value; render(); }
+  if(e.target.id==="hf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>holdParse(rd.result); rd.readAsText(fl); return; }
+  if(e.target.id==="csvf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>importCSV(String(rd.result)); rd.readAsText(fl); e.target.value=""; return; }
+  if(e.target.id==="rate"){ const r=parseAmt(e.target.value); if(r>0){ S.rate=r; save(); toast("Rate saved"); } }
+  if(e.target.id==="from"||e.target.id==="to") updateRecv();
+  if(e.target.id==="file"){
+    const f=e.target.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=async()=>{ try{ let d=JSON.parse(rd.result);
+        if(d&&d.enc){ const pw=prompt("Passphrase for this backup:"); if(!pw) return; d=await unseal(d,await deriveKey(pw,unb64(d.salt))); }
+        if(!d||![1,2].includes(d.v)||!Array.isArray(d.accounts)||!Array.isArray(d.txns)) throw new Error("bad");
+        if(confirm(`Replace current data with this backup (${d.accounts.length} accounts, ${d.txns.length} transactions)?`)){ S=d; migrate(); save(); render(); toast("Backup restored"); }
+      }catch(err){ alert("Could not open that file. Check the passphrase and the file."); } };
+    rd.readAsText(f); e.target.value="";
+  }
+});
+document.addEventListener("input", e=>{ if(e.target.id==="q"){ q=e.target.value; const pos=e.target.selectionStart; render(); const n=$("#q"); n.focus(); n.setSelectionRange(pos,pos); } });
+
+document.addEventListener("submit", e=>{
+  e.preventDefault();
+  if(e.target.id==="f"){
+    const amt=parseAmt($("#amt").value);
+    if(amt<=0){ $("#amt").focus(); return; }
+    const date=$("#date").value||today(), note=$("#note").value.trim();
+    const from=acct($("#from").value);
+    let t;
+    if(sheetType==="transfer"){
+      const to=acct($("#to").value);
+      if(!to||from.id===to.id){ alert("Choose two different accounts."); return; }
+      let recv=amt;
+      if(from.cur!==to.cur){ recv=parseAmt(($("#recv")||{}).value); if(recv<=0){ alert("Enter the amount received in "+to.cur+"."); return; } }
+      t={type:"transfer",date,note,postings:[{acct:from.id,amt:-amt,cur:from.cur},{acct:to.id,amt:recv,cur:to.cur}]};
+    }else{
+      const sign=sheetType==="income"?1:-1;
+      t={type:sheetType,date,note,cat:chosenCat,postings:[{acct:from.id,amt:sign*amt,cur:from.cur}]};
+      S.lastAcct=from.id;
+    }
+    const saved=addTxn(t); closeSheet(); render();
+    toast("Saved",()=>{ voidTxn(saved.id); render(); });
+  }
+  if(e.target.id==="f2"){
+    const amt=parseAmt($("#amt").value); if(amt<=0){ $("#amt").focus(); return; }
+    const a=acct($("#from").value), date=$("#date").value||today(), note=$("#note").value.trim(); let t;
+    if(sheetType==="invest"){
+      const h=S.holdings.find(x=>x.id===$("#ih").value), u=parseAmt($("#iu").value), buy=$("#ia").value==="buy";
+      if(!h||u<=0){ alert("Enter the number of units."); return; }
+      if(a.cur!==h.cur){ alert("Use an account in "+h.cur+" for this holding."); return; }
+      if(!buy && u>holdPos(h).u+1e-9){ alert("You hold only "+holdPos(h).u+" units."); return; }
+      t={type:buy?"buy":"sell",date,note,hold:h.id,units:u,cost:amt,postings:[{acct:a.id,amt:buy?-amt:amt,cur:a.cur}]};
+      if(buy&&!h.price) h.price=Math.round(amt/u*10000)/10000;
+    }else{
+      const k=$("#la").value, person=$("#lp").value.trim(); if(!person){ $("#lp").focus(); return; }
+      const m={lend:[-1,1,"lend"],lendback:[1,-1,"lendback"],borrow:[1,-1,"borrow"],repay:[-1,1,"repay"]};
+      if(m[k]) t={type:m[k][2],date,note,person,pd:m[k][1]*amt,postings:[{acct:a.id,amt:m[k][0]*amt,cur:a.cur}]};
+      else t={type:k==="intin"?"income":"expense",cat:"Interest",date,note,person,postings:[{acct:a.id,amt:(k==="intin"?1:-1)*amt,cur:a.cur}]};
+    }
+    S.lastAcct=a.id; const sv=addTxn(t); closeSheet(); render(); toast("Saved",()=>{ voidTxn(sv.id); render(); });
+  }
+  if(e.target.id==="frecon"){
+    const a=acct($("#raid").value), actual=parseAmt($("#ractual").value), date=$("#rdate").value||today(), note=$("#rnote").value.trim();
+    if(!a)return; const diff=Math.round((actual-balance(a))*100)/100;
+    if(Math.abs(diff)<0.005){closeSheet();toast("Already reconciled");return;}
+    addTxn({type:"adjustment",date,cat:"Balance adjustment",note,postings:[{acct:a.id,amt:diff,cur:a.cur}]});
+    closeSheet();render();toast("Balance reconciled");return;
+  }
+  if(e.target.id==="flend"){
+    const person=$("#lpname").value.trim(), principal=parseAmt($("#lprincipal").value), cur=$("#lcur").value, a=acct($("#laccount").value), dir=$("#ldir").value, rate=parseAmt($("#lrate").value), start=$("#lstart").value||today();
+    if(!person||principal<=0||!a){alert("Enter a person, positive amount and account.");return;}
+    if(a.cur!==cur){alert("Choose a cash account in "+cur+".");return;}
+    if(rate<0){alert("Interest rate cannot be negative.");return;}
+    const l={id:uid(),person,direction:dir,principal,rate,cur,start,account:a.id};
+    S.lending.push(l); if(!S.people.includes(person))S.people.push(person);
+    addTxn({type:dir==="lent"?"lend":"borrow",date:start,person,loanId:l.id,pd:dir==="lent"?principal:-principal,postings:[{acct:a.id,amt:dir==="lent"?-principal:principal,cur}]});
+    save();closeSheet();render();toast("Lending record saved");return;
+  }
+  if(e.target.id==="flr"){
+    const l=S.lending.find(x=>x.id===$("#lrid").value), amount=parseAmt($("#lramt").value), a=acct($("#lracct").value), date=$("#lrdate").value||today(), note=$("#lrnote").value.trim(), kind=$("#lrtype").value;
+    if(!l||amount<=0||!a){alert("Enter a positive amount and account.");return;}
+    if(a.cur!==l.cur){alert("Choose an account in "+l.cur+".");return;}
+    const p=lendingPosition(l);
+    if(kind==="principal"&&amount>p.principal+0.005){alert("Principal transaction exceeds the outstanding principal.");return;}
+    if(kind==="principal"){
+      const incoming=l.direction==="lent", typ=incoming?"lendback":"repay";
+      addTxn({type:typ,date,person:l.person,loanId:l.id,pd:incoming?-amount:amount,principalReduction:amount,postings:[{acct:a.id,amt:incoming?amount:-amount,cur:l.cur}],note});
+    }else{
+      const incoming=l.direction==="lent", typ=incoming?"income":"expense";
+      addTxn({type:typ,date,person:l.person,loanId:l.id,interestSettlement:true,cat:"Interest",postings:[{acct:a.id,amt:incoming?amount:-amount,cur:l.cur}],note});
+    }
+    save();closeSheet();render();toast("Lending transaction saved");return;
+  }
+  if(e.target.id==="fh"){ const h={id:uid(),name:$("#hn").value.trim(),type:$("#ht").value,owner:($("#ho").value.trim()||"Me"),folio:$("#hfolio").value.trim(),isin:$("#hisin").value.trim(),cur:$("#hc").value,price:0}; if(!h.name)return; S.holdings.push(h); if(!S.people.includes(h.owner))S.people.push(h.owner); log("holding",h.id); save(); closeSheet(); render(); }
+  if(e.target.id==="fp"){ const h=S.holdings.find(x=>x.id===$("#hid").value); if(h){ h.price=parseAmt($("#hp").value); save(); } closeSheet(); render(); }
+  if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today()}); save(); closeSheet(); render(); }
+  if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=parseAmt($("#su").value); if(!x||u<=0){ $("#su").focus(); return; } addTxn({type:"buy",date:x.next,note:"SIP",hold:x.hold,units:u,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]}); x.next=addM(x.next,1); save(); closeSheet(); render(); toast("SIP recorded"); }
+  if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n) return; S.policies.push({id:uid(),name:n,policyNo:$("#pno").value.trim(),provider:$("#pp").value.trim(),owner:$("#po").value||"Me",start:$("#pstart").value||"",sum:parseAmt($("#ps").value),bonus:parseAmt($("#bonus").value),premium:parseAmt($("#pa").value),ppt:parseAmt($("#ppt").value),term:parseAmt($("#pt").value),maturity:$("#mat").value||"",cur:$("#pc").value,freq:+$("#pf").value,next:$("#pd").value||today()}); save(); closeSheet(); render(); }
+  if(e.target.id==="fpay"){ const p=S.policies.find(v=>v.id===$("#pid").value), a=acct($("#pacc").value); if(!p||!a) return; if(a.cur!==p.cur){ alert("Pay from an account in "+p.cur+"."); return; } addTxn({type:"expense",date:today(),cat:"Insurance premium",note:p.name,postings:[{acct:a.id,amt:-p.premium,cur:a.cur}]}); p.next=addM(p.next,p.freq); save(); closeSheet(); render(); toast("Premium recorded"); }
+  if(e.target.id==="fpur"){ const it=$("#un").value.trim(), am=parseAmt($("#ua").value), a=acct($("#uc").value), w=Math.round(parseAmt($("#uw").value)), dt=$("#ud").value||today(); if(!it||am<=0||!a) return; addTxn({type:"expense",date:dt,cat:"Shopping",note:it,postings:[{acct:a.id,amt:-am,cur:a.cur}]}); S.purchases.push({id:uid(),item:it,date:dt,amt:am,cur:a.cur,expiry:w>0?addM(dt,w):null}); save(); closeSheet(); render(); }
+  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ a.cardMeta={last4:($("#last4")?.value||"").replace(/\D/g,"").slice(-4),network:($("#network")?.value||"").trim(),expiry:($("#expiry")?.value||"").trim(),annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="card"){a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value);} save(); } closeSheet(); render(); }
+  if(e.target.id==="fa2"){
+    const name=$("#an").value.trim(); if(!name) return;
+    let o=parseAmt($("#ao").value); const type=$("#at").value;
+    if(type==="card") o=-o;
+    const a={id:uid(),name,bank:$("#abank").value.trim(),owner:($("#aowner").value.trim()||"Me"),type,cur:$("#ac").value,opening:o,archived:false};
+    S.accounts.push(a); if(!S.people.includes(a.owner))S.people.push(a.owner); log("account",a.id); save(); closeSheet(); render();
+  }
+});
+
+function boot(){
+  let env=null, legacy=null;
+  try{ const d=JSON.parse(store.get()); if(d&&d.enc) env=d; else if(d&&d.v===1) legacy=d; }catch(e){}
+  $("#nav").innerHTML=""; $("#layer").innerHTML="";
+  $("#app").innerHTML=`<div style="padding-top:56px"><div class="big" style="font-size:26px">My Finance</div><p class="muted">${env?"Enter your passphrase to unlock your data.":"Create a passphrase. It encrypts your data on this phone and your backup files. If you forget it, nobody can recover your data."}</p><form id="pf"><input id="pp" type="password" autocomplete="off" placeholder="Passphrase">${env?"":`<input id="pp2" type="password" autocomplete="off" placeholder="Repeat passphrase" style="margin-top:8px">`}<div id="pe" class="out" style="margin-top:8px"></div><button class="btn" type="submit">${env?"Unlock":"Create and continue"}</button></form></div>`;
+  $("#pf").onsubmit=async e=>{
+    e.preventDefault(); const p=$("#pp").value, er=m=>{$("#pe").textContent=m;};
+    try{
+      if(env){ SALT=unb64(env.salt); const k=await deriveKey(p,SALT); S=await unseal(env,k); CK=k; }
+      else{
+        if(p.length<8) return er("Use at least 8 characters. A long phrase is best.");
+        if(p!==$("#pp2").value) return er("The two passphrases differ.");
+        SALT=crypto.getRandomValues(new Uint8Array(16)); CK=await deriveKey(p,SALT); S=legacy||blank();
+      }
+      migrate(); save(); render();
+    }catch(x){ S=null; CK=null; er(env?"Wrong passphrase.":"Could not set up encryption in this browser."); }
+  };
+}
+let hidAt=0;
+document.addEventListener("visibilitychange",()=>{ if(!S) return; if(document.hidden) hidAt=Date.now(); else if(Date.now()-hidAt>300000) chain=chain.then(()=>{ S=null; CK=null; boot(); }); });
+boot();
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
