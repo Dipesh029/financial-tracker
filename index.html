@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f4fd8">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -64,6 +66,16 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);ou
 .void{opacity:.5;text-decoration:line-through}
 .bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:6px}
 .bar i{display:block;height:100%;background:var(--accent)}
+.hero{background:linear-gradient(145deg,var(--accent),#526ee8);color:#fff;border:0;padding:20px;border-radius:22px;margin:10px 0 14px;box-shadow:0 8px 22px rgba(47,79,216,.18)}
+.hero .muted{color:rgba(255,255,255,.78)}.hero .big{font-size:32px;margin:8px 0}
+.metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:12px 0}
+.metric{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:12px;min-width:0}
+.metric b{display:block;font-size:17px;margin-top:4px;overflow-wrap:anywhere}
+.quick-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
+.quick-grid button{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);padding:12px 5px;font:inherit;font-size:13px;font-weight:650}
+.chart{width:100%;height:auto;display:block}.chart-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+.home-filter{margin:8px 0}.home-filter select{padding:10px}.security-note{font-size:12px;color:var(--muted);line-height:1.45}
+
 </style>
 </head>
 <body>
@@ -82,22 +94,22 @@ const store = {
   get(){ try{ return localStorage.getItem(KEY); }catch(e){ return mem[KEY] || null; } },
   set(v){ try{ localStorage.setItem(KEY, v); }catch(e){ mem[KEY] = v; } }
 };
-const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],policies:[],purchases:[],snaps:[],history:[],lending:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null});
-let S=null, CK=null, SALT=null, chain=Promise.resolve();
+const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],policies:[],purchases:[],snaps:[],history:[],lending:[],bankContacts:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null});
+let S=null, CK=null, SALT=null, BIO=null, KDF_ITER=600000, chain=Promise.resolve(), homeOwner="All family";
 const LBL={adjust:"Portfolio sync · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to "};
 function b64(u){let t="";for(const x of new Uint8Array(u))t+=String.fromCharCode(x);return btoa(t);}
 const unb64=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
-async function deriveKey(p,salt){const m=await crypto.subtle.importKey("raw",new TextEncoder().encode(p),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:250000,hash:"SHA-256"},m,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);}
-async function seal(o){const iv=crypto.getRandomValues(new Uint8Array(12));const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},CK,new TextEncoder().encode(JSON.stringify(o)));return JSON.stringify({enc:1,salt:b64(SALT),iv:b64(iv),data:b64(ct)});}
+async function deriveKey(p,salt,iterations=KDF_ITER,extractable=false){const m=await crypto.subtle.importKey("raw",new TextEncoder().encode(p),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations,hash:"SHA-256"},m,{name:"AES-GCM",length:256},extractable,["encrypt","decrypt"]);}
+async function seal(o){const iv=crypto.getRandomValues(new Uint8Array(12));const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},CK,new TextEncoder().encode(JSON.stringify(o)));return JSON.stringify({enc:2,salt:b64(SALT),iterations:KDF_ITER,iv:b64(iv),data:b64(ct),bio:BIO||null});}
 async function unseal(env,key){const ct=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(env.iv)},key,unb64(env.data));return JSON.parse(new TextDecoder().decode(ct));}
 function save(){ if(!CK||!S) return; chain=chain.then(async()=>store.set(await seal(S))).catch(()=>{}); }
 function migrate(){
-  for(const k of ["accounts","holdings","sips","policies","purchases","snaps","history","lending","people","txns","audit"]) S[k]=S[k]||[];
+  for(const k of ["accounts","holdings","sips","policies","purchases","snaps","history","lending","bankContacts","people","txns","audit"]) S[k]=S[k]||[];
   S.v=2;
-  for(const a of S.accounts){a.owner=a.owner||"Me";a.bank=a.bank||"";}
+  for(const a of S.accounts){a.owner=a.owner||"Me";a.bank=a.bank||"";a.ifsc=a.ifsc||"";a.branchCode=a.branchCode||"";a.branch=a.branch||"";}
   if(!Array.isArray(S.people)||!S.people.length)S.people=["Me","Father","Mother"];
   for(const h of S.holdings){h.owner=h.owner||"Me";h.folio=h.folio||"";h.isin=h.isin||"";}
-  for(const t of S.txns){if(t.fxRate==null)t.fxRate=S.rate||104.16;}
+  for(const t of S.txns){if(t.fxRate==null)t.fxRate=S.rate||104.16;if(!t.owner&&t.postings?.[0])t.owner=(S.accounts.find(a=>a.id===t.postings[0].acct)||{}).owner||"Me";}
 }
 function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2)); }
 function log(action, id){ S.audit.push({ts:new Date().toISOString(), action, id}); }
@@ -118,12 +130,12 @@ function balance(a){
   return Math.round(b*100)/100;
 }
 function holdPos(h){let u=0,c=0;for(const t of S.txns){if(t.status!=="posted"||t.hold!==h.id)continue;if(t.type==="buy"||t.type==="open"||t.type==="adjust"){u+=t.units;c+=t.cost;}else if(t.type==="sell"){const f=u?Math.min(1,t.units/u):0;c-=c*f;u-=t.units;}}return{u:Math.round(u*1e6)/1e6,c:Math.round(c*100)/100,v:Math.round(u*(h.price||0)*100)/100};}
-function personPos(){const m={};for(const t of S.txns){if(t.status==="posted"&&t.person&&t.pd&&t.postings?.[0])m[t.person]=(m[t.person]||0)+toDisplayAt(t.pd,t.postings[0].cur,t.fxRate);}return m;}
+function personPos(owner){const m={};for(const t of S.txns){if(t.status==="posted"&&t.person&&t.pd&&t.postings?.[0]&&(!owner||t.owner===owner))m[t.person]=(m[t.person]||0)+toDisplayAt(t.pd,t.postings[0].cur,t.fxRate);}return m;}
 function monthKey(d){ return d.slice(0,7); }
-function monthTotals(m){
+function monthTotals(m,owner){
   let inc=0, exp=0;
   for(const t of S.txns){
-    if(t.status!=="posted" || monthKey(t.date)!==m) continue;
+    if(t.status!=="posted" || monthKey(t.date)!==m || (owner&&t.owner!==owner)) continue;
     if(t.type==="income") inc += toDisplayAt(t.postings[0].amt, t.postings[0].cur,t.fxRate);
     if(t.type==="expense") exp += toDisplayAt(-t.postings[0].amt, t.postings[0].cur,t.fxRate);
     if(t.type==="refund") exp -= toDisplayAt(t.postings[0].amt, t.postings[0].cur,t.fxRate);
@@ -147,40 +159,63 @@ function render(){
   $("#app").innerHTML = v();
 }
 
-function viewHome(){ const b=viewHome0(); return S.accounts.length?b+dueHtml()+reportHtml()+historyHtml():b; }
-function netWorth(){
+function netWorth(owner){
   let assets=0,owed=0;
-  for(const a of S.accounts){if(a.archived)continue;const b=toDisplay(balance(a),a.cur);if(b>=0)assets+=b;else owed+=-b;}
-  for(const h of S.holdings){const v=holdPos(h).v;assets+=toDisplay(v,h.cur);}
-  for(const v of Object.values(personPos())){if(v>=0)assets+=v;else owed+=-v;}
+  for(const a of S.accounts){if(a.archived||(owner&&a.owner!==owner))continue;const b=toDisplay(balance(a),a.cur);if(b>=0)assets+=b;else owed+=-b;}
+  for(const h of S.holdings){if(owner&&h.owner!==owner)continue;assets+=toDisplay(holdPos(h).v,h.cur);}
+  for(const v of Object.values(personPos(owner))){if(v>=0)assets+=v;else owed+=-v;}
   return {assets,owed,total:assets-owed};
 }
-function historyHtml(){
-  const hs=(S.history||[]).slice(-12).reverse();
-  return `<h2>Net worth history</h2><div class="card">${hs.length?hs.map(x=>`<div class="row"><span>${esc(x.date)}</span><b class="num">${fmt(toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate),S.display)}</b></div>`).join(""):`<div class="muted">No saved snapshots yet.</div>`}<button class="btn alt" data-snapshot>Save this month's snapshot</button></div>`;
+function historyHtml(owner){const hs=(S.history||[]).filter(x=>owner?x.owner===owner:!x.owner).slice(-12).reverse();return `<h2>Net worth history</h2><div class="card">${hs.length?hs.map(x=>`<div class="row"><span>${esc(x.date)}</span><b class="num">${fmt(toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate),S.display)}</b></div>`).join(""):`<div class="muted">No saved snapshots yet for this view.</div>`}<button class="btn alt" data-snapshot>Save this month's snapshot</button></div>`;}
+function viewHome(){ const b=viewHome0(); return S.accounts.length?b+dueHtml()+historyHtml(homeOwner==="All family"?null:homeOwner):b; }
+function chartHtml(owner){
+  const ms=[];let d=today().slice(0,8)+"01";for(let i=5;i>=0;i--){const dt=addM(d,-i);ms.push(dt.slice(0,7));}
+  const rows=ms.map(m=>({m,...monthTotals(m,owner)}));const max=Math.max(1,...rows.map(x=>Math.max(x.inc,x.exp)));
+  const w=320,h=138,base=105,barW=13,gap=35,startX=22;
+  const bars=rows.map((x,i)=>{const x0=startX+i*gap;const hi=Math.max(1,x.inc/max*72),he=Math.max(1,x.exp/max*72);return `<rect x="${x0}" y="${base-hi}" width="11" height="${hi}" rx="3" fill="var(--in)"/><rect x="${x0+13}" y="${base-he}" width="11" height="${he}" rx="3" fill="var(--out)"/><text x="${x0+12}" y="126" text-anchor="middle" font-size="8" fill="var(--muted)">${esc(x.m.slice(5))}</text>`}).join("");
+  return `<h2>Cash flow · last 6 months</h2><div class="card"><svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Monthly income and spending bar chart"><line x1="10" y1="${base}" x2="310" y2="${base}" stroke="var(--line)"/>${bars}</svg><div class="chart-legend"><span><i class="dot" style="background:var(--in)"></i>Income</span><span><i class="dot" style="background:var(--out)"></i>Spending</span></div></div>`;
 }
+function netWorthChartHtml(owner){
+  const hs=(S.history||[]).filter(x=>owner?x.owner===owner:!x.owner).slice(-6);
+  if(hs.length<2)return `<h2>Net worth trend</h2><div class="card muted">Save at least two monthly snapshots to see your net-worth trend here.</div>`;
+  const vals=hs.map(x=>toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate));
+  const lo=Math.min(...vals),hi=Math.max(...vals),span=Math.max(1,hi-lo),w=320,h=126;
+  const pts=vals.map((v,i)=>`${18+i*(284/Math.max(1,vals.length-1))},${92-(v-lo)/span*68}`).join(' ');
+  const labels=hs.map((x,i)=>`<text x="${18+i*(284/Math.max(1,hs.length-1))}" y="112" text-anchor="middle" font-size="8" fill="var(--muted)">${esc((x.date||'').slice(0,7))}</text>`).join('');
+  return `<h2>Net worth trend</h2><div class="card"><svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Net worth history line chart"><line x1="12" y1="92" x2="308" y2="92" stroke="var(--line)"/><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${vals.map((v,i)=>`<circle cx="${18+i*(284/Math.max(1,vals.length-1))}" cy="${92-(v-lo)/span*68}" r="3.5" fill="var(--accent)"/>`).join('')}${labels}</svg><div class="muted">${fmt(vals[vals.length-1],S.display)} latest saved snapshot</div></div>`;
+}
+function allocationHtml(owner){
+  const parts=[];
+  let cash=0,invest=0,receivable=0;
+  for(const a of S.accounts){if(a.archived||(owner&&a.owner!==owner))continue;const v=toDisplay(balance(a),a.cur);if(v>0)cash+=v;}
+  for(const h of S.holdings){if(owner&&h.owner!==owner)continue;const v=toDisplay(holdPos(h).v,h.cur);if(v>0)invest+=v;}
+  for(const v of Object.values(personPos(owner)))if(v>0)receivable+=v;
+  if(cash>0)parts.push(['Cash & accounts',cash]);if(invest>0)parts.push(['Investments',invest]);if(receivable>0)parts.push(['Money lent',receivable]);
+  const total=parts.reduce((a,x)=>a+x[1],0);if(!total)return '';
+  const colors=['var(--accent)','var(--in)','var(--warn)'];let offset=0;
+  const seg=parts.map(([n,v],i)=>{const pct=v/total*100,el=`<span style="display:block;height:12px;width:${pct}%;background:${colors[i]}"></span>`;return {n,v,pct,el};});
+  return `<h2>Asset mix</h2><div class="card"><div style="display:flex;overflow:hidden;border-radius:8px;gap:2px">${seg.map(x=>x.el).join('')}</div>${seg.map((x,i)=>`<div class="row"><span><i class="dot" style="background:${colors[i]}"></i>${x.n}</span><b class="num">${fmt(x.v,S.display)} · ${Math.round(x.pct)}%</b></div>`).join('')}</div>`;
+}
+
 function viewHome0(){
-  if(!S.accounts.length) return `<div class="empty"><div class="big" style="font-size:24px;color:var(--ink)">Welcome</div><p>Add your first account to start. Everything stays on this phone.</p><button class="btn" data-newacct>Add an account</button></div>`;
-  const nw=netWorth(), assets=nw.assets, owed=nw.owed;
-  const m=monthKey(today()), t=monthTotals(m);
-  const recent=S.txns.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.created.localeCompare(a.created)).slice(0,5);
-  const cats={}; for(const x of S.txns){ if(x.status==="posted"&&x.type==="expense"&&monthKey(x.date)===m){ cats[x.cat]=(cats[x.cat]||0)+toDisplayAt(-x.postings[0].amt,x.postings[0].cur,x.fxRate);} }
-  for(const x of S.txns){ if(x.status==="posted"&&x.type==="refund"&&monthKey(x.date)===m&&cats[x.cat]!=null) cats[x.cat]-=toDisplayAt(x.postings[0].amt,x.postings[0].cur,x.fxRate); }
-  const top=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,4);
-  const max=top.length?top[0][1]:1;
-  return `
-  <h1>Net worth (${S.display})</h1>
-  <div class="big num">${fmt(assets-owed,S.display)}</div>
-  <div class="muted num">Held ${fmt(assets,S.display)} · Owed ${fmt(owed,S.display)}</div>
-  <div class="card">
-    <div class="row"><span class="muted">This month</span><button class="chip" data-toggle>${S.display==="INR"?"Show EUR":"Show INR"}</button></div>
-    <div class="row"><span>Income</span><b class="in num">${fmt(t.inc,S.display)}</b></div>
-    <div class="row"><span>Spent</span><b class="out num">${fmt(t.exp,S.display)}</b></div>
-    <div class="row"><span>Saved</span><b class="num">${fmt(t.inc-t.exp,S.display)}</b></div>
-  </div>
-  ${top.length?`<h2>Where it went</h2><div class="card">${top.map(([c,v])=>`<div style="margin:6px 0"><div class="row"><span>${esc(c)}</span><span class="num">${fmt(v,S.display)}</span></div><div class="bar"><i style="width:${Math.round(v/max*100)}%"></i></div></div>`).join("")}</div>`:""}
-  <h2>Recent</h2>
-  ${recent.length?`<div class="card">${recent.map(txnRow).join("")}</div>`:`<div class="empty">Nothing yet. Tap + to add your first transaction.</div>`}`;
+  if(!S.accounts.length) return `<div class="empty"><div class="big" style="font-size:24px;color:var(--ink)">Welcome</div><p>Add your first account to start. Everything stays encrypted on this phone.</p><button class="btn" data-newacct>Add an account</button></div>`;
+  const owners=["All family",...new Set([...S.people,...S.accounts.map(a=>a.owner||"Me"),...S.holdings.map(h=>h.owner||"Me")])];
+  if(!owners.includes(homeOwner))homeOwner="All family";
+  const owner=homeOwner==="All family"?null:homeOwner;
+  const nw=netWorth(owner),t=monthTotals(monthKey(today()),owner);
+  const recent=S.txns.filter(x=>!owner||x.owner===owner).slice().sort((a,b)=>b.date.localeCompare(a.date)||b.created.localeCompare(a.created)).slice(0,5);
+  const cats={}; for(const x of S.txns){ if(x.status==="posted"&&x.type==="expense"&&monthKey(x.date)===monthKey(today())&&(!owner||x.owner===owner)){ cats[x.cat]=(cats[x.cat]||0)+toDisplayAt(-x.postings[0].amt,x.postings[0].cur,x.fxRate);} }
+  for(const x of S.txns){ if(x.status==="posted"&&x.type==="refund"&&monthKey(x.date)===monthKey(today())&&(!owner||x.owner===owner)&&cats[x.cat]!=null) cats[x.cat]-=toDisplayAt(x.postings[0].amt,x.postings[0].cur,x.fxRate); }
+  const top=Object.entries(cats).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]).slice(0,4),max=top.length?top[0][1]:1;
+  return `<div class="home-filter"><label>Family view</label><select id="homeOwner">${owners.map(o=>`<option ${homeOwner===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>
+  <div class="hero"><div class="muted">${owner?esc(owner)+" · ":"Family net worth · "}${S.display}</div><div class="big num">${fmt(nw.total,S.display)}</div><div class="muted">Assets ${fmt(nw.assets,S.display)} · Liabilities ${fmt(nw.owed,S.display)}</div></div>
+  <div class="metric-grid"><div class="metric"><span class="muted">Income this month</span><b class="in num">${fmt(t.inc,S.display)}</b></div><div class="metric"><span class="muted">Spending this month</span><b class="out num">${fmt(t.exp,S.display)}</b></div><div class="metric"><span class="muted">Net cash flow</span><b class="num">${fmt(t.inc-t.exp,S.display)}</b></div><div class="metric"><span class="muted">Accounts</span><b>${S.accounts.filter(a=>!a.archived&&(!owner||a.owner===owner)).length}</b></div></div>
+  <div class="quick-grid"><button data-add data-quick="expense">＋ Expense</button><button data-add data-quick="income">＋ Income</button><button data-add data-quick="transfer">⇄ Transfer</button></div>
+  ${chartHtml(owner)}
+  ${allocationHtml(owner)}
+  ${netWorthChartHtml(owner)}
+  ${top.length?`<h2>Spending categories</h2><div class="card">${top.map(([c,v])=>`<div style="margin:8px 0"><div class="row"><span>${esc(c)}</span><b class="num">${fmt(v,S.display)}</b></div><div class="bar"><i style="width:${Math.min(100,Math.round(v/max*100))}%"></i></div></div>`).join("")}</div>`:""}
+  <h2>Recent activity</h2>${recent.length?`<div class="card">${recent.map(txnRow).join("")}</div>`:`<div class="empty">No transactions yet. Tap + to add your first one.</div>`}`;
 }
 
 function txnRow(t){
@@ -207,19 +242,41 @@ function viewAccounts(){
   return `<h2 style="margin-top:4px">Accounts</h2>
   ${S.accounts.length?"":`<div class="empty">No accounts yet.</div>`}
   ${S.accounts.filter(a=>!a.archived).map(a=>{ const b=balance(a);
-    return `<div class="card" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · ${a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank"}${a.bank?" · "+esc(a.bank):""}${a.cardMeta?.last4?" · •••• "+esc(a.cardMeta.last4):""} · ${a.cur}${a.type==="card"&&a.limit?` · ${Math.round(Math.max(0,-b)/a.limit*100)}% of limit used`:""}</div></div>
+    return `<div class="card" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · ${a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank"}${a.bank?" · "+esc(a.bank):""}${a.ifsc?" · IFSC "+esc(a.ifsc):""}${a.branchCode?" · Branch "+esc(a.branchCode):""}${a.cardMeta?.last4?" · •••• "+esc(a.cardMeta.last4):""} · ${a.cur}${a.type==="card"&&a.limit?` · ${Math.round(Math.max(0,-b)/a.limit*100)}% of limit used`:""}</div></div>
     <div style="text-align:right"><b class="num ${b<0?"out":""}">${fmt(b,a.cur)}</b>${a.type==="card"&&b<0?`<div class="muted">outstanding</div>`:""}</div></div></div>`; }).join("")}
   <button class="btn" data-newacct>Add account</button>
+  <h2>Friends & contacts bank accounts</h2>
+  <p class="muted">Save recipient bank details here. They are encrypted with the rest of your local vault and are reference details only; transfers to them do not change your own account balances automatically.</p>
+  ${S.bankContacts.map(b=>`<div class="card"><div class="row"><div><b>${esc(b.person)} · ${esc(b.bank)}</b><div class="muted">${esc(b.holder)} · ${esc(b.accountMasked||"Account saved")} · ${esc(b.cur)}${b.ifsc?" · IFSC "+esc(b.ifsc):""}${b.branchCode?" · Branch "+esc(b.branchCode):""}</div></div><button class="chip" data-delbank="${b.id}">Remove</button></div></div>`).join("")||`<div class="muted">No recipient accounts saved.</div>`}
+  <button class="btn alt" data-newbank>Add friend / recipient bank account</button>
   <h2>Investments</h2>${S.holdings.map(h=>{const p=holdPos(h);return `<div class="card" data-hold="${h.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted num">${p.u} units · cost ${fmt(p.c,h.cur)}</div></div><div style="text-align:right"><b class="num">${fmt(p.v,h.cur)}</b><div class="muted num ${p.v-p.c<0?"out":"in"}">${h.price?fmt(p.v-p.c,h.cur):"set price"}</div></div></div></div>`}).join("")||`<div class="muted">No holdings yet.</div>`}
   <button class="btn alt" data-newhold>Add fund or stock</button>
   ${S.snaps.length>1?`<div class="muted" style="margin-top:8px">Stock portfolio at each import:<br>${S.snaps.slice(-5).map(x=>x.date+" · value "+fmt(x.val,"INR")+" · invested "+fmt(x.inv,"INR")).join("<br>")}</div>`:""}
   <h2>People (lending)</h2>${Object.entries(personPos()).map(([n,v])=>`<div class="card"><div class="row"><b>${esc(n)}</b><b class="num ${v<0?"out":"in"}">${v<0?"You owe ":"Owes you "}${fmt(Math.abs(v),S.display)}</b></div></div>`).join("")||`<div class="muted">Record a loan with + then Lend.</div>`}`;
 }
 
+function readmeHtml(){return `<h2 style="margin-top:0">My Finance · App guide</h2>
+<div class="card"><b>1. Home dashboard</b><p class="muted">Shows net worth, assets, liabilities, monthly income and spending, six-month cash flow chart, asset mix and recent activity. Use the owner filter to view one family member or everyone. Save monthly net-worth snapshots to build the trend chart.</p></div>
+<div class="card"><b>2. Accounts and cards</b><p class="muted">Create bank, cash and credit-card accounts with owner and currency. Bank accounts support bank/provider, branch, IFSC and branch code. Open an account to maintain linked debit-card details or credit-card number suffix, network, expiry, annual fee, credit limit, statement day and due day. Only the last four card digits are saved; CVV/CVC and PIN are never stored.</p></div>
+<div class="card"><b>3. Friends / recipient bank accounts</b><p class="muted">Save a friend's account holder, bank, account number/IBAN, IFSC, branch, branch code and currency. Select a saved recipient while recording a transfer. This is a reference record; external transfers do not automatically update balances or contact banks.</p></div>
+<div class="card"><b>4. Transactions</b><p class="muted">Record income, expenses and transfers. Transfers between your own accounts are balance movements, not income or expenses. You can edit ordinary transactions, record refunds, void and restore entries, export/import transaction CSV and reconcile account balances.</p></div>
+<div class="card"><b>5. Investments and SIPs</b><p class="muted">Track mutual funds and stocks, owners, folios/identifiers, ISIN, units, cost and manually updated prices. Record buy/sell activity, import supported stock holdings files, and set SIP reminders. A SIP reminder never creates a transaction until you confirm the debit and units.</p></div>
+<div class="card"><b>6. Insurance</b><p class="muted">Track policy number, provider, owner, commencement, premium, payment frequency, premium-paying term, policy term, sum assured, bonus, maturity and next due date. Mark premiums paid to record the expense.</p></div>
+<div class="card"><b>7. Friends and family lending</b><p class="muted">Record money lent or borrowed, principal repayments and interest settlements. Principal is not income/expense; interest is. Interest outstanding is an estimate using simple interest on remaining principal and does not model every daily rate change or compounding convention.</p></div>
+<div class="card"><b>8. Purchases and warranties</b><p class="muted">Record purchased items, payment account, amount, date and warranty duration; see upcoming/expired warranty dates.</p></div>
+<div class="card"><b>9. Reports, currency and history</b><p class="muted">Change display currency and maintain the EUR/INR rate. Transactions preserve an FX rate at entry; old rates cannot be reconstructed if missing. Save monthly net-worth snapshots for trend reporting.</p></div>
+<div class="card"><b>10. Security, backups and limitations</b><p class="muted">The vault is encrypted locally with AES-256-GCM. Passphrase-derived keys use PBKDF2-HMAC-SHA-256 (600,000 iterations for new vaults). Biometric unlock depends on device/browser support. Save encrypted backups regularly. There is no cloud sync, live bank feed, live market-price feed or native push notification. This app has not undergone an independent security audit. Keep the app on HTTPS and protect your phone.</p></div>
+<div class="card"><b>11. Important accounting behaviour</b><p class="muted">Credit-card purchases increase card liability and count as expenses. Paying a credit-card bill reduces bank balance and card liability; it is not a second expense. Own-account transfers are not income/expense. Loan principal is not income/expense. Reconciliation posts an adjustment rather than silently changing history.</p></div>
+<button class="btn alt" data-close>Close guide</button>`;}
+
 function viewSettings(){
   return `<h2 style="margin-top:4px">Settings</h2>
   <div class="card"><label style="margin-top:0">Exchange rate: INR per 1 EUR</label>
   <input id="rate" inputmode="decimal" value="${S.rate}"><div class="muted" style="margin-top:6px">Used only to show totals in one currency. Each account keeps its own currency.</div></div>
+  <div class="card"><b>Security</b><div class="muted">AES-256-GCM encrypted vault. New passphrases use PBKDF2-HMAC-SHA-256 with 600,000 iterations. Your passphrase is never stored.</div>
+  <button class="btn alt" data-change-pass>Change passphrase</button>
+  ${BIO?`<div class="muted" style="margin-top:10px">Fingerprint / device passkey unlock is enabled on this device.</div><button class="btn alt" data-bio-disable>Disable biometric unlock</button>`:`<button class="btn alt" data-bio-enable>Enable fingerprint / passkey unlock</button>`}
+  <div class="security-note">Biometric unlock uses the WebAuthn PRF extension when supported by your Android device and browser. It wraps the encryption key; fingerprint data never leaves Android. If unsupported, the passphrase remains available. Keep a strong passphrase and encrypted backup as recovery.</div></div>
   <div class="card"><b>Backup</b><div class="muted">Your data is encrypted with your passphrase and stored locally in this browser on this phone. There is no automatic cloud sync in this version. Save encrypted backup files regularly and store them somewhere safe; you need the passphrase to restore them.</div>
   <button class="btn" data-export>Save backup file</button>
   <button class="btn alt" data-csv>Export transactions (CSV)</button>
@@ -230,6 +287,7 @@ function viewSettings(){
   <input type="file" id="file" accept="*/*" hidden></div>
   <div class="card"><b>Check my data</b><div class="muted">Confirms every transaction balances and points at a real account.</div>
   <button class="btn alt" data-check>Run check</button></div>
+  <div class="card"><b>App guide / README</b><div class="muted">A guide to the features, how calculations work, and important limitations.</div><button class="btn alt" data-readme>Open app guide</button></div>
   <div class="card"><b>Erase everything</b><div class="muted">Deletes all data on this phone. Save a backup first.</div>
   <button class="btn danger" data-wipe>Erase all data</button></div>`;
 }
@@ -259,7 +317,7 @@ function addSheet(){
     ${sheetType==="transfer"?`
       <label>From</label><select id="from">${opts(def)}</select>
       <label>To</label><select id="to">${opts(other?other.id:def)}</select>
-      <div id="recvWrap"></div>`:`
+      <label>Recipient bank account (optional)</label><select id="recipientBank"><option value="">Not specified / own account transfer</option>${S.bankContacts.map(b=>`<option value="${b.id}">${esc(b.person)} · ${esc(b.bank)} · ${esc(b.accountMasked||"")}</option>`).join("")}</select><div id="recvWrap"></div>`:`
       <label>Category</label><div class="chips" id="cats">${cats.map(c=>`<button type="button" class="chip ${c===chosenCat?"on":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}</div>
       <label>${sheetType==="income"?"Into account":"From account"}</label><select id="from">${opts(def)}</select>`}
     <label>Date</label><input type="date" id="date" value="${today()}">
@@ -409,6 +467,9 @@ function newAcctSheet(){
   <form id="fa2" autocomplete="off">
   <label>Account nickname</label><input id="an" placeholder="e.g. ING current" required>
   <label>Bank / provider (optional)</label><input id="abank" placeholder="e.g. ING, HDFC, SBI">
+  <label>Branch name (optional)</label><input id="abranch" placeholder="Branch name">
+  <label>IFSC code (India, optional)</label><input id="aifsc" autocapitalize="characters" placeholder="e.g. HDFC0001234">
+  <label>Branch code (optional)</label><input id="abranchcode" placeholder="Branch code">
   <label>Owner</label><input id="aowner" list="owners" value="Me"><datalist id="owners">${S.people.map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
   <label>Type</label><select id="at"><option value="bank">Bank account</option><option value="cash">Cash</option><option value="card">Credit card</option></select>
   <label>Currency</label><select id="ac"><option>EUR</option><option>INR</option></select>
@@ -425,8 +486,8 @@ function txnSheet(id){
   openSheet(`<h2 style="margin-top:0">${esc(t.type==="transfer"?"Transfer":(t.cat||t.type))}</h2>
   <div class="muted">${esc(t.date)} · ${t.status}</div>
   <div class="big num" style="font-size:28px">${fmt(Math.abs(p.amt),p.cur)}</div>
-  ${t.note?`<p>${esc(t.note)}</p>`:""}
-  ${t.status==="posted"?`${t.type==="expense"?`<button class="btn alt" data-refund="${t.id}">Record a refund</button>`:""}<button class="btn danger" data-void="${t.id}">Void this transaction</button><div class="muted" style="margin-top:6px">Voiding keeps the record but removes it from balances and reports.</div>`:`<button class="btn" data-restore="${t.id}">Restore</button>`}
+  ${t.note?`<p>${esc(t.note)}</p>`:""}${t.recipientBank?`<div class="muted">Recipient: ${esc(t.recipientBank.person)} · ${esc(t.recipientBank.bank)} · ${esc(t.recipientBank.accountMasked||"")}${t.recipientBank.ifsc?" · IFSC "+esc(t.recipientBank.ifsc):""}</div>`:""}
+  ${t.status==="posted"?`${["income","expense","transfer"].includes(t.type)&&!t.loanId&&!t.hold&&!t.sip?`<button class="btn alt" data-edit="${t.id}">Edit transaction</button>`:""}${t.type==="expense"?`<button class="btn alt" data-refund="${t.id}">Record a refund</button>`:""}<button class="btn danger" data-void="${t.id}">Void this transaction</button><div class="muted" style="margin-top:6px">Voiding keeps the record but removes it from balances and reports.</div>`:`<button class="btn" data-restore="${t.id}">Restore</button>`}
   <button class="btn alt" data-close>Close</button>`);
 }
 
@@ -436,10 +497,13 @@ function acctSheet(id){
   <div class="big num" style="font-size:28px">${fmt(balance(a),a.cur)}</div>
   <div class="muted">${esc(a.owner||"Me")} ${a.bank?"· "+esc(a.bank):""}</div>
   <form id="fcard"><input type="hidden" id="cid" value="${a.id}">
+  ${a.type==="bank"?`<b>Bank account details</b><label>Bank / provider</label><input id="abankEdit" value="${esc(a.bank||"")}"><label>Branch name</label><input id="abranchEdit" value="${esc(a.branch||"")}"><label>IFSC code</label><input id="aifscEdit" autocapitalize="characters" value="${esc(a.ifsc||"")}"><label>Branch code</label><input id="abranchcodeEdit" value="${esc(a.branchCode||"")}">`:""}
   <b>${a.type==="card"?"Credit card details":"Linked debit card details (optional)"}</b>
-  <label>Card last 4 digits only</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc((a.cardMeta||{}).last4||"")}">
+  <label>Card number (only last four digits are saved)</label><input id="cardnumber" inputmode="numeric" autocomplete="off" maxlength="23" placeholder="Enter card number to update last four digits">
+  <label>Saved last 4 digits</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc((a.cardMeta||{}).last4||"")}">
   <label>Network</label><input id="network" value="${esc((a.cardMeta||{}).network||"")}" placeholder="Visa / Mastercard">
-  <label>Expiry (MM/YY)</label><input id="expiry" value="${esc((a.cardMeta||{}).expiry||"")}" placeholder="MM/YY">
+  <label>Expiry (MM/YY)</label><input id="expiry" inputmode="numeric" value="${esc((a.cardMeta||{}).expiry||"")}" placeholder="MM/YY">
+  <div class="muted">For safety, CVV/CVC is never collected or stored. Do not enter your PIN or full card details into notes.</div>
   <label>Annual fee</label><input id="annualFee" inputmode="decimal" value="${(a.cardMeta||{}).annualFee||""}">
   ${a.type==="card"?`<label>Credit limit</label><input id="cl" inputmode="decimal" value="${a.limit||""}"><label>Statement day of month</label><input id="cs" inputmode="numeric" value="${a.stmtDay||""}"><label>Payment due day of month</label><input id="cd" inputmode="numeric" value="${a.dueDay||""}">`:""}
   <button class="btn alt" type="submit">Save card details</button></form><button class="btn alt" data-reconcile="${a.id}">Reconcile balance</button><button class="btn alt" data-filter="${a.id}">See transactions</button>
@@ -447,6 +511,39 @@ function acctSheet(id){
   <button class="btn alt" data-close>Close</button>`);
 }
 
+function txnEditSheet(id){
+  const t=S.txns.find(x=>x.id===id);if(!t||t.status!=="posted")return;
+  const p=t.postings[0]||{},isTransfer=t.type==="transfer",a=acct(p.acct),to=isTransfer?acct(t.postings[1]?.acct):null;
+  const opts=(sel)=>S.accounts.filter(x=>!x.archived).map(x=>`<option value="${x.id}" ${x.id===sel?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("");
+  openSheet(`<h2 style="margin-top:0">Edit transaction</h2><form id="fedit"><input type="hidden" id="editId" value="${id}"><label>Date</label><input id="edDate" type="date" value="${esc(t.date)}" required>
+  ${isTransfer?`<label>From account</label><select id="edFrom">${opts(p.acct)}</select><label>To account</label><select id="edTo">${opts(t.postings[1]?.acct)}</select><label>Amount sent</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}"><label>Amount received (only if currencies differ)</label><input id="edRecv" inputmode="decimal" value="${Math.abs(t.postings[1]?.amt||0)}">`:`<label>Category</label><input id="edCat" value="${esc(t.cat||"")}" required><label>Account</label><select id="edFrom">${opts(p.acct)}</select><label>Amount</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}" required>`}
+  <label>Note</label><input id="edNote" maxlength="80" value="${esc(t.note||"")}"><button class="btn" type="submit">Save changes</button></form>`);
+}
+function passphraseSheet(){openSheet(`<h2 style="margin-top:0">Change passphrase</h2><p class="muted">Your data will be re-encrypted with a new random salt and key. The old passphrase will no longer unlock this copy.</p><form id="fpass"><label>Current passphrase</label><input id="oldPass" type="password" autocomplete="current-password" required><label>New passphrase (at least 12 characters recommended)</label><input id="newPass" type="password" autocomplete="new-password" required><label>Repeat new passphrase</label><input id="newPass2" type="password" autocomplete="new-password" required><button class="btn" type="submit">Re-encrypt and change</button></form>`);}
+function bytesToB64u(b){return b64(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"");}
+function b64uToBytes(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";return unb64(s);}
+async function biometricPRF(bio){
+  const assertion=await navigator.credentials.get({publicKey:{challenge:crypto.getRandomValues(new Uint8Array(32)),rpId:bio.rpId,allowCredentials:[{type:"public-key",id:b64uToBytes(bio.credentialId)}],userVerification:"required",extensions:{prf:{eval:{first:unb64(bio.salt)}}}}});
+  const out=assertion?.getClientExtensionResults?.().prf?.results?.first;if(!out)throw new Error("This authenticator did not return a PRF result.");return new Uint8Array(out);
+}
+async function biometricWrapKey(prf){const master=await crypto.subtle.importKey("raw",prf,"HKDF",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"HKDF",salt:new Uint8Array(),hash:"SHA-256",info:new TextEncoder().encode("MyFinance biometric key wrap v1")},master,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);}
+async function enableBiometric(){
+  if(!isSecureContext||!window.PublicKeyCredential||!navigator.credentials?.create)throw new Error("Fingerprint unlock requires the installed app to be served over HTTPS in a compatible browser.");
+  const pass=prompt("Enter your current finance-app passphrase to enable fingerprint unlock:");if(!pass)return;
+  const rawKey=await deriveKey(pass,SALT,KDF_ITER,true);await unseal(JSON.parse(store.get()),rawKey);
+  const rpId=location.hostname,challenge=crypto.getRandomValues(new Uint8Array(32)),userId=crypto.getRandomValues(new Uint8Array(16));
+  const cred=await navigator.credentials.create({publicKey:{challenge,rp:{name:"My Finance",id:rpId},user:{id:userId,name:"local-user",displayName:"My Finance user"},pubKeyCredParams:[{type:"public-key",alg:-7},{type:"public-key",alg:-257}],authenticatorSelection:{authenticatorAttachment:"platform",residentKey:"preferred",userVerification:"required"},timeout:60000,attestation:"none",extensions:{prf:{}}}});
+  if(!cred?.getClientExtensionResults?.().prf?.enabled)throw new Error("This device or browser does not support the WebAuthn PRF feature required for secure biometric key unlock.");
+  const salt=crypto.getRandomValues(new Uint8Array(32)),bio={credentialId:cred.id,rpId,salt:b64(salt)};
+  const prf=await biometricPRF(bio),wrap=await biometricWrapKey(prf),raw=await crypto.subtle.exportKey("raw",rawKey),iv=crypto.getRandomValues(new Uint8Array(12));
+  const wrapped=await crypto.subtle.encrypt({name:"AES-GCM",iv,additionalData:new TextEncoder().encode("myfinance-biometric-v1")},wrap,raw);
+  BIO={...bio,iv:b64(iv),wrapped:b64(wrapped)};CK=await deriveKey(pass,SALT,KDF_ITER,false);save();render();toast("Fingerprint unlock enabled");
+}
+async function unlockBiometric(){
+  const env=JSON.parse(store.get());if(!env?.bio)throw new Error("No biometric key is configured.");
+  const bio=env.bio,prf=await biometricPRF(bio),wrap=await biometricWrapKey(prf),raw=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(bio.iv),additionalData:new TextEncoder().encode("myfinance-biometric-v1")},wrap,unb64(bio.wrapped));
+  CK=await crypto.subtle.importKey("raw",raw,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);SALT=unb64(env.salt);KDF_ITER=env.iterations||250000;BIO=bio;S=await unseal(env,CK);migrate();save();render();
+}
 /* ---------- integrity check ---------- */
 function runCheck(){
   const issues=[]; const ids=new Set();
@@ -481,20 +578,23 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e=>{
-  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if("close" in d){ if(el.classList.contains("sheet-bg") && e.target!==el) return; closeSheet(); return; }
   if(d.tab){ tab=d.tab; render(); window.scrollTo(0,0); return; }
-  if("add" in d){ addSheet(); return; }
+  if("add" in d){ if(el.dataset.quick){sheetType=el.dataset.quick;chosenCat=null;} addSheet(); return; }
   if(d.type){ sheetType=d.type; addSheet(); return; }
   if(d.cat){ chosenCat=d.cat; document.querySelectorAll("#cats .chip").forEach(c=>c.classList.toggle("on",c.dataset.cat===chosenCat)); return; }
   if("toggle" in d){ S.display=S.display==="INR"?"EUR":"INR"; save(); render(); return; }
-  if("snapshot" in d){ const nw=netWorth().total, m=today().slice(0,7); const old=S.history.find(x=>x.month===m); if(old){old.value=nw;old.date=today();old.cur=S.display;old.fxRate=S.rate;}else S.history.push({month:m,date:today(),value:nw,cur:S.display,fxRate:S.rate}); save(); render(); toast("Net worth snapshot saved"); return; }
+  if("snapshot" in d){ const owner=homeOwner==="All family"?null:homeOwner,nw=netWorth(owner).total,m=today().slice(0,7); const old=S.history.find(x=>x.month===m&&(x.owner||null)===owner); if(old){old.value=nw;old.date=today();old.cur=S.display;old.fxRate=S.rate;}else S.history.push({month:m,date:today(),value:nw,cur:S.display,fxRate:S.rate,owner}); save(); render(); toast("Net worth snapshot saved"); return; }
   if("newlend" in d){newLendingSheet();return;}
   if(d.lendrec){lendingPaymentSheet(d.lendrec);return;}
   if(d.reconcile){const a=acct(d.reconcile);if(!a)return;openSheet(`<h2 style="margin-top:0">Reconcile ${esc(a.name)}</h2><div class="muted">Current recorded balance: ${fmt(balance(a),a.cur)}</div><form id="frecon"><input type="hidden" id="raid" value="${a.id}"><label>Actual balance from bank / statement</label><input id="ractual" inputmode="decimal" required><label>Date</label><input id="rdate" type="date" value="${today()}"><label>Note</label><input id="rnote" value="Balance reconciliation"><button class="btn" type="submit">Post adjustment</button></form>`);return;}
   if("newacct" in d){ newAcctSheet(); return; }
+  if("newbank" in d){ openSheet(`<h2 style="margin-top:0">Friend / recipient bank account</h2><form id="fbank"><label>Person / recipient name</label><input id="bp" required placeholder="e.g. Rahul Sharma"><label>Account holder name</label><input id="bh" required><label>Bank name</label><input id="bb" required><label>Account number / IBAN</label><input id="ba" required autocomplete="off"><label>IFSC code (India)</label><input id="bi" autocapitalize="characters"><label>Branch name</label><input id="br"><label>Branch code</label><input id="bc"><label>Currency</label><select id="bcur"><option>INR</option><option>EUR</option></select><label>Nickname (optional)</label><input id="bn"><div class="security-note">These details are stored inside your encrypted vault. The account number is masked in lists, but is present in encrypted backup data.</div><button class="btn" type="submit">Save recipient account</button></form>`);return; }
+  if(d.delbank){if(confirm("Remove this saved recipient bank account? Past transfers keep their recorded reference text only.")){S.bankContacts=S.bankContacts.filter(x=>x.id!==d.delbank);save();render();}return;}
+  if("readme" in d){openSheet(readmeHtml());return;}
   if("newsip" in d){ if(!S.holdings.some(h=>h.type==="fund")){ alert("Add a mutual fund first, under Money."); return; } fs("New SIP","fs1",[["sh","Fund","select",S.holdings.filter(h=>h.type==="fund").map(h=>[h.id,h.name])],["sa","Debit account","select",accOpts()],["sm","Amount","num"],["sf","Frequency","select",[["1","Monthly"],["3","Quarterly"],["6","Half-yearly"],["12","Yearly"]]],["sd","Next debit date","date"]],"Save SIP"); return; }
   if(d.sip){ const x=S.sips.find(v=>v.id===d.sip); if(!x) return; const h=S.holdings.find(v=>v.id===x.hold)||{}; openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2><div class="muted">${fmt(x.amt,x.cur)} due ${x.next}. Record it only if the money was actually debited.</div><form id="fsu"><input type="hidden" id="sid" value="${x.id}"><label>Units allotted</label><input id="su" inputmode="decimal"><button class="btn" type="submit">Debited</button></form><button class="btn alt" data-sipfail="${x.id}">Failed or skipped</button><button class="btn alt" data-close>Close</button>`); return; }
   if(d.sipfail){ const x=S.sips.find(v=>v.id===d.sipfail); if(x){ x.next=addM(x.next,x.freq||1); log("sipfail",x.id); save(); } closeSheet(); render(); return; }
@@ -517,6 +617,11 @@ document.addEventListener("click", e=>{
   if(d.restore){ unvoid(d.restore); closeSheet(); render(); return; }
   if(d.filter){ filterAcct=d.filter; tab="activity"; closeSheet(); render(); return; }
   if(d.archive){ const a=acct(d.archive); if(a){ a.archived=true; log("archive",a.id); save(); } closeSheet(); render(); return; }
+  if(d.edit){txnEditSheet(d.edit);return;}
+  if("changePass" in d){passphraseSheet();return;}
+  if("bioEnable" in d){enableBiometric().catch(e=>alert("Could not enable fingerprint unlock: "+(e.message||e)));return;}
+  if("bioDisable" in d){if(confirm("Disable fingerprint unlock? Your passphrase will still work.")){BIO=null;save();render();toast("Fingerprint unlock disabled");}return;}
+  if("bioUnlock" in d){unlockBiometric().catch(e=>{const el=$("#pe");if(el)el.textContent="Fingerprint unlock failed. Use your passphrase. "+(e.message||"");});return;}
   if("export" in d){ exportJSON(); return; }
   if("csv" in d){ exportCSV(); return; }
   if("import" in d){ $("#file").click(); return; }
@@ -526,6 +631,7 @@ document.addEventListener("click", e=>{
 
 document.addEventListener("change", e=>{
   if(e.target.id==="fa"){ filterAcct=e.target.value; render(); }
+  if(e.target.id==="homeOwner"){homeOwner=e.target.value;render();}
   if(e.target.id==="hf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>holdParse(rd.result); rd.readAsText(fl); return; }
   if(e.target.id==="csvf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>importCSV(String(rd.result)); rd.readAsText(fl); e.target.value=""; return; }
   if(e.target.id==="rate"){ const r=parseAmt(e.target.value); if(r>0){ S.rate=r; save(); toast("Rate saved"); } }
@@ -534,9 +640,9 @@ document.addEventListener("change", e=>{
     const f=e.target.files[0]; if(!f) return;
     const rd=new FileReader();
     rd.onload=async()=>{ try{ let d=JSON.parse(rd.result);
-        if(d&&d.enc){ const pw=prompt("Passphrase for this backup:"); if(!pw) return; d=await unseal(d,await deriveKey(pw,unb64(d.salt))); }
+        let importedKey=null, importedSalt=null, importedIter=KDF_ITER, importedBio=null, importedPassword=""; if(d&&d.enc){ const pw=prompt("Passphrase for this backup:"); if(!pw) return; importedPassword=pw; importedSalt=unb64(d.salt); importedIter=d.iterations||250000; importedKey=await deriveKey(pw,importedSalt,importedIter,false); const env=d; d=await unseal(env,importedKey); importedBio=env.bio||null; }
         if(!d||![1,2].includes(d.v)||!Array.isArray(d.accounts)||!Array.isArray(d.txns)) throw new Error("bad");
-        if(confirm(`Replace current data with this backup (${d.accounts.length} accounts, ${d.txns.length} transactions)?`)){ S=d; migrate(); save(); render(); toast("Backup restored"); }
+        if(confirm(`Replace current data with this backup (${d.accounts.length} accounts, ${d.txns.length} transactions)?`)){ S=d; if(importedKey){CK=importedKey;SALT=importedSalt;KDF_ITER=importedIter;BIO=importedBio;if(KDF_ITER<600000){SALT=crypto.getRandomValues(new Uint8Array(16));KDF_ITER=600000;CK=await deriveKey(importedPassword,SALT,KDF_ITER,false);BIO=null;}} migrate(); save(); render(); toast("Backup restored"); }
       }catch(err){ alert("Could not open that file. Check the passphrase and the file."); } };
     rd.readAsText(f); e.target.value="";
   }
@@ -545,6 +651,18 @@ document.addEventListener("input", e=>{ if(e.target.id==="q"){ q=e.target.value;
 
 document.addEventListener("submit", e=>{
   e.preventDefault();
+  if(e.target.id==="fedit"){
+    const t=S.txns.find(x=>x.id===$("#editId").value);if(!t||t.status!=="posted")return;
+    const a=acct($("#edFrom").value),amt=parseAmt($("#edAmt").value),date=$("#edDate").value||today(),note=$("#edNote").value.trim();if(!a||amt<=0){alert("Choose a valid account and positive amount.");return;}
+    if(t.type==="transfer"){
+      const to=acct($("#edTo").value);if(!to||to.id===a.id){alert("Choose two different accounts.");return;}let recv=amt;if(a.cur!==to.cur){recv=parseAmt($("#edRecv").value);if(recv<=0){alert("Enter the amount received in the destination currency.");return;}}
+      t.postings=[{acct:a.id,amt:-amt,cur:a.cur},{acct:to.id,amt:recv,cur:to.cur}];
+    }else{if(t.postings[0]?.cur!==a.cur)t.fxRate=S.rate;t.postings=[{acct:a.id,amt:t.type==="income"?amt:-amt,cur:a.cur}];t.cat=$("#edCat").value.trim();}
+    t.date=date;t.note=note;if(!t.fxRate)t.fxRate=S.rate;t.owner=a.owner||"Me";log("edit",t.id);save();closeSheet();render();toast("Transaction updated");return;
+  }
+  if(e.target.id==="fpass"){
+    (async()=>{try{const old=$("#oldPass").value,n1=$("#newPass").value,n2=$("#newPass2").value;if(n1.length<12)throw new Error("Use at least 12 characters for the new passphrase.");if(n1!==n2)throw new Error("The new passphrases do not match.");const oldKey=await deriveKey(old,SALT,KDF_ITER,false);await unseal(JSON.parse(store.get()),oldKey);const nextSalt=crypto.getRandomValues(new Uint8Array(16)),nextKey=await deriveKey(n1,nextSalt,KDF_ITER,false);await chain;SALT=nextSalt;CK=nextKey;BIO=null;const env=await seal(S);store.set(env);chain=Promise.resolve();toast("Passphrase changed. Fingerprint unlock was disabled; enable it again if desired.");closeSheet();render();}catch(err){alert("Passphrase not changed: "+(err.message||"verification failed"));}})();return;
+  }
   if(e.target.id==="f"){
     const amt=parseAmt($("#amt").value);
     if(amt<=0){ $("#amt").focus(); return; }
@@ -556,7 +674,7 @@ document.addEventListener("submit", e=>{
       if(!to||from.id===to.id){ alert("Choose two different accounts."); return; }
       let recv=amt;
       if(from.cur!==to.cur){ recv=parseAmt(($("#recv")||{}).value); if(recv<=0){ alert("Enter the amount received in "+to.cur+"."); return; } }
-      t={type:"transfer",date,note,postings:[{acct:from.id,amt:-amt,cur:from.cur},{acct:to.id,amt:recv,cur:to.cur}]};
+      t={type:"transfer",date,note,recipientBankId:$("#recipientBank")?.value||"",recipientBank:(()=>{const b=S.bankContacts.find(x=>x.id===$("#recipientBank")?.value);return b?{person:b.person,bank:b.bank,accountMasked:b.accountMasked,ifsc:b.ifsc||"",branch:b.branch||"",branchCode:b.branchCode||""}:null;})(),postings:[{acct:from.id,amt:-amt,cur:from.cur},{acct:to.id,amt:recv,cur:to.cur}]};
     }else{
       const sign=sheetType==="income"?1:-1;
       t={type:sheetType,date,note,cat:chosenCat,postings:[{acct:from.id,amt:sign*amt,cur:from.cur}]};
@@ -618,16 +736,17 @@ document.addEventListener("submit", e=>{
   if(e.target.id==="fh"){ const h={id:uid(),name:$("#hn").value.trim(),type:$("#ht").value,owner:($("#ho").value.trim()||"Me"),folio:$("#hfolio").value.trim(),isin:$("#hisin").value.trim(),cur:$("#hc").value,price:0}; if(!h.name)return; S.holdings.push(h); if(!S.people.includes(h.owner))S.people.push(h.owner); log("holding",h.id); save(); closeSheet(); render(); }
   if(e.target.id==="fp"){ const h=S.holdings.find(x=>x.id===$("#hid").value); if(h){ h.price=parseAmt($("#hp").value); save(); } closeSheet(); render(); }
   if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today()}); save(); closeSheet(); render(); }
-  if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=parseAmt($("#su").value); if(!x||u<=0){ $("#su").focus(); return; } addTxn({type:"buy",date:x.next,note:"SIP",hold:x.hold,units:u,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]}); x.next=addM(x.next,1); save(); closeSheet(); render(); toast("SIP recorded"); }
+  if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=parseAmt($("#su").value); if(!x||u<=0){ $("#su").focus(); return; } addTxn({type:"buy",date:x.next,note:"SIP",hold:x.hold,units:u,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]}); x.next=addM(x.next,x.freq||1); save(); closeSheet(); render(); toast("SIP recorded"); }
   if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n) return; S.policies.push({id:uid(),name:n,policyNo:$("#pno").value.trim(),provider:$("#pp").value.trim(),owner:$("#po").value||"Me",start:$("#pstart").value||"",sum:parseAmt($("#ps").value),bonus:parseAmt($("#bonus").value),premium:parseAmt($("#pa").value),ppt:parseAmt($("#ppt").value),term:parseAmt($("#pt").value),maturity:$("#mat").value||"",cur:$("#pc").value,freq:+$("#pf").value,next:$("#pd").value||today()}); save(); closeSheet(); render(); }
   if(e.target.id==="fpay"){ const p=S.policies.find(v=>v.id===$("#pid").value), a=acct($("#pacc").value); if(!p||!a) return; if(a.cur!==p.cur){ alert("Pay from an account in "+p.cur+"."); return; } addTxn({type:"expense",date:today(),cat:"Insurance premium",note:p.name,postings:[{acct:a.id,amt:-p.premium,cur:a.cur}]}); p.next=addM(p.next,p.freq); save(); closeSheet(); render(); toast("Premium recorded"); }
   if(e.target.id==="fpur"){ const it=$("#un").value.trim(), am=parseAmt($("#ua").value), a=acct($("#uc").value), w=Math.round(parseAmt($("#uw").value)), dt=$("#ud").value||today(); if(!it||am<=0||!a) return; addTxn({type:"expense",date:dt,cat:"Shopping",note:it,postings:[{acct:a.id,amt:-am,cur:a.cur}]}); S.purchases.push({id:uid(),item:it,date:dt,amt:am,cur:a.cur,expiry:w>0?addM(dt,w):null}); save(); closeSheet(); render(); }
-  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ a.cardMeta={last4:($("#last4")?.value||"").replace(/\D/g,"").slice(-4),network:($("#network")?.value||"").trim(),expiry:($("#expiry")?.value||"").trim(),annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="card"){a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value);} save(); } closeSheet(); render(); }
+  if(e.target.id==="fbank"){const number=$("#ba").value.trim().replace(/\s/g,"");const person=$("#bp").value.trim(),holder=$("#bh").value.trim(),bank=$("#bb").value.trim();if(!number||!person||!holder||!bank)return;const b={id:uid(),person,holder,bank,accountNumber:number,accountMasked:number.length>8?"••••"+number.slice(-4):"••••"+number.slice(-4),ifsc:$("#bi").value.trim().toUpperCase(),branch:$("#br").value.trim(),branchCode:$("#bc").value.trim(),cur:$("#bcur").value,nickname:$("#bn").value.trim()};S.bankContacts.push(b);if(!S.people.includes(person))S.people.push(person);log("recipient-bank",b.id);save();closeSheet();render();toast("Recipient account saved");return;}
+  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const entered=($("#cardnumber")?.value||"").replace(/\D/g,""); const last4=entered?entered.slice(-4):($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expiry=($("#expiry")?.value||"").trim(); if(expiry&&!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){alert("Enter expiry as MM/YY.");return;} a.cardMeta={last4,network:($("#network")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";} if(a.type==="card"){a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value);} log("account-details",a.id);save(); } closeSheet(); render(); }
   if(e.target.id==="fa2"){
     const name=$("#an").value.trim(); if(!name) return;
     let o=parseAmt($("#ao").value); const type=$("#at").value;
     if(type==="card") o=-o;
-    const a={id:uid(),name,bank:$("#abank").value.trim(),owner:($("#aowner").value.trim()||"Me"),type,cur:$("#ac").value,opening:o,archived:false};
+    const a={id:uid(),name,bank:$("#abank").value.trim(),branch:$("#abranch").value.trim(),ifsc:$("#aifsc").value.trim().toUpperCase(),branchCode:$("#abranchcode").value.trim(),owner:($("#aowner").value.trim()||"Me"),type,cur:$("#ac").value,opening:o,archived:false};
     S.accounts.push(a); if(!S.people.includes(a.owner))S.people.push(a.owner); log("account",a.id); save(); closeSheet(); render();
   }
 });
@@ -635,23 +754,24 @@ document.addEventListener("submit", e=>{
 function boot(){
   let env=null, legacy=null;
   try{ const d=JSON.parse(store.get()); if(d&&d.enc) env=d; else if(d&&d.v===1) legacy=d; }catch(e){}
-  $("#nav").innerHTML=""; $("#layer").innerHTML="";
-  $("#app").innerHTML=`<div style="padding-top:56px"><div class="big" style="font-size:26px">My Finance</div><p class="muted">${env?"Enter your passphrase to unlock your data.":"Create a passphrase. It encrypts your data on this phone and your backup files. If you forget it, nobody can recover your data."}</p><form id="pf"><input id="pp" type="password" autocomplete="off" placeholder="Passphrase">${env?"":`<input id="pp2" type="password" autocomplete="off" placeholder="Repeat passphrase" style="margin-top:8px">`}<div id="pe" class="out" style="margin-top:8px"></div><button class="btn" type="submit">${env?"Unlock":"Create and continue"}</button></form></div>`;
+  BIO=env?.bio||null;KDF_ITER=env?.iterations||250000;
+  $("#nav").innerHTML="";$("#layer").innerHTML="";
+  $("#app").innerHTML=`<div style="padding-top:42px"><div class="big" style="font-size:28px">My Finance</div><p class="muted">${env?"Your encrypted finance vault is locked.":"Create a strong passphrase. It encrypts your data on this phone and in backup files."}</p><form id="pf"><input id="pp" type="password" autocomplete="current-password" placeholder="Passphrase" required>${env?"":`<input id="pp2" type="password" autocomplete="new-password" placeholder="Repeat passphrase" style="margin-top:8px">`}<div id="pe" class="out" style="margin-top:8px"></div><button class="btn" type="submit">${env?"Unlock with passphrase":"Create secure vault"}</button></form>${env?.bio?`<button class="btn alt" data-bio-unlock>Use fingerprint / device passkey</button>`:""}<div class="security-note" style="margin-top:18px">Encryption: AES-256-GCM. Passphrase key derivation: PBKDF2-HMAC-SHA-256. Never share your passphrase. If you lose it and have no working biometric unlock, encrypted data cannot be recovered.</div></div>`;
   $("#pf").onsubmit=async e=>{
-    e.preventDefault(); const p=$("#pp").value, er=m=>{$("#pe").textContent=m;};
+    e.preventDefault();const p=$("#pp").value,er=m=>{$("#pe").textContent=m;};
     try{
-      if(env){ SALT=unb64(env.salt); const k=await deriveKey(p,SALT); S=await unseal(env,k); CK=k; }
-      else{
-        if(p.length<8) return er("Use at least 8 characters. A long phrase is best.");
-        if(p!==$("#pp2").value) return er("The two passphrases differ.");
-        SALT=crypto.getRandomValues(new Uint8Array(16)); CK=await deriveKey(p,SALT); S=legacy||blank();
+      if(env){SALT=unb64(env.salt);const k=await deriveKey(p,SALT,KDF_ITER);S=await unseal(env,k);CK=k;BIO=env.bio||null;
+        if(KDF_ITER<600000){const ns=crypto.getRandomValues(new Uint8Array(16)),nk=await deriveKey(p,ns,600000);SALT=ns;CK=nk;KDF_ITER=600000;BIO=null;store.set(await seal(S));}
+      }else{
+        if(p.length<12)return er("Use at least 12 characters. A unique multi-word passphrase is best.");if(p!==$("#pp2").value)return er("The two passphrases differ.");SALT=crypto.getRandomValues(new Uint8Array(16));KDF_ITER=600000;CK=await deriveKey(p,SALT,KDF_ITER);S=legacy||blank();BIO=null;
       }
-      migrate(); save(); render();
-    }catch(x){ S=null; CK=null; er(env?"Wrong passphrase.":"Could not set up encryption in this browser."); }
+      migrate();save();render();
+    }catch(x){S=null;CK=null;er("Could not unlock. Check your passphrase or use fingerprint unlock.");}
   };
 }
+
 let hidAt=0;
-document.addEventListener("visibilitychange",()=>{ if(!S) return; if(document.hidden) hidAt=Date.now(); else if(Date.now()-hidAt>300000) chain=chain.then(()=>{ S=null; CK=null; boot(); }); });
+document.addEventListener("visibilitychange",()=>{ if(!S) return; if(document.hidden) hidAt=Date.now(); else if(Date.now()-hidAt>120000) chain=chain.then(()=>{ S=null; CK=null; boot(); }); });
 boot();
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));

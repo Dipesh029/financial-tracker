@@ -1,20 +1,18 @@
-const CACHE = "my-finance-shell-v1";
-const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
+const CACHE = "my-finance-shell-v4-2026-11-15";
+const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", event => {
   event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", event => {
-  if (event.request.method !== "GET") return;
-  const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return;
-  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
-    if (response && response.ok) {
-      const copy = response.clone();
-      caches.open(CACHE).then(cache => cache.put(event.request, copy));
+  const req = event.request;
+  if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
+  event.respondWith(caches.match(req).then(cached => cached || fetch(req).then(res => {
+    if (res.ok && new URL(req.url).pathname.startsWith(new URL(self.registration.scope).pathname)) {
+      const copy = res.clone(); caches.open(CACHE).then(cache => cache.put(req, copy));
     }
-    return response;
+    return res;
   }).catch(() => caches.match("./index.html"))));
 });
