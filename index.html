@@ -87,8 +87,10 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);ou
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 const RELEASES = [
+  {v:"1.3.0", d:"2026-11-15", notes:"SIP paid/missed ledger with history; stronger due-soon strip (SIPs, card bills, premiums); release notes robust on unlock."},
+  {v:"1.2.1", d:"2026-11-15", notes:"Compact version control on unlock and home (corner, small). Tap v… for release notes."},
   {v:"1.2.0", d:"2026-11-15", notes:"Fixed release notes; unlock screen version; full credit-card fields on add account; richer MF/stock future projection with year chart; more investment visuals"},
   {v:"1.1.1", d:"2026-11-15", notes:"Service worker network-first for HTML so updates show after deploy"},
   {v:"1.1.0", d:"2026-11-15", notes:"Historical holdings, stock import owner, set balance, copy recipient details, investment returns & projections"},
@@ -225,13 +227,11 @@ function portfolioGrowthHtml(){
   </div>`;
 }
 function versionBadgeHtml(){
-  const latest=RELEASES[0];
-  return `<div class="row" style="margin:4px 0 8px;align-items:flex-start">
-  <div class="muted" style="font-size:12px">My Finance · v${esc(APP_VERSION)}</div>
-  <button class="chip" data-releases style="padding:4px 10px;font-size:12px">Release notes</button>
+  return `<div style="text-align:right;margin:0 0 6px">
+  <button type="button" data-releases style="border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:2px 0;opacity:.8">v${esc(APP_VERSION)}</button>
   </div>`;
 }
-function viewHome(){ const b=viewHome0(); const o=homeOwner==="All family"?null:homeOwner; return S.accounts.length?versionBadgeHtml()+b+investSummaryHtml(o)+portfolioGrowthHtml()+dueHtml()+historyHtml(o):versionBadgeHtml()+b; }
+function viewHome(){ const b=viewHome0(); const o=homeOwner==="All family"?null:homeOwner; return S.accounts.length?versionBadgeHtml()+b+dueHtml()+investSummaryHtml(o)+portfolioGrowthHtml()+historyHtml(o):versionBadgeHtml()+b; }
 function chartHtml(owner){
   const ms=[];let d=today().slice(0,8)+"01";for(let i=5;i>=0;i--){const dt=addM(d,-i);ms.push(dt.slice(0,7));}
   const rows=ms.map(m=>({m,...monthTotals(m,owner)}));const max=Math.max(1,...rows.map(x=>Math.max(x.inc,x.exp)));
@@ -522,7 +522,7 @@ function viewPlan(){
   const dl=d=>d<0?`${-d}d overdue`:d===0?"due today":`in ${d}d`;
   return `<h2 style="margin-top:4px">Friends & family lending</h2>${S.lending.map(l=>{const p=lendingPosition(l);return `<div class="card"><div class="row"><div><b>${esc(l.person)}</b><div class="muted">${l.direction==="lent"?"They owe you":"You owe them"} · ${fmt(l.principal,l.cur)} · ${l.rate||0}% simple interest</div><div class="muted">Outstanding ${fmt(p.principal,l.cur)} · estimated interest ${fmt(p.interest,l.cur)} interest outstanding (estimate)</div><div class="muted">Estimate only: simple interest on remaining principal from start date, not daily reducing-balance accrual.</div></div><button class="chip" data-lendrec="${l.id}">Record</button></div></div>`}).join("")||`<div class="muted">No lending records yet.</div>`}
   <button class="btn alt" data-newlend>Add lending record</button>
-  <h2>SIPs</h2>${S.sips.map(x=>{const h=S.holdings.find(v=>v.id===x.hold)||{},d=daysTo(x.next);return `<div class="card" data-sip="${x.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted">${fmt(x.amt,x.cur)} · ${({1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1])} · ${x.next}</div></div><b class="${d<=0?"warn":"muted"}">${dl(d)}</b></div></div>`}).join("")||`<div class="muted">No SIPs yet.</div>`}
+  <h2>SIPs</h2>${S.sips.map(x=>{const h=S.holdings.find(v=>v.id===x.hold)||{},d=daysTo(x.next);const hist=x.history||[];const paid=hist.filter(i=>i.status==="paid").length,missed=hist.filter(i=>i.status==="missed").length;const st=x.status||"active";return `<div class="card" data-sip="${x.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted">${fmt(x.amt,x.cur)} · ${({1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1])} · next ${x.next}${st==="stopped"?" · stopped":""}${paid||missed?` · ${paid} paid / ${missed} missed`:""}</div></div><b class="${st==="stopped"?"muted":d<=0?"warn":"muted"}">${st==="stopped"?"stopped":dl(d)}</b></div></div>`}).join("")||`<div class="muted">No SIPs yet.</div>`}
   <button class="btn alt" data-newsip>Add SIP</button>
   <h2>Insurance</h2>${S.policies.map(p=>{const d=daysTo(p.next);return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · ${p.next}</div></div><b class="${d<=30?"warn":"muted"}">${dl(d)}</b></div></div>`}).join("")||`<div class="muted">No policies yet.</div>`}
   <button class="btn alt" data-newpol>Add policy</button>
@@ -531,12 +531,37 @@ function viewPlan(){
 }
 function dueHtml(){
   const r=[];
-  for(const x of S.sips){const d=daysTo(x.next);if(d<=7)r.push([d,"SIP · "+esc((S.holdings.find(v=>v.id===x.hold)||{}).name||""),fmt(x.amt,x.cur),`data-sip="${x.id}"`]);}
-  for(const p of S.policies){const d=daysTo(p.next);if(d<=30)r.push([d,"Premium · "+esc(p.name),fmt(p.premium,p.cur),`data-pol="${p.id}"`]);}
-  for(const p of S.purchases){if(!p.expiry)continue;const d=daysTo(p.expiry);if(d>=0&&d<=60)r.push([d,"Warranty ends · "+esc(p.item),"",""]);}
-  for(const a of S.accounts){ if(a.type!=="card"||a.archived||!a.dueDay) continue; const b=balance(a); if(b>=0) continue; const d=daysTo(nextDue(a.dueDay)); if(d<=7) r.push([d,"Card bill · "+esc(a.name),fmt(-b,a.cur),`data-acct="${a.id}"`]); }
+  for(const x of S.sips){
+    if(x.status==="stopped") continue;
+    const d=daysTo(x.next);
+    if(d<=14){
+      const h=S.holdings.find(v=>v.id===x.hold)||{};
+      const label=d<0?"Overdue SIP":d===0?"SIP due today":"SIP";
+      r.push([d, label+" · "+esc(h.name||"Fund"), fmt(x.amt,x.cur), `data-sip="${x.id}"`, d<0?"warn":""]);
+    }
+  }
+  for(const p of S.policies){
+    const d=daysTo(p.next);
+    if(d<=30) r.push([d, "Premium · "+esc(p.name), fmt(p.premium,p.cur), `data-pol="${p.id}"`, d<0?"warn":""]);
+  }
+  for(const a of S.accounts){
+    if(a.type!=="card"||a.archived||!a.dueDay) continue;
+    const b=balance(a);
+    if(b>=0) continue;
+    const d=daysTo(nextDue(a.dueDay));
+    if(d<=14) r.push([d, "Card due · "+esc(a.name), fmt(-b,a.cur), `data-acct="${a.id}"`, d<=3?"warn":""]);
+  }
+  for(const p of S.purchases){
+    if(!p.expiry) continue;
+    const d=daysTo(p.expiry);
+    if(d>=0&&d<=30) r.push([d, "Warranty · "+esc(p.item), "", "", ""]);
+  }
   if(!r.length) return "";
-  return `<h2>Due soon</h2><div class="card">${r.sort((a,b)=>a[0]-b[0]).map(x=>`<div class="row" ${x[3]}><div>${x[1]}<div class="muted">${x[0]<0?-x[0]+" days overdue":x[0]===0?"today":"in "+x[0]+" days"}</div></div><b class="num">${x[2]}</b></div>`).join("")}</div>`;
+  r.sort((a,b)=>a[0]-b[0]);
+  return `<h2>Due soon</h2><div class="card">${r.map(x=>{
+    const when=x[0]<0?((-x[0])+"d overdue"):x[0]===0?"today":("in "+x[0]+"d");
+    return `<div class="row" ${x[3]||""} style="cursor:pointer"><div><b class="${x[4]||""}">${x[1]}</b><div class="muted">${when}</div></div><b class="num ${x[4]||""}">${x[2]}</b></div>`;
+  }).join("")}</div>`;
 }
 function reportHtml(){
   const ms=[];let d=today().slice(0,8)+"01";for(let i=0;i<6;i++){ms.push(d.slice(0,7));d=addM(d,-1);}
@@ -694,7 +719,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-copybank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-copybank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if("close" in d){ if(el.classList.contains("sheet-bg") && e.target!==el) return; closeSheet(); return; }
@@ -755,8 +780,28 @@ document.addEventListener("click", async e=>{
   if(d.delbank){if(confirm("Remove this saved recipient bank account? Past transfers keep their recorded reference text only.")){S.bankContacts=S.bankContacts.filter(x=>x.id!==d.delbank);save();render();}return;}
   if("readme" in d){openSheet(readmeHtml());return;}
   if("newsip" in d){ if(!S.holdings.some(h=>h.type==="fund")){ alert("Add a mutual fund first, under Money."); return; } fs("New SIP","fs1",[["sh","Fund","select",S.holdings.filter(h=>h.type==="fund").map(h=>[h.id,h.name])],["sa","Debit account","select",accOpts()],["sm","Amount","num"],["sf","Frequency","select",[["1","Monthly"],["3","Quarterly"],["6","Half-yearly"],["12","Yearly"]]],["sd","Next debit date","date"]],"Save SIP"); return; }
-  if(d.sip){ const x=S.sips.find(v=>v.id===d.sip); if(!x) return; const h=S.holdings.find(v=>v.id===x.hold)||{}; openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2><div class="muted">${fmt(x.amt,x.cur)} due ${x.next}. Record it only if the money was actually debited.</div><form id="fsu"><input type="hidden" id="sid" value="${x.id}"><label>Units allotted</label><input id="su" inputmode="decimal"><button class="btn" type="submit">Debited</button></form><button class="btn alt" data-sipfail="${x.id}">Failed or skipped</button><button class="btn alt" data-close>Close</button>`); return; }
-  if(d.sipfail){ const x=S.sips.find(v=>v.id===d.sipfail); if(x){ x.next=addM(x.next,x.freq||1); log("sipfail",x.id); save(); } closeSheet(); render(); return; }
+  if(d.sip){ const x=S.sips.find(v=>v.id===d.sip); if(!x) return; const h=S.holdings.find(v=>v.id===x.hold)||{};
+    const hist=(x.history||[]).slice().reverse();
+    const paid=hist.filter(i=>i.status==="paid").length, missed=hist.filter(i=>i.status==="missed").length;
+    const histHtml=hist.length?`<h2 style="font-size:15px;margin:16px 0 8px">Payment ledger</h2><div class="card">${hist.slice(0,12).map(i=>`<div class="row"><div><b class="${i.status==="missed"?"warn":"in"}">${i.status==="paid"?"Paid":"Missed"}</b><div class="muted">${esc(i.date)}${i.units?` · ${i.units} units`:""}</div></div><b class="num">${i.amount?fmt(i.amount,x.cur):""}</b></div>`).join("")}${hist.length>12?`<div class="muted">Showing latest 12 of ${hist.length}</div>`:""}</div>`:`<p class="muted" style="margin-top:12px">No payments recorded yet. Confirm only when the bank has actually debited.</p>`;
+    openSheet(`<h2 style="margin-top:0">SIP · ${esc(h.name)}</h2>
+    <div class="card">
+      <div class="row"><span>Amount</span><b class="num">${fmt(x.amt,x.cur)}</b></div>
+      <div class="row"><span>Frequency</span><b>${({1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1]||"Custom")}</b></div>
+      <div class="row"><span>Next due</span><b>${esc(x.next)}</b></div>
+      <div class="row"><span>Status</span><b>${esc(x.status||"active")}</b></div>
+      <div class="row"><span>Recorded paid / missed</span><b>${paid} / ${missed}</b></div>
+    </div>
+    <p class="muted">Record a payment only if the money was actually debited from the bank.</p>
+    <form id="fsu"><input type="hidden" id="sid" value="${x.id}">
+    <label>Units allotted this installment</label><input id="su" inputmode="decimal" placeholder="e.g. 12.345">
+    <button class="btn" type="submit">Mark as paid (debited)</button></form>
+    <button class="btn alt" data-sipfail="${x.id}">Mark as missed / skipped</button>
+    <button class="btn alt" data-sipstop="${x.id}">${(x.status||"active")==="stopped"?"Resume SIP":"Stop SIP"}</button>
+    ${histHtml}
+    <button class="btn alt" data-close style="margin-top:10px">Close</button>`); return; }
+  if(d.sipfail){ const x=S.sips.find(v=>v.id===d.sipfail); if(x){ const missDate=x.next||today(); x.history=x.history||[]; x.history.push({date:missDate,status:"missed",units:0,amount:x.amt}); x.next=addM(x.next,x.freq||1); log("sipfail",x.id); save(); } closeSheet(); render(); toast("Marked as missed / skipped"); return; }
+  if(d.sipstop){ const x=S.sips.find(v=>v.id===d.sipstop); if(x){ x.status=(x.status==="stopped"?"active":"stopped"); log("sipstop",x.id); save(); closeSheet(); render(); toast(x.status==="stopped"?"SIP stopped":"SIP resumed"); } return; }
   if("newpol" in d){ fs("New insurance policy","fpol",[["pn","Policy / scheme name","text"],["pno","Policy number","text"],["pp","Provider / insurer","text"],["po","Owner","select",S.people.map(n=>[n,n])],["pstart","Commencement date","date"],["ps","Sum assured","num"],["bonus","Bonus (optional)","num"],["pa","Premium per payment","num"],["ppt","Premium paying term (years)","num"],["pt","Policy term (years)","num"],["mat","Maturity date","date"],["pc","Currency","select",[["INR","INR"],["EUR","EUR"]]],["pf","Paid every","select",[["1","Month"],["3","3 months"],["6","6 months"],["12","Year"]]],["pd","Next premium due","date"]],"Save policy"); return; }
   if(d.pol){ const p=S.policies.find(v=>v.id===d.pol); if(!p) return; openSheet(`<h2 style="margin-top:0">${esc(p.name)}</h2><div class="muted">${esc(p.provider||"")} ${p.policyNo?"· Policy "+esc(p.policyNo):""}<br>Cover ${fmt(p.sum,p.cur)} · Bonus ${fmt(p.bonus||0,p.cur)}<br>Premium ${fmt(p.premium,p.cur)} every ${p.freq||1} month(s) · next due ${p.next}<br>${p.start?"Started "+esc(p.start)+" · ":""}${p.maturity?"Matures "+esc(p.maturity):""}<br>${p.ppt?"Premium term "+p.ppt+" years · ":""}${p.term?"Policy term "+p.term+" years":""}</div><form id="fpay"><input type="hidden" id="pid" value="${p.id}"><label>Paid from</label><select id="pacc">${accOpts().map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select><button class="btn" type="submit">Mark premium paid</button></form><button class="btn danger" data-delpol="${p.id}">Remove policy</button><button class="btn alt" data-close>Close</button>`); return; }
   if(d.delpol){ S.policies=S.policies.filter(v=>v.id!==d.delpol); save(); closeSheet(); render(); return; }
@@ -975,8 +1020,13 @@ document.addEventListener("submit", e=>{
     }
     return;
   }
-  if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today()}); save(); closeSheet(); render(); }
-  if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=parseAmt($("#su").value); if(!x||u<=0){ $("#su").focus(); return; } addTxn({type:"buy",date:x.next,note:"SIP",hold:x.hold,units:u,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]}); x.next=addM(x.next,x.freq||1); save(); closeSheet(); render(); toast("SIP recorded"); }
+  if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today(),status:"active",history:[]}); save(); closeSheet(); render(); toast("SIP saved"); }
+  if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=parseAmt($("#su").value); if(!x||u<=0){ $("#su").focus(); return; }
+    const payDate=x.next||today();
+    addTxn({type:"buy",date:payDate,note:"SIP",hold:x.hold,units:u,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]});
+    x.history=x.history||[]; x.history.push({date:payDate,status:"paid",units:u,amount:x.amt});
+    x.next=addM(x.next,x.freq||1); x.status=x.status||"active";
+    save(); closeSheet(); render(); toast("SIP payment recorded"); }
   if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n) return; S.policies.push({id:uid(),name:n,policyNo:$("#pno").value.trim(),provider:$("#pp").value.trim(),owner:$("#po").value||"Me",start:$("#pstart").value||"",sum:parseAmt($("#ps").value),bonus:parseAmt($("#bonus").value),premium:parseAmt($("#pa").value),ppt:parseAmt($("#ppt").value),term:parseAmt($("#pt").value),maturity:$("#mat").value||"",cur:$("#pc").value,freq:+$("#pf").value,next:$("#pd").value||today()}); save(); closeSheet(); render(); }
   if(e.target.id==="fpay"){ const p=S.policies.find(v=>v.id===$("#pid").value), a=acct($("#pacc").value); if(!p||!a) return; if(a.cur!==p.cur){ alert("Pay from an account in "+p.cur+"."); return; } addTxn({type:"expense",date:today(),cat:"Insurance premium",note:p.name,postings:[{acct:a.id,amt:-p.premium,cur:a.cur}]}); p.next=addM(p.next,p.freq); save(); closeSheet(); render(); toast("Premium recorded"); }
   if(e.target.id==="fpur"){ const it=$("#un").value.trim(), am=parseAmt($("#ua").value), a=acct($("#uc").value), w=Math.round(parseAmt($("#uw").value)), dt=$("#ud").value||today(); if(!it||am<=0||!a) return; addTxn({type:"expense",date:dt,cat:"Shopping",note:it,postings:[{acct:a.id,amt:-am,cur:a.cur}]}); S.purchases.push({id:uid(),item:it,date:dt,amt:am,cur:a.cur,expiry:w>0?addM(dt,w):null}); save(); closeSheet(); render(); }
@@ -1010,15 +1060,12 @@ function boot(){
   try{ const d=JSON.parse(store.get()); if(d&&d.enc) env=d; else if(d&&d.v===1) legacy=d; }catch(e){}
   BIO=env?.bio||null;KDF_ITER=env?.iterations||250000;
   $("#nav").innerHTML="";$("#layer").innerHTML="";
-  $("#app").innerHTML=`<div style="padding-top:42px">
-  <div class="row" style="align-items:center;margin-bottom:4px">
-    <div class="big" style="font-size:28px">My Finance</div>
-    <span class="chip" style="padding:4px 10px;font-size:12px">v${esc(APP_VERSION)}</span>
-  </div>
+  $("#app").innerHTML=`<div style="padding-top:42px;position:relative">
+  <button type="button" data-releases title="Release notes" style="position:absolute;top:8px;right:0;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:4px 2px;opacity:.85">v${esc(APP_VERSION)}</button>
+  <div class="big" style="font-size:28px">My Finance</div>
   <p class="muted">${env?"Your encrypted finance vault is locked.":"Create a strong passphrase. It encrypts your data on this phone and in backup files."}</p>
   <form id="pf"><input id="pp" type="password" autocomplete="current-password" placeholder="Passphrase" required>${env?"":`<input id="pp2" type="password" autocomplete="new-password" placeholder="Repeat passphrase" style="margin-top:8px">`}<div id="pe" class="out" style="margin-top:8px"></div><button class="btn" type="submit">${env?"Unlock with passphrase":"Create secure vault"}</button></form>
   ${env?.bio?`<button class="btn alt" data-bio-unlock>Use fingerprint / device passkey</button>`:""}
-  <button class="btn alt" data-releases style="margin-top:10px">Release notes · v${esc(APP_VERSION)}</button>
   <div class="security-note" style="margin-top:18px">Encryption: AES-256-GCM. Passphrase key derivation: PBKDF2-HMAC-SHA-256. Never share your passphrase. If you lose it and have no working biometric unlock, encrypted data cannot be recovered.</div>
   </div>`;
   $("#pf").onsubmit=async e=>{
