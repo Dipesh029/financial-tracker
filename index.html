@@ -125,8 +125,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.4.4";
+const APP_VERSION = "1.4.5";
 const RELEASES = [
+  {v:"1.4.5", d:"2026-11-15", notes:"Restore encryption helpers (deriveKey, seal, unseal, save, migrate) so unlock works again."},
   {v:"1.4.4", d:"2026-11-15", notes:"Fix blank screen: restore missing vault state globals (S, CK, BIO, SALT)."},
   {v:"1.4.3", d:"2026-11-15", notes:"Folder backup write path fixed (directory getFileHandle); clearer permission and fallback messages."},
   {v:"1.4.2", d:"2026-11-15", notes:"Optional linked debit card (last4, network, expiry) when adding a bank account; Debit in card type; expiry on Due soon."},
@@ -197,6 +198,54 @@ async function chooseBackupFolder(){
     alert("Could not select backup folder: "+(e&&e.message?e.message:e));
   }
 }
+/* ---------- encryption & vault helpers ---------- */
+const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],policies:[],purchases:[],snaps:[],history:[],lending:[],bankContacts:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null});
+const LBL={adjust:"Portfolio sync · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to "};
+const isSecureContext = window.isSecureContext === true;
+function b64(u){let t=""; for(const x of new Uint8Array(u)) t+=String.fromCharCode(x); return btoa(t);}
+const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+async function deriveKey(p, salt, iterations=KDF_ITER, extractable=false){
+  const m = await crypto.subtle.importKey("raw", new TextEncoder().encode(p), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2", salt, iterations, hash:"SHA-256"}, m, {name:"AES-GCM", length:256}, extractable, ["encrypt","decrypt"]);
+}
+async function seal(o){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:"AES-GCM", iv}, CK, new TextEncoder().encode(JSON.stringify(o)));
+  return JSON.stringify({enc:2, salt:b64(SALT), iterations:KDF_ITER, iv:b64(iv), data:b64(ct), bio:BIO||null});
+}
+async function unseal(env, key){
+  const ct = await crypto.subtle.decrypt({name:"AES-GCM", iv:unb64(env.iv)}, key, unb64(env.data));
+  return JSON.parse(new TextDecoder().decode(ct));
+}
+function save(){ if(!CK||!S) return; chain=chain.then(async()=>store.set(await seal(S))).catch(err=>console.warn("save failed",err)); }
+function migrate(){
+  for(const k of ["accounts","holdings","sips","policies","purchases","snaps","history","lending","bankContacts","people","txns","audit"]) S[k]=S[k]||[];
+  S.v=2;
+  if(S.rate==null) S.rate=104.16;
+  if(!S.display) S.display="INR";
+  for(const a of S.accounts){
+    a.owner=a.owner||"Me"; a.bank=a.bank||""; a.ifsc=a.ifsc||""; a.branchCode=a.branchCode||""; a.branch=a.branch||"";
+    a.accountNumber=a.accountNumber||""; a.accountMasked=a.accountMasked||"";
+  }
+  if(!Array.isArray(S.people)||!S.people.length) S.people=["Me","Father","Mother"];
+  for(const h of S.holdings){
+    h.owner=h.owner||"Me"; h.folio=h.folio||""; h.isin=h.isin||""; h.symbol=h.symbol||"";
+    h.exchange=h.exchange||""; h.demat=h.demat||""; h.broker=h.broker||""; h.amc=h.amc||""; h.notes=h.notes||"";
+  }
+  for(const x of S.sips){ x.status=x.status||"active"; x.history=x.history||[]; }
+  for(const t of S.txns){
+    if(t.fxRate==null) t.fxRate=S.rate||104.16;
+    if(!t.owner&&t.postings?.[0]) t.owner=(S.accounts.find(a=>a.id===t.postings[0].acct)||{}).owner||"Me";
+  }
+}
+function nextDue(day){
+  const t=today();
+  const mk=(ym,d)=>{const [y,m]=ym.split("-").map(Number); const last=new Date(y,m,0).getDate(); return y+"-"+String(m).padStart(2,"0")+"-"+String(Math.min(d,last)).padStart(2,"0");};
+  let c=mk(t.slice(0,7),day);
+  if(daysTo(c)<0) c=mk(addM(t.slice(0,8)+"01",1).slice(0,7),day);
+  return c;
+}
+
 function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2)); }
 function log(action, id){ S.audit.push({ts:new Date().toISOString(), action, id}); }
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
