@@ -94,6 +94,18 @@ const store = {
   get(){ try{ return localStorage.getItem(KEY); }catch(e){ return mem[KEY] || null; } },
   set(v){ try{ localStorage.setItem(KEY, v); }catch(e){ mem[KEY] = v; } }
 };
+
+/* Optional encrypted-backup destination. The vault data remains in existing encrypted storage. */
+const BACKUP_DB="myfinance.backup-destination", BACKUP_STORE="handles", BACKUP_HANDLE_KEY="directory";
+function backupDb(){return new Promise((resolve,reject)=>{if(!("indexedDB" in window))return reject(new Error("IndexedDB unavailable"));const req=indexedDB.open(BACKUP_DB,1);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(BACKUP_STORE))req.result.createObjectStore(BACKUP_STORE);};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error("Backup settings storage unavailable"));});}
+async function backupHandleGet(){const db=await backupDb();return new Promise((resolve,reject)=>{const tx=db.transaction(BACKUP_STORE,"readonly"),req=tx.objectStore(BACKUP_STORE).get(BACKUP_HANDLE_KEY);req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error);tx.oncomplete=()=>db.close();});}
+async function backupHandleSet(handle){const db=await backupDb();return new Promise((resolve,reject)=>{const tx=db.transaction(BACKUP_STORE,"readwrite");tx.objectStore(BACKUP_STORE).put(handle,BACKUP_HANDLE_KEY);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error);};tx.onabort=()=>{db.close();reject(tx.error);};});}
+async function backupHandleForget(){const db=await backupDb();return new Promise((resolve,reject)=>{const tx=db.transaction(BACKUP_STORE,"readwrite");tx.objectStore(BACKUP_STORE).delete(BACKUP_HANDLE_KEY);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error);};});}
+async function backupPermission(handle,request=false){if(!handle)return "missing";try{if(!handle.queryPermission)return "unsupported";let p=await handle.queryPermission({mode:"readwrite"});if(p!=="granted"&&request&&handle.requestPermission)p=await handle.requestPermission({mode:"readwrite"});return p;}catch(e){return "denied";}}
+async function backupDestinationStatus(){const node=$("#backupFolderStatus");if(!node)return;if(!("showDirectoryPicker" in window)){node.textContent="Folder picker unsupported here. Use Save backup file for the browser download/file picker.";return;}try{const h=await backupHandleGet();if(!h){node.textContent="No folder selected. Encrypted backups use download fallback.";return;}const p=await backupPermission(h,false);node.textContent=p==="granted"?"Selected folder: "+(h.name||"Device folder")+" · Ready":p==="prompt"?"Selected folder: "+(h.name||"Device folder")+" · Permission required when saving":"Selected folder: "+(h.name||"Device folder")+" · Permission unavailable; select again or use download fallback.";}catch(e){node.textContent="Folder preference unavailable. Download backup remains available.";}}
+async function chooseBackupFolder(){if(!("showDirectoryPicker" in window)){toast("Folder picker unsupported; use Save backup file.");return;}try{const h=await window.showDirectoryPicker({mode:"readwrite"});await backupHandleSet(h);await backupDestinationStatus();toast("Backup folder selected: "+(h.name||"folder"));}catch(e){if(e.name!=="AbortError")alert("Could not select backup folder. "+(e.message||""));}}
+async function forgetBackupFolder(){try{await backupHandleForget();await backupDestinationStatus();toast("Backup folder forgotten");}catch(e){alert("Could not forget backup folder.");}}
+
 const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],policies:[],purchases:[],snaps:[],history:[],lending:[],bankContacts:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null});
 let S=null, CK=null, SALT=null, BIO=null, KDF_ITER=600000, chain=Promise.resolve(), homeOwner="All family";
 const LBL={adjust:"Portfolio sync · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to "};
@@ -277,7 +289,10 @@ function viewSettings(){
   <button class="btn alt" data-change-pass>Change passphrase</button>
   ${BIO?`<div class="muted" style="margin-top:10px">Fingerprint / device passkey unlock is enabled on this device.</div><button class="btn alt" data-bio-disable>Disable biometric unlock</button>`:`<button class="btn alt" data-bio-enable>Enable fingerprint / passkey unlock</button>`}
   <div class="security-note">Biometric unlock uses the WebAuthn PRF extension when supported by your Android device and browser. It wraps the encryption key; fingerprint data never leaves Android. If unsupported, the passphrase remains available. Keep a strong passphrase and encrypted backup as recovery.</div></div>
-  <div class="card"><b>Backup</b><div class="muted">Your data is encrypted with your passphrase and stored locally in this browser on this phone. There is no automatic cloud sync in this version. Save encrypted backup files regularly and store them somewhere safe; you need the passphrase to restore them.</div>
+  <div class="card"><b>Backup Location</b><div id="backupFolderStatus" class="muted" style="margin-top:6px">Checking saved folder…</div>
+  <button class="btn alt" data-backup-folder>Choose folder on this device</button><button class="btn alt" data-backup-forget>Forget selected folder</button>
+  <div class="security-note" style="margin-top:8px">Only encrypted .enc backup files are written. Browser permission may need renewal. No cloud upload or sync is performed.</div></div>
+  <div class="card"><b>Backup</b><div class="muted">Your data is encrypted with your passphrase and stored locally in this browser on this phone. Choose a device folder under Backup Location where supported; backups are encrypted before writing. Otherwise use the browser download/file-picker fallback. There is no automatic cloud sync in this version. Save encrypted backup files regularly and store them somewhere safe; you need the passphrase to restore them.</div>
   <button class="btn" data-export>Save backup file</button>
   <button class="btn alt" data-csv>Export transactions (CSV)</button>
   <button class="btn alt" data-import>Restore from backup file</button>
@@ -568,7 +583,11 @@ function download(name, text, type){
   const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click();
   setTimeout(()=>{URL.revokeObjectURL(url); a.remove();},1000);
 }
-async function exportJSON(){ download(`finance-backup-${today()}.enc`, await seal(S), "application/octet-stream"); }
+async function exportJSON(){
+  const filename=`finance-backup-${today()}.enc`, encrypted=await seal(S);
+  try{const h=await backupHandleGet();if(h){const permission=await backupPermission(h,true);if(permission==="granted"&&h.createWritable){const file=await h.getFileHandle(filename,{create:true}),writable=await file.createWritable();try{await writable.write(new Blob([encrypted],{type:"application/octet-stream"}));await writable.close();}catch(err){try{await writable.abort();}catch(_){}throw err;}toast("Encrypted backup saved to "+(h.name||"selected folder"));await backupDestinationStatus();return;}await backupDestinationStatus();toast("Folder permission unavailable. Opening download fallback.");}}catch(err){console.warn("Folder backup failed; fallback download",err);toast("Folder save failed. Opening download fallback.");}
+  download(filename,encrypted,"application/octet-stream");
+}
 function exportCSV(){
   const rows=[["id","date","type","status","category","note","account","account_owner","amount","currency","fx_rate","person","reference"]];
   for(const t of S.txns) for(const p of t.postings) rows.push([t.id,t.date,t.type,t.status,t.cat||"",t.note||"",(acct(p.acct)||{}).name||"",(acct(p.acct)||{}).owner||"Me",p.amt,p.cur,t.fxRate||S.rate,t.person||"",t.id]);
@@ -577,8 +596,8 @@ function exportCSV(){
 }
 
 /* ---------- events ---------- */
-document.addEventListener("click", e=>{
-  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+document.addEventListener("click", async e=>{
+  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if("close" in d){ if(el.classList.contains("sheet-bg") && e.target!==el) return; closeSheet(); return; }
@@ -622,6 +641,8 @@ document.addEventListener("click", e=>{
   if("bioEnable" in d){enableBiometric().catch(e=>alert("Could not enable fingerprint unlock: "+(e.message||e)));return;}
   if("bioDisable" in d){if(confirm("Disable fingerprint unlock? Your passphrase will still work.")){BIO=null;save();render();toast("Fingerprint unlock disabled");}return;}
   if("bioUnlock" in d){unlockBiometric().catch(e=>{const el=$("#pe");if(el)el.textContent="Fingerprint unlock failed. Use your passphrase. "+(e.message||"");});return;}
+  if("backupFolder" in d){await chooseBackupFolder();return;}
+  if("backupForget" in d){await forgetBackupFolder();return;}
   if("export" in d){ exportJSON(); return; }
   if("csv" in d){ exportCSV(); return; }
   if("import" in d){ $("#file").click(); return; }

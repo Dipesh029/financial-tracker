@@ -1,14 +1,18 @@
 {
   "name": "My Finance",
   "short_name": "My Finance",
-  "description": "Private, encrypted personal and family finance tracker",
+  "description": "Local-first encrypted family finance PWA",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
   "background_color": "#f3f5f8",
   "theme_color": "#2f4fd8",
   "icons": [
-    {"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
   ]
 }
