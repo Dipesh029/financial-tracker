@@ -120,7 +120,7 @@ function migrate(){
   S.v=2;
   for(const a of S.accounts){a.owner=a.owner||"Me";a.bank=a.bank||"";a.ifsc=a.ifsc||"";a.branchCode=a.branchCode||"";a.branch=a.branch||"";}
   if(!Array.isArray(S.people)||!S.people.length)S.people=["Me","Father","Mother"];
-  for(const h of S.holdings){h.owner=h.owner||"Me";h.folio=h.folio||"";h.isin=h.isin||"";}
+  for(const h of S.holdings){h.owner=h.owner||"Me";h.folio=h.folio||"";h.isin=h.isin||"";h.symbol=h.symbol||"";h.exchange=h.exchange||"";h.demat=h.demat||"";h.broker=h.broker||"";h.amc=h.amc||"";h.notes=h.notes||"";}
   for(const t of S.txns){if(t.fxRate==null)t.fxRate=S.rate||104.16;if(!t.owner&&t.postings?.[0])t.owner=(S.accounts.find(a=>a.id===t.postings[0].acct)||{}).owner||"Me";}
 }
 function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2)); }
@@ -259,7 +259,7 @@ function viewAccounts(){
   <button class="btn" data-newacct>Add account</button>
   <h2>Friends & contacts bank accounts</h2>
   <p class="muted">Save recipient bank details here. They are encrypted with the rest of your local vault and are reference details only; transfers to them do not change your own account balances automatically.</p>
-  ${S.bankContacts.map(b=>`<div class="card"><div class="row"><div><b>${esc(b.person)} · ${esc(b.bank)}</b><div class="muted">${esc(b.holder)} · ${esc(b.accountMasked||"Account saved")} · ${esc(b.cur)}${b.ifsc?" · IFSC "+esc(b.ifsc):""}${b.branchCode?" · Branch "+esc(b.branchCode):""}</div></div><button class="chip" data-delbank="${b.id}">Remove</button></div></div>`).join("")||`<div class="muted">No recipient accounts saved.</div>`}
+  ${S.bankContacts.map(b=>`<div class="card"><div class="row"><div><b>${esc(b.person)} · ${esc(b.bank)}</b><div class="muted">${esc(b.holder)} · ${esc(b.accountMasked||"Account saved")} · ${esc(b.cur)}${b.ifsc?" · IFSC "+esc(b.ifsc):""}${b.branchCode?" · Branch "+esc(b.branchCode):""}</div></div><div style="display:flex;gap:6px;flex-shrink:0"><button class="chip" data-copybank="${b.id}">Copy</button><button class="chip" data-delbank="${b.id}">Remove</button></div></div></div>`).join("")||`<div class="muted">No recipient accounts saved.</div>`}
   <button class="btn alt" data-newbank>Add friend / recipient bank account</button>
   <h2>Investments</h2>${S.holdings.map(h=>{const p=holdPos(h);return `<div class="card" data-hold="${h.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted num">${p.u} units · cost ${fmt(p.c,h.cur)}</div></div><div style="text-align:right"><b class="num">${fmt(p.v,h.cur)}</b><div class="muted num ${p.v-p.c<0?"out":"in"}">${h.price?fmt(p.v-p.c,h.cur):"set price"}</div></div></div></div>`}).join("")||`<div class="muted">No holdings yet.</div>`}
   <button class="btn alt" data-newhold>Add fund or stock</button>
@@ -356,8 +356,54 @@ function addSheet2(){
   else mid=`<label>What happened</label><select id="la"><option value="lend">I lent money</option><option value="lendback">They paid me back</option><option value="borrow">I borrowed</option><option value="repay">I repaid</option><option value="intin">Interest I received</option><option value="intout">Interest I paid</option></select><label>Person</label><input id="lp" list="pl" required><datalist id="pl">${Object.keys(personPos()).map(n=>`<option value="${esc(n)}">`).join("")}</datalist>`;
   openSheet(`${seg}<form id="f2" autocomplete="off"><input class="amt" id="amt" inputmode="decimal" placeholder="0" aria-label="Amount">${mid}<label>Account</label><select id="from">${opts}</select><label>Date</label><input type="date" id="date" value="${today()}"><label>Note (optional)</label><input id="note" maxlength="80"><button class="btn" type="submit">Save</button></form>`);
 }
-function newHoldSheet(){openSheet(`<h2 style="margin-top:0">New holding</h2><form id="fh"><label>Scheme / stock name</label><input id="hn" required placeholder="e.g. Axis Bluechip Fund"><label>Type</label><select id="ht"><option value="fund">Mutual fund</option><option value="stock">Stock</option></select><label>Owner</label><input id="ho" value="Me" list="owners2"><datalist id="owners2">${S.people.map(n=>`<option value="${esc(n)}">`).join("")}</datalist><label>Folio number (mutual funds) / identifier</label><input id="hfolio"><label>ISIN (optional)</label><input id="hisin"><label>Currency</label><select id="hc"><option>INR</option><option>EUR</option></select><button class="btn" type="submit">Save</button></form>`);}
-function holdSheet(id){const h=S.holdings.find(x=>x.id===id);if(!h)return;const p=holdPos(h);openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2><div class="muted num">${esc(h.owner||"Me")} · ${h.folio?"Folio "+esc(h.folio)+" · ":""}${p.u} units · cost ${fmt(p.c,h.cur)} · value ${fmt(p.v,h.cur)}</div><form id="fp"><input type="hidden" id="hid" value="${h.id}"><label>Current price per unit (${h.cur})</label><input id="hp" inputmode="decimal" value="${h.price||""}"><button class="btn" type="submit">Update price</button></form><button class="btn alt" data-close>Close</button>`);}
+function newHoldSheet(){
+  const peopleOpts=S.people.map(n=>`<option value="${esc(n)}">`).join("");
+  openSheet(`<h2 style="margin-top:0">New holding</h2>
+<form id="fh" autocomplete="off">
+<label>Scheme / stock name</label><input id="hn" required placeholder="e.g. Reliance Industries or HDFC Flexi Cap">
+<label>Type</label><select id="ht"><option value="fund">Mutual fund</option><option value="stock">Stock</option></select>
+<label>Owner</label><input id="ho" value="Me" list="owners2" required><datalist id="owners2">${peopleOpts}</datalist>
+<label>Symbol / ticker (stocks)</label><input id="hsym" placeholder="e.g. RELIANCE">
+<label>Exchange</label><select id="hex"><option value="">—</option><option value="NSE">NSE</option><option value="BSE">BSE</option><option value="Other">Other</option></select>
+<label>Demat / broker reference</label><input id="hdemat" placeholder="Optional">
+<label>AMC / platform (funds)</label><input id="hamc" placeholder="e.g. HDFC AMC">
+<label>Folio number (funds) / identifier</label><input id="hfolio">
+<label>ISIN (optional)</label><input id="hisin">
+<label>Currency</label><select id="hc"><option>INR</option><option>EUR</option></select>
+<label>Notes</label><input id="hnotes" maxlength="120">
+<hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+<label style="display:flex;gap:10px;align-items:center;color:var(--ink)"><input type="checkbox" id="hhistorical" style="width:auto"> This is an existing / historical holding</label>
+<p class="muted" style="margin:6px 0 0">When checked, enter the units already owned and the historical cost. No money is taken from any bank account today.</p>
+<div id="histFields" style="display:none">
+<label>Purchase / acquisition date</label><input type="date" id="hdate" value="${today()}">
+<label>Units / shares owned</label><input id="hunits" inputmode="decimal" placeholder="e.g. 100">
+<label>Total invested amount (cost basis)</label><input id="hcost" inputmode="decimal" placeholder="e.g. 240000">
+<label>Current market price per unit (optional)</label><input id="hprice" inputmode="decimal" placeholder="Leave blank to set later">
+</div>
+<button class="btn" type="submit">Save holding</button>
+</form>
+<button class="btn alt" data-close>Cancel</button>`);
+  setTimeout(()=>{
+    const cb=$("#hhistorical"), box=$("#histFields");
+    if(cb&&box) cb.addEventListener("change",()=>{box.style.display=cb.checked?"block":"none";});
+  },30);
+}
+function holdSheet(id){const h=S.holdings.find(x=>x.id===id);if(!h)return;const p=holdPos(h);const pl=p.v-p.c;const meta=[esc(h.owner||"Me"),h.type==="stock"?"Stock":"Mutual fund",h.symbol?esc(h.symbol):"",h.exchange?esc(h.exchange):"",h.folio?"Folio "+esc(h.folio):"",h.isin?"ISIN "+esc(h.isin):"",h.demat?"Demat "+esc(h.demat):"",h.broker?esc(h.broker):"",h.amc?esc(h.amc):""].filter(Boolean).join(" · ");
+openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2>
+<div class="muted">${meta}</div>
+<div class="card" style="margin-top:12px">
+<div class="row"><span>Units / shares</span><b class="num">${p.u}</b></div>
+<div class="row"><span>Average cost</span><b class="num">${p.u?fmt(p.c/p.u,h.cur):"—"}</b></div>
+<div class="row"><span>Total cost basis</span><b class="num">${fmt(p.c,h.cur)}</b></div>
+<div class="row"><span>Current price</span><b class="num">${h.price?fmt(h.price,h.cur):"not set"}</b></div>
+<div class="row"><span>Market value</span><b class="num">${fmt(p.v,h.cur)}</b></div>
+<div class="row"><span>Unrealized P/L</span><b class="num ${pl<0?"out":"in"}">${h.price?fmt(pl,h.cur):"set price"}</b></div>
+</div>
+${h.notes?`<p class="muted">${esc(h.notes)}</p>`:""}
+<form id="fp"><input type="hidden" id="hid" value="${h.id}">
+<label>Current price per unit (${h.cur})</label><input id="hp" inputmode="decimal" value="${h.price||""}">
+<button class="btn" type="submit">Update price</button></form>
+<button class="btn alt" data-close>Close</button>`);}
 const mk=(ym,d)=>{const last=new Date(+ym.slice(0,4),+ym.slice(5,7),0).getDate();return ym+"-"+String(Math.min(d,last)).padStart(2,"0");};
 function nextDue(day){const t=today();let c=mk(t.slice(0,7),day);if(daysTo(c)<0)c=mk(addM(t.slice(0,8)+"01",1).slice(0,7),day);return c;}
 function csvRows(t){const l0=t.split(/\r?\n/)[0];const dl=l0.includes("\t")?"\t":(l0.includes(";")&&!l0.includes(","))?";":",";const rows=[];let r=[],c="",q=false;for(let i=0;i<t.length;i++){const ch=t[i];if(q){if(ch==='"'){if(t[i+1]==='"'){c+='"';i++;}else q=false;}else c+=ch;}else if(ch==='"')q=true;else if(ch===dl){r.push(c);c="";}else if(ch==="\n"||ch==="\r"){if(ch==="\r"&&t[i+1]==="\n")i++;r.push(c);c="";if(r.some(x=>x!==""))rows.push(r);r=[];}else c+=ch;}r.push(c);if(r.some(x=>x!==""))rows.push(r);return rows;}
@@ -391,7 +437,7 @@ function holdParse(text){
   const plan=items.map(it=>{ const H=S.holdings.find(x=>x.type==="stock"&&hMatch(x,it)); const cur=H?holdPos(H):{u:0,c:0}; const nc=Math.round(it.qty*it.avg*100)/100;
     const du=Math.round((it.qty-cur.u)*1e6)/1e6, dc=Math.round((nc-cur.c)*100)/100; return {it,H,cur,du,dc,kind:!H?"new":(Math.abs(du)<1e-6&&Math.abs(dc)<=1)?"same":"changed"}; });
   const missing=S.holdings.filter(x=>x.type==="stock"&&holdPos(x).u>1e-6&&!items.some(it=>hMatch(x,it)));
-  pendH={plan,missing,items};
+  const ownerSel=($("#howner")||{}).value||"Me"; pendH={plan,missing,items,owner:ownerSel};
   const nw=plan.filter(p=>p.kind==="new").length, sm=plan.filter(p=>p.kind==="same").length, ch=plan.filter(p=>p.kind==="changed");
   const inv=items.reduce((a,x)=>a+x.qty*x.avg,0), val=items.reduce((a,x)=>a+x.qty*x.prev,0);
   openSheet(`<h2 style="margin-top:0">Review portfolio file</h2><p>${items.length} stocks · invested ${fmt(inv,"INR")} · value ${fmt(val,"INR")}</p>
@@ -406,7 +452,7 @@ function doHolds(){
   const P=pendH; if(!P) return; const date=($("#hdate")||{}).value||today(), killMissing=!!($("#hmiss")&&$("#hmiss").checked);
   let added=0, changed=0, price=0, sold=0;
   for(const p of P.plan){ let H=p.H;
-    if(!H){ H={id:uid(),name:p.it.sym,type:"stock",cur:"INR",isin:p.it.isin,sector:p.it.sec,price:p.it.prev}; S.holdings.push(H); added++; }
+    if(!H){ H={id:uid(),name:p.it.sym,type:"stock",cur:"INR",isin:p.it.isin,sector:p.it.sec,price:p.it.prev,owner:(P.owner||"Me"),symbol:p.it.sym,exchange:"",demat:"",broker:"",amc:"",folio:"",notes:""}; S.holdings.push(H); if(!S.people.includes(H.owner))S.people.push(H.owner); added++; }
     else{ H.price=p.it.prev; if(!H.isin) H.isin=p.it.isin; if(p.it.sec) H.sector=p.it.sec; }
     if(p.kind==="new") addTxn({type:"open",date,note:"Imported opening position",hold:H.id,units:p.it.qty,cost:Math.round(p.it.qty*p.it.avg*100)/100,postings:[]});
     else if(p.kind==="changed"){ addTxn({type:"adjust",date,note:"Portfolio file sync",hold:H.id,units:p.du,cost:p.dc,postings:[]}); changed++; } else price++; }
@@ -521,7 +567,9 @@ function acctSheet(id){
   <div class="muted">For safety, CVV/CVC is never collected or stored. Do not enter your PIN or full card details into notes.</div>
   <label>Annual fee</label><input id="annualFee" inputmode="decimal" value="${(a.cardMeta||{}).annualFee||""}">
   ${a.type==="card"?`<label>Credit limit</label><input id="cl" inputmode="decimal" value="${a.limit||""}"><label>Statement day of month</label><input id="cs" inputmode="numeric" value="${a.stmtDay||""}"><label>Payment due day of month</label><input id="cd" inputmode="numeric" value="${a.dueDay||""}">`:""}
-  <button class="btn alt" type="submit">Save card details</button></form><button class="btn alt" data-reconcile="${a.id}">Reconcile balance</button><button class="btn alt" data-filter="${a.id}">See transactions</button>
+  <button class="btn alt" type="submit">Save card details</button></form>
+  <button class="btn" data-reconcile="${a.id}">Set current balance</button>
+  <button class="btn alt" data-filter="${a.id}">See transactions</button>
   <button class="btn danger" data-archive="${a.id}">Archive account</button>
   <button class="btn alt" data-close>Close</button>`);
 }
@@ -597,7 +645,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-copybank],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if("close" in d){ if(el.classList.contains("sheet-bg") && e.target!==el) return; closeSheet(); return; }
@@ -609,9 +657,45 @@ document.addEventListener("click", async e=>{
   if("snapshot" in d){ const owner=homeOwner==="All family"?null:homeOwner,nw=netWorth(owner).total,m=today().slice(0,7); const old=S.history.find(x=>x.month===m&&(x.owner||null)===owner); if(old){old.value=nw;old.date=today();old.cur=S.display;old.fxRate=S.rate;}else S.history.push({month:m,date:today(),value:nw,cur:S.display,fxRate:S.rate,owner}); save(); render(); toast("Net worth snapshot saved"); return; }
   if("newlend" in d){newLendingSheet();return;}
   if(d.lendrec){lendingPaymentSheet(d.lendrec);return;}
-  if(d.reconcile){const a=acct(d.reconcile);if(!a)return;openSheet(`<h2 style="margin-top:0">Reconcile ${esc(a.name)}</h2><div class="muted">Current recorded balance: ${fmt(balance(a),a.cur)}</div><form id="frecon"><input type="hidden" id="raid" value="${a.id}"><label>Actual balance from bank / statement</label><input id="ractual" inputmode="decimal" required><label>Date</label><input id="rdate" type="date" value="${today()}"><label>Note</label><input id="rnote" value="Balance reconciliation"><button class="btn" type="submit">Post adjustment</button></form>`);return;}
+  if(d.reconcile){const a=acct(d.reconcile);if(!a)return;const cur=balance(a);openSheet(`<h2 style="margin-top:0">Set current balance</h2>
+<div class="muted">${esc(a.name)} · recorded now: <b class="num">${fmt(cur,a.cur)}</b></div>
+<p class="muted" style="margin-top:8px">Enter the real balance from your bank app or statement. The difference is posted as a single adjustment so your history stays consistent.</p>
+<form id="frecon"><input type="hidden" id="raid" value="${a.id}">
+<label>Actual balance</label><input id="ractual" inputmode="decimal" required placeholder="${cur}">
+<label>Date</label><input id="rdate" type="date" value="${today()}">
+<label>Note</label><input id="rnote" value="Balance adjustment">
+<button class="btn" type="submit">Update balance</button></form>
+<button class="btn alt" data-close>Cancel</button>`);return;}
   if("newacct" in d){ newAcctSheet(); return; }
   if("newbank" in d){ openSheet(`<h2 style="margin-top:0">Friend / recipient bank account</h2><form id="fbank"><label>Person / recipient name</label><input id="bp" required placeholder="e.g. Rahul Sharma"><label>Account holder name</label><input id="bh" required><label>Bank name</label><input id="bb" required><label>Account number / IBAN</label><input id="ba" required autocomplete="off"><label>IFSC code (India)</label><input id="bi" autocapitalize="characters"><label>Branch name</label><input id="br"><label>Branch code</label><input id="bc"><label>Currency</label><select id="bcur"><option>INR</option><option>EUR</option></select><label>Nickname (optional)</label><input id="bn"><div class="security-note">These details are stored inside your encrypted vault. The account number is masked in lists, but is present in encrypted backup data.</div><button class="btn" type="submit">Save recipient account</button></form>`);return; }
+  if(d.copybank){
+    const b=S.bankContacts.find(x=>x.id===d.copybank);
+    if(!b)return;
+    const lines=[
+      b.person?("Name: "+b.person):"",
+      b.holder?("Account holder: "+b.holder):"",
+      b.bank?("Bank: "+b.bank):"",
+      b.accountNumber?("Account number: "+b.accountNumber):"",
+      b.ifsc?("IFSC: "+b.ifsc):"",
+      b.branch?("Branch: "+b.branch):"",
+      b.branchCode?("Branch code: "+b.branchCode):"",
+      b.cur?("Currency: "+b.cur):"",
+      b.nickname?("Nickname: "+b.nickname):""
+    ].filter(Boolean).join("\\n");
+    const done=()=>toast("Account details copied");
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(lines).then(done).catch(()=>{
+        const ta=document.createElement("textarea");ta.value=lines;document.body.appendChild(ta);ta.select();
+        try{document.execCommand("copy");done();}catch(e){alert(lines);}
+        document.body.removeChild(ta);
+      });
+    }else{
+      const ta=document.createElement("textarea");ta.value=lines;document.body.appendChild(ta);ta.select();
+      try{document.execCommand("copy");done();}catch(e){alert(lines);}
+      document.body.removeChild(ta);
+    }
+    return;
+  }
   if(d.delbank){if(confirm("Remove this saved recipient bank account? Past transfers keep their recorded reference text only.")){S.bankContacts=S.bankContacts.filter(x=>x.id!==d.delbank);save();render();}return;}
   if("readme" in d){openSheet(readmeHtml());return;}
   if("newsip" in d){ if(!S.holdings.some(h=>h.type==="fund")){ alert("Add a mutual fund first, under Money."); return; } fs("New SIP","fs1",[["sh","Fund","select",S.holdings.filter(h=>h.type==="fund").map(h=>[h.id,h.name])],["sa","Debit account","select",accOpts()],["sm","Amount","num"],["sf","Frequency","select",[["1","Monthly"],["3","Quarterly"],["6","Half-yearly"],["12","Yearly"]]],["sd","Next debit date","date"]],"Save SIP"); return; }
@@ -623,7 +707,15 @@ document.addEventListener("click", async e=>{
   if("newpur" in d){ fs("New purchase","fpur",[["un","Item","text"],["ua","Amount","num"],["ud","Date","date"],["uc","Paid from","select",accOpts()],["uw","Warranty in months (0 for none)","num"]],"Save purchase"); return; }
   if(d.delpur){ S.purchases=S.purchases.filter(v=>v.id!==d.delpur); save(); render(); return; }
   if(d.refund){ const o=S.txns.find(v=>v.id===d.refund); if(!o) return; const was=S.txns.filter(v=>v.refundOf===o.id&&v.status==="posted").reduce((a,v)=>a+v.postings[0].amt,0), left=Math.round((Math.abs(o.postings[0].amt)-was)*100)/100; if(left<=0){ alert("Already fully refunded."); return; } const v=parseAmt(prompt("Refund amount (up to "+left+")",left)); if(v>0&&v<=left){ addTxn({type:"refund",date:today(),cat:o.cat,note:o.note||"",refundOf:o.id,postings:[{acct:o.postings[0].acct,amt:v,cur:o.postings[0].cur}]}); } closeSheet(); render(); return; }
-  if("holds" in d){ openSheet(`<h2 style="margin-top:0">Import stock holdings</h2><p class="muted">Choose your broker file saved as CSV, or paste the table copied from Excel, including the heading row.</p><input type="file" id="hf" accept="*/*"><label>Or paste here</label><textarea id="hpaste" rows="5" style="width:100%;font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:12px"></textarea><button class="btn" data-holdparse>Review</button><button class="btn alt" data-close>Cancel</button>`); return; }
+  if("holds" in d){ openSheet(`<h2 style="margin-top:0">Import stock holdings</h2>
+<p class="muted">Choose your broker file saved as CSV, or paste the table copied from Excel, including the heading row. Select the owner these holdings belong to.</p>
+<label>Owner of these stocks</label>
+<select id="howner">${S.people.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>
+<input type="file" id="hf" accept="*/*" style="margin-top:12px">
+<label>Or paste here</label>
+<textarea id="hpaste" rows="5" style="width:100%;font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:12px"></textarea>
+<button class="btn" data-holdparse>Review</button>
+<button class="btn alt" data-close>Cancel</button>`); return; }
   if("holdparse" in d){ const v=$("#hpaste").value; if(v.trim()) holdParse(v); return; }
   if("doholds" in d){ doHolds(); return; }
   if("csvimp" in d){ $("#csvf").click(); return; }
@@ -727,7 +819,7 @@ document.addEventListener("submit", e=>{
     if(!a)return; const diff=Math.round((actual-balance(a))*100)/100;
     if(Math.abs(diff)<0.005){closeSheet();toast("Already reconciled");return;}
     addTxn({type:"adjustment",date,cat:"Balance adjustment",note,postings:[{acct:a.id,amt:diff,cur:a.cur}]});
-    closeSheet();render();toast("Balance reconciled");return;
+    closeSheet();render();toast("Balance updated");return;
   }
   if(e.target.id==="flend"){
     const person=$("#lpname").value.trim(), principal=parseAmt($("#lprincipal").value), cur=$("#lcur").value, a=acct($("#laccount").value), dir=$("#ldir").value, rate=parseAmt($("#lrate").value), start=$("#lstart").value||today();
@@ -754,7 +846,31 @@ document.addEventListener("submit", e=>{
     }
     save();closeSheet();render();toast("Lending transaction saved");return;
   }
-  if(e.target.id==="fh"){ const h={id:uid(),name:$("#hn").value.trim(),type:$("#ht").value,owner:($("#ho").value.trim()||"Me"),folio:$("#hfolio").value.trim(),isin:$("#hisin").value.trim(),cur:$("#hc").value,price:0}; if(!h.name)return; S.holdings.push(h); if(!S.people.includes(h.owner))S.people.push(h.owner); log("holding",h.id); save(); closeSheet(); render(); }
+  if(e.target.id==="fh"){
+    const name=$("#hn").value.trim(); if(!name) return;
+    const h={id:uid(),name,type:$("#ht").value,owner:($("#ho").value.trim()||"Me"),
+      symbol:($("#hsym")?.value||"").trim(),exchange:($("#hex")?.value||"").trim(),
+      demat:($("#hdemat")?.value||"").trim(),broker:"",amc:($("#hamc")?.value||"").trim(),
+      folio:($("#hfolio")?.value||"").trim(),isin:($("#hisin")?.value||"").trim(),
+      cur:$("#hc").value,price:0,notes:($("#hnotes")?.value||"").trim()};
+    const hist=!!$("#hhistorical")?.checked;
+    const units=parseAmt($("#hunits")?.value||"0");
+    const cost=parseAmt($("#hcost")?.value||"0");
+    const price=parseAmt($("#hprice")?.value||"0");
+    const hdate=($("#hdate")?.value)||today();
+    if(hist){
+      if(units<=0||cost<=0){ alert("For a historical holding enter units owned and total invested amount."); return; }
+      if(price>0) h.price=price;
+    }
+    S.holdings.push(h);
+    if(!S.people.includes(h.owner)) S.people.push(h.owner);
+    log("holding",h.id);
+    if(hist){
+      addTxn({type:"open",date:hdate,note:"Historical opening position",hold:h.id,units,cost:Math.round(cost*100)/100,owner:h.owner,postings:[]});
+    }
+    save(); closeSheet(); render();
+    toast(hist?"Historical holding saved (no bank debit)":"Holding saved");
+  }
   if(e.target.id==="fp"){ const h=S.holdings.find(x=>x.id===$("#hid").value); if(h){ h.price=parseAmt($("#hp").value); save(); } closeSheet(); render(); }
   if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today()}); save(); closeSheet(); render(); }
   if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=parseAmt($("#su").value); if(!x||u<=0){ $("#su").focus(); return; } addTxn({type:"buy",date:x.next,note:"SIP",hold:x.hold,units:u,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]}); x.next=addM(x.next,x.freq||1); save(); closeSheet(); render(); toast("SIP recorded"); }
