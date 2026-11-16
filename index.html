@@ -127,8 +127,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.8.3";
+const APP_VERSION = "1.8.4";
 const RELEASES = [
+  {v:"1.8.4", d:"2026-11-17", notes:"Restored missing viewSettings (unlock regression)."},
   {v:"1.8.3", d:"2026-11-17", notes:"Lock screen hides nav; unlock errors surface real cause; migrate contacts on unlock; auth required before any app UI."},
   {v:"1.8.2", d:"2026-11-17", notes:"Contacts restore from bankContacts; contacts not auto-Family; lend recipient account; name suggestions."},
   {v:"1.8.1", d:"2026-11-17", notes:"Premium pay advances next due correctly (no false overdue); policy payment history; updated in-app user guide."},
@@ -557,6 +558,59 @@ function versionBadgeHtml(){
   <button type="button" data-releases style="border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:2px 0;opacity:.8">v${esc(APP_VERSION)}</button>
   </div>`;
 }
+
+function viewSettings(){
+  const bioOn=!!BIO;
+  return `<h2 style="margin-top:4px">More</h2>
+  <div class="card"><b>Version</b>
+  <div class="muted">App v${esc(APP_VERSION)} · vault key myfinance.v1</div>
+  <button class="btn alt" data-releases style="margin-top:8px">Release notes</button>
+  <button class="btn alt" data-readme>User guide</button></div>
+
+  <div class="card"><b>Family members</b>
+  <div class="muted">Names used in Family view and as account owners. Moving someone to Contacts only changes visibility — data is kept.</div>
+  <button class="btn alt" data-editpeople style="margin-top:8px">Manage family members</button></div>
+
+  <div class="card"><b>Activity</b>
+  <div class="muted">Full transaction list.</div>
+  <button class="btn alt" data-tab="activity" style="margin-top:8px">Open activity</button></div>
+
+  <div class="card"><b>Automatic postings</b>
+  <div class="row"><span>Auto-post due SIPs on unlock</span><button class="chip ${S.autoSip!==false?"on":""}" data-togglesip>${S.autoSip!==false?"On":"Off"}</button></div>
+  <div class="row"><span>Auto-post due salaries on unlock</span><button class="chip ${S.autoSalary!==false?"on":""}" data-togglesal>${S.autoSalary!==false?"On":"Off"}</button></div>
+  <div class="muted" style="margin-top:8px">Runs only when you unlock. SIP units use the fund’s current price when set.</div></div>
+
+  <div class="card"><b>Categories</b>
+  <div class="muted">Labels used for income and expenses.</div>
+  <button class="btn alt" data-editcats="expense" style="margin-top:8px">Edit expense categories</button>
+  <button class="btn alt" data-editcats="income">Edit income categories</button></div>
+
+  <div class="card"><b>Display</b>
+  <label>EUR → INR rate</label>
+  <input id="rate" inputmode="decimal" value="${S.rate||104.16}">
+  <div class="muted">Used when converting for net-worth display.</div></div>
+
+  <div class="card"><b>Security</b>
+  <div class="muted">Fingerprint unlock: ${bioOn?"enabled":"not enabled"}</div>
+  ${bioOn
+    ?`<button class="btn alt" data-bio-disable style="margin-top:8px">Disable fingerprint unlock</button>`
+    :`<button class="btn alt" data-bio-enable style="margin-top:8px">Enable fingerprint unlock</button>`}
+  <button class="btn alt" data-change-pass>Change passphrase</button></div>
+
+  <div class="card"><b>Backup</b>
+  <div class="muted" id="backupFolderStatus">Checking backup folder…</div>
+  <button class="btn alt" data-backup-folder style="margin-top:8px">Choose backup folder</button>
+  <button class="btn alt" data-backup-forget>Forget folder</button>
+  <button class="btn" data-export>Save backup file (.enc)</button>
+  <label class="btn alt" style="display:block;text-align:center;margin-top:8px">Restore backup<input type="file" id="file" accept=".enc,application/octet-stream,*/*" hidden></label>
+  <div class="muted" style="margin-top:8px">Backups are encrypted with your passphrase. Prefer a verified backup before updates.</div></div>
+
+  <div class="card"><b>Maintenance</b>
+  <button class="btn alt" data-check>Integrity check</button>
+  <button class="btn alt" data-csv>Export CSV</button>
+  <button class="btn danger" data-wipe>Wipe local vault</button></div>`;
+}
+
 function viewHome(){ const b=viewHome0(); const o=homeOwner==="All family"?null:homeOwner; return S.accounts.length?versionBadgeHtml()+b+dueHtml()+investSummaryHtml(o)+portfolioGrowthHtml()+historyHtml(o):versionBadgeHtml()+b; }
 function chartHtml(owner){
   const ms=[];let d=today().slice(0,8)+"01";for(let i=5;i>=0;i--){const dt=addM(d,-i);ms.push(dt.slice(0,7));}
