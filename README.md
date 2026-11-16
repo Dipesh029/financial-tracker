@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.3.1
+**Current version:** 2.3.3
 
 ---
 
@@ -120,6 +120,12 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.3.3 — 2026-11-17
+- Lending landing UI polish: compact status pills, dual principal/interest progress, cleaner card hierarchy.
+
+### 2.3.2 — 2026-11-17
+- Lending: interest accrues only while principal is outstanding (stops after full principal repayment); Adjust interest / round-off with audit trail.
 
 ### 2.3.1 — 2026-11-17
 - Lending: principal vs interest tracked separately; “Fully Settled” only when both cleared; dual progress (principal % and total %).

@@ -245,18 +245,31 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .lend-metric{background:var(--bg);border-radius:12px;padding:10px 12px}
 .lend-metric span{display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
 .lend-metric b{font-size:15px;font-variant-numeric:tabular-nums}
-.lend-card{padding:14px 15px}
-.lend-card .name{font-size:16px;font-weight:650;margin:0 0 2px}
-.lend-card .meta{font-size:13px;color:var(--muted);margin:0 0 8px}
-.lend-progress{height:6px;background:var(--line);border-radius:99px;overflow:hidden;margin:8px 0 6px}
-.lend-progress > i{display:block;height:100%;background:var(--in);border-radius:99px;min-width:0}
-.lend-progress.partial > i{background:var(--accent)}
+.lend-card{padding:14px 15px;overflow:hidden}
+.lend-card .name{font-size:16px;font-weight:650;margin:0;line-height:1.25;word-break:break-word}
+.lend-card .meta{font-size:12px;color:var(--muted);margin:4px 0 10px;line-height:1.35}
+.lend-card .lend-amt{font-size:20px;font-weight:720;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.2;margin:0 0 2px}
+.lend-card .lend-amt-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.lend-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:10px 0 0}
+.lend-stat{min-width:0}
+.lend-stat .lbl{font-size:11px;color:var(--muted);display:block;margin-bottom:2px}
+.lend-stat .val{font-size:13px;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.3;word-break:break-word}
+.lend-progress{height:5px;background:var(--line);border-radius:99px;overflow:hidden;margin:4px 0 0}
+.lend-progress > i{display:block;height:100%;background:var(--accent);border-radius:99px;min-width:0;max-width:100%}
+.lend-progress.prin > i{background:var(--accent)}
+.lend-progress.total > i{background:var(--in)}
 .lend-progress.full > i{background:var(--in)}
-.lend-progress.none > i{background:var(--muted);width:0!important}
-.status-pill{display:inline-block;font-size:11px;font-weight:650;padding:3px 8px;border-radius:99px;background:var(--bg);border:1px solid var(--line);color:var(--muted)}
+.lend-progress.none > i{width:0!important}
+.lend-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:10px}
+.status-pill{display:inline-block;font-size:11px;font-weight:650;padding:4px 9px;border-radius:99px;background:var(--bg);border:1px solid var(--line);color:var(--muted);max-width:100%;line-height:1.3}
 .status-pill.ok{color:var(--in);border-color:color-mix(in srgb,var(--in) 35%,var(--line))}
 .status-pill.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 35%,var(--line))}
 .status-pill.out{color:var(--out);border-color:color-mix(in srgb,var(--out) 30%,var(--line))}
+.lend-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+@media (max-width:360px){
+  .lend-stats{grid-template-columns:1fr}
+  .lend-card .lend-amt{font-size:18px}
+}
 .lend-detail-actions{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 </style>
 </head>
@@ -269,8 +282,10 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.3.1";
+const APP_VERSION = "2.3.3";
 const RELEASES = [
+  {v:"2.3.3", d:"2026-11-17", notes:"Lending landing UI polish: compact status, dual progress, card spacing."},
+  {v:"2.3.2", d:"2026-11-17", notes:"Lending: period-based interest (stops after principal repaid); manual interest adjust/waiver."},
   {v:"2.3.1", d:"2026-11-17", notes:"Lending: principal vs interest outstanding; settled only when both clear; dual progress."},
   {v:"2.3.0", d:"2026-11-17", notes:"Lending UI redesign: summary metrics, progress bars, refined cards and detail sheet."},
   {v:"2.2.7", d:"2026-11-17", notes:"Lending: edit principal amount with repayment-safe validation; keeps date edit."},
@@ -413,6 +428,7 @@ function migrate(){
     h.exchange=h.exchange||""; h.demat=h.demat||""; h.broker=h.broker||""; h.amc=h.amc||""; h.notes=h.notes||"";
   }
   for(const x of S.sips){ x.status=x.status||"active"; x.history=x.history||[]; }
+  for(const x of (S.lending||[])){ x.interestAdjustments=x.interestAdjustments||[]; }
   for(const x of S.salaries){ x.status=x.status||"active"; x.history=x.history||[]; x.revisions=x.revisions||[]; x.freqUnit=x.freqUnit||"month"; if(x.freq==null)x.freq=1; }
   for(const p of S.policies){ p.payments=p.payments||[]; }
   try{ migrateContactsFromBank(); }catch(e){ console.warn("contact migrate", e); }
@@ -1401,45 +1417,67 @@ const daysTo=t=>Math.round((new Date(t+"T00:00")-new Date(today()+"T00:00"))/864
 function fs(title,fid,fields,btn){openSheet(`<h2 style="margin-top:0">${title}</h2><form id="${fid}" autocomplete="off">${fields.map(([i,l,t,o])=>`<label>${l}</label>`+(t==="select"?`<select id="${i}">${o.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>`:`<input id="${i}" type="${t==="date"?"date":"text"}" ${t==="num"?'inputmode="decimal"':""} ${t==="date"?`value="${today()}"`:""}>`)).join("")}<button class="btn" type="submit">${btn}</button></form>`);}
 function lendingPosition(l){
   const principalOrig=Math.max(0, Number(l.principal)||0);
+  const rate=Number(l.rate)||0;
+  const start=l.start||today();
+  // Principal repayments chronological
+  const prinTxns=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&t.principalReduction)
+    .map(t=>({date:t.date||start, amt:Number(t.principalReduction)||0}))
+    .sort((a,b)=>a.date.localeCompare(b.date));
   let principalLeft=principalOrig;
   let principalRepaid=0;
-  for(const t of S.txns){
-    if(t.status!=="posted"||t.loanId!==l.id||!t.principalReduction) continue;
-    const red=Number(t.principalReduction)||0;
-    principalRepaid+=red;
-    principalLeft-=red;
+  let cursor=start;
+  let accrued=0;
+  const dayMs=864e5;
+  const daysBetween=(a,b)=>{
+    const d0=new Date(a+"T00:00"), d1=new Date(b+"T00:00");
+    return Math.max(0, Math.floor((d1-d0)/dayMs));
+  };
+  // Accrue on outstanding principal for each interval between events
+  for(const ev of prinTxns){
+    if(principalLeft>0.0000001 && rate>0){
+      const d=daysBetween(cursor, ev.date);
+      accrued+=principalLeft*rate/100*d/365.25;
+    }
+    const pay=Math.min(principalLeft, Math.max(0, ev.amt));
+    principalLeft-=pay;
+    principalRepaid+=pay;
+    cursor=ev.date>cursor?ev.date:cursor;
   }
+  // After last repayment: only continue if principal still outstanding
+  if(principalLeft>0.0000001 && rate>0){
+    const d=daysBetween(cursor, today());
+    accrued+=principalLeft*rate/100*d/365.25;
+  }
+  // If principal fully repaid, cursor is last repayment date — no further accrual (above branch skipped)
   principalLeft=Math.max(0, principalLeft);
   principalRepaid=Math.min(principalOrig, Math.max(0, principalRepaid));
-  const days=Math.max(0, Math.floor((new Date(today()+"T00:00")-new Date((l.start||today())+"T00:00"))/864e5));
-  // Simple interest on original principal for elapsed days (rate is annual %).
-  // Using original principal avoids interest vanishing when principal is fully repaid.
-  const rate=Number(l.rate)||0;
-  const accrued=rate>0 ? principalOrig*rate/100*days/365.25 : 0;
   const interestPaid=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&t.interestSettlement)
     .reduce((v,t)=>v+Math.abs(t.postings?.[0]?.amt||0),0);
-  const interestLeft=Math.max(0, accrued-interestPaid);
+  // Manual adjustments: positive = more interest owed; negative = waiver/round-down
+  const adjustments=l.interestAdjustments||[];
+  const interestAdj=adjustments.reduce((v,a)=>v+(Number(a.amount)||0),0);
+  const interestLeft=Math.max(0, accrued+interestAdj-interestPaid);
   const totalOutstanding=principalLeft+interestLeft;
-  const totalPayable=principalOrig+accrued;
+  const totalPayable=principalOrig+Math.max(0, accrued+interestAdj);
   const totalPaid=principalRepaid+interestPaid;
   const pctPrincipal=principalOrig>0?Math.min(100, Math.round(principalRepaid/principalOrig*100)):100;
-  const pctTotal=totalPayable>0?Math.min(100, Math.round(totalPaid/totalPayable*100)):100;
+  const pctTotal=totalPayable>0?Math.min(100, Math.round(totalPaid/totalPayable*100)):(totalOutstanding<=0?100:0);
   let status="Unpaid";
   if(totalOutstanding<=0.0001) status="Fully Settled";
   else if(principalLeft<=0.0001 && interestLeft>0.0001) status="Principal Repaid · Interest Pending";
-  else if(principalRepaid>0.0001 && interestPaid>0.0001) status="Partially Repaid";
-  else if(principalRepaid>0.0001) status="Partially Repaid";
-  else if(interestPaid>0.0001 && principalLeft>0.0001) status="Interest Partially Paid";
+  else if(principalRepaid>0.0001 || interestPaid>0.0001 || interestAdj) status="Partially Repaid";
   else status="Unpaid";
+  const days=daysBetween(start, today());
   return {
-    principal: principalLeft, // remaining principal (backward compatible)
+    principal: principalLeft,
     principalOrig, principalLeft, principalRepaid,
-    interest: interestLeft, // outstanding interest (backward compatible)
-    interestLeft, accrued, interestPaid, interestAccrued: accrued,
+    interest: interestLeft,
+    interestLeft, accrued, interestPaid, interestAdj, interestAccrued: accrued,
     total: totalOutstanding, totalOutstanding, totalPayable, totalPaid,
-    pctPrincipal, pctTotal, status, days, rate
+    pctPrincipal, pctTotal, status, days, rate, adjustments
   };
 }
+
 function newLendingSheet(){
   const accounts=accOpts();
   const names=allPersonNames();
@@ -1527,8 +1565,9 @@ function lendingDetailSheet(id){
     <div class="row"><span>Principal repaid</span><b class="num">${fmt(p.principalRepaid,l.cur)} · ${p.pctPrincipal}%</b></div>
     <div class="row"><span>Principal left</span><b class="num">${fmt(p.principalLeft,l.cur)}</b></div>
     <div class="lend-progress ${p.pctPrincipal>=100?"full":(p.principalRepaid>0?"partial":"none")}" title="Principal progress"><i style="width:${p.pctPrincipal}%"></i></div>
-    <div class="row"><span>Interest accrued</span><b class="num">${fmt(p.accrued,l.cur)}</b></div>
+    <div class="row"><span>Interest accrued (to repayment / today)</span><b class="num">${fmt(p.accrued,l.cur)}</b></div>
     <div class="row"><span>Interest paid</span><b class="num">${fmt(p.interestPaid,l.cur)}</b></div>
+    <div class="row"><span>Adjustments (waiver − / add +)</span><b class="num">${fmt(p.interestAdj,l.cur)}</b></div>
     <div class="row"><span>Interest outstanding</span><b class="num">${fmt(p.interestLeft,l.cur)}</b></div>
     <div class="row"><span>Total outstanding</span><b class="num ${p.totalOutstanding>0?"in":""}">${fmt(p.totalOutstanding,l.cur)}</b></div>
     <div class="lend-progress ${p.pctTotal>=100?"full":(p.totalPaid>0?"partial":"none")}" title="Total repayment progress"><i style="width:${p.pctTotal}%"></i></div>
@@ -1562,9 +1601,41 @@ function lendingDetailSheet(id){
   </form>
   <div class="lend-detail-actions">
     <button class="btn" data-lendrec="${l.id}">Record repayment</button>
+    <button class="btn alt" data-lendadj="${l.id}">Adjust interest / round off</button>
     <button class="btn alt" data-close>Close</button>
   </div>`);
 }
+function lendingAdjustSheet(id){
+  const l=S.lending.find(x=>x.id===id); if(!l) return;
+  const p=lendingPosition(l);
+  openSheet(`<h2 style="margin-top:0">Adjust interest</h2>
+  <div class="muted">${esc(l.person)} · does not change principal</div>
+  <div class="card" style="margin:10px 0">
+    <div class="row"><span>Calculated interest (accrued)</span><b class="num">${fmt(p.accrued,l.cur)}</b></div>
+    <div class="row"><span>Interest paid</span><b class="num">${fmt(p.interestPaid,l.cur)}</b></div>
+    <div class="row"><span>Prior adjustments</span><b class="num">${fmt(p.interestAdj,l.cur)}</b></div>
+    <div class="row"><span>Outstanding interest now</span><b class="num">${fmt(p.interestLeft,l.cur)}</b></div>
+  </div>
+  <form id="fladj">
+    <input type="hidden" id="la_id" value="${l.id}">
+    <label>Adjustment type</label>
+    <select id="la_type">
+      <option value="set">Set agreed interest outstanding to…</option>
+      <option value="waiver">Waive / reduce by amount</option>
+      <option value="add">Add extra interest owed</option>
+    </select>
+    <label>Amount</label>
+    <input id="la_amt" inputmode="decimal" required placeholder="e.g. 1000">
+    <label>Adjustment date</label>
+    <input type="date" id="la_date" value="${today()}">
+    <label>Reason (optional)</label>
+    <input id="la_note" placeholder="e.g. Agreed round-off to ₹1,000">
+    <div class="muted">Example: calculated outstanding interest ₹1,043 → set agreed to ₹1,000 (records −₹43 waiver).</div>
+    <button class="btn" type="submit">Save Details</button>
+  </form>
+  <button class="btn alt" data-close>Cancel</button>`);
+}
+
 
 function lendingPaymentSheet(id){
   const l=S.lending.find(x=>x.id===id); if(!l)return;
@@ -1632,26 +1703,33 @@ function viewPlan(){
       const progClass=st==="Fully Settled"?"full":(p.totalPaid>0?"partial":"none");
       const recv=l.recipientMethod?(l.recipientMethod.kind==="upi"?("UPI "+(l.recipientMethod.upi||"")):((l.recipientMethod.bank||"")+(" "+(l.recipientMethod.accountMasked||"")).trim())):"";
       const dir=l.direction==="lent"?"Lent":"Borrowed";
-      return `<div class="card tap lend-card" data-lend="${l.id}">
-        <div class="row" style="align-items:flex-start">
-          <div style="flex:1;min-width:0">
-            <div class="name">${esc(l.person)}</div>
-            <div class="meta">${dir} · ${esc(l.start||"—")}${recv?` · ${esc(recv.trim())}`:""}</div>
-            <div class="row" style="margin:0;border:0;padding:0">
-              <span class="muted">Original</span><b class="num">${fmt(orig,l.cur)}</b>
-            </div>
-            <div class="row" style="margin:4px 0 0;border:0;padding:0">
-              <span class="muted">Total outstanding</span><b class="num ${out>0?(l.direction==="lent"?"in":"out"):""}">${fmt(out,l.cur)}</b>
-            </div>
-            <div class="muted" style="font-size:12px;margin-top:2px">Principal left ${fmt(p.principalLeft,l.cur)}${p.interestLeft>0.0001?` · Interest ${fmt(p.interestLeft,l.cur)}`:""}</div>
-            <div class="lend-progress ${progClass}" aria-hidden="true" title="Total repayment progress"><i style="width:${pct}%"></i></div>
-            <div class="row" style="margin:0;border:0;padding:0;align-items:center">
-              <span class="status-pill ${stClass}">${esc(st)}</span>
-              <span class="muted num" style="font-size:12px">${p.pctPrincipal}% principal · ${pct}% total</span>
-            </div>
-            ${l.note?`<div class="muted" style="margin-top:6px;font-size:12px">${esc(l.note)}</div>`:""}
+      const shortSt = st==="Fully Settled"?"Settled"
+        : st==="Principal Repaid · Interest Pending"?"Interest pending"
+        : st==="Partially Repaid"?"Partial"
+        : st==="Interest Partially Paid"?"Interest partial"
+        : "Unpaid";
+      return `<div class="card tap lend-card" data-lend="${l.id}" title="${esc(st)}">
+        <div class="name">${esc(l.person)}</div>
+        <div class="meta">${dir} · ${esc(l.start||"—")}${recv?` · ${esc(recv.trim())}`:""}</div>
+        <div class="lend-amt-label">Outstanding</div>
+        <div class="lend-amt num ${out>0?(l.direction==="lent"?"in":"out"):""}">${fmt(out,l.cur)}</div>
+        <div class="lend-stats">
+          <div class="lend-stat">
+            <span class="lbl">Principal</span>
+            <span class="val">${p.pctPrincipal}% repaid</span>
+            <div class="lend-progress prin ${p.pctPrincipal>=100?"full":(p.principalRepaid>0?"":"none")}"><i style="width:${p.pctPrincipal}%"></i></div>
+          </div>
+          <div class="lend-stat">
+            <span class="lbl">Interest</span>
+            <span class="val">${p.interestLeft<=0.0001?(p.accrued>0||p.interestPaid>0?"Cleared":"None") : fmt(p.interestLeft,l.cur)}</span>
+            <div class="lend-progress total ${p.interestLeft<=0.0001&&(p.accrued>0||p.interestPaid>0)?"full":(p.interestPaid>0?"":"none")}"><i style="width:${p.accrued>0?Math.min(100,Math.round((p.interestPaid/Math.max(p.accrued+Math.max(0,p.interestAdj),0.0001))*100)):0}%"></i></div>
           </div>
         </div>
+        <div class="lend-foot">
+          <span class="status-pill ${stClass}">${esc(shortSt)}</span>
+          <span class="muted" style="font-size:12px">${pct}% overall · ${fmt(orig,l.cur)} original</span>
+        </div>
+        ${l.note?`<div class="muted" style="margin-top:8px;font-size:12px;line-height:1.35">${esc(l.note)}</div>`:""}
       </div>`;
     }).join("");
     return segBar+`<h2 style="margin-top:4px">Lending</h2>
@@ -1995,7 +2073,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -2108,6 +2186,7 @@ document.addEventListener("click", async e=>{
   if("snapshot" in d){ const owner=homeOwner==="All family"?null:homeOwner,nw=netWorth(owner).total,m=today().slice(0,7); const old=S.history.find(x=>x.month===m&&(x.owner||null)===owner); if(old){old.value=nw;old.date=today();old.cur=S.display;old.fxRate=S.rate;}else S.history.push({month:m,date:today(),value:nw,cur:S.display,fxRate:S.rate,owner}); save(); render(); toast("Net worth snapshot saved"); return; }
   if("newlend" in d){newLendingSheet();return;}
   if(d.lend){ lendingDetailSheet(d.lend); return; }
+  if(d.lendadj){ lendingAdjustSheet(d.lendadj); return; }
   if(d.lendrec){lendingPaymentSheet(d.lendrec);return;}
   if(d.reconcile){const a=acct(d.reconcile);if(!a)return;const cur=balance(a);openSheet(`<h2 style="margin-top:0">Set current balance</h2>
 <div class="muted">${esc(a.name)} · recorded now: <b class="num">${fmt(cur,a.cur)}</b></div>
@@ -2628,6 +2707,36 @@ document.addEventListener("submit", e=>{
     if(Math.abs(diff)<0.005){closeSheet();toast("Already reconciled");return;}
     addTxn({type:"adjustment",date,cat:"Balance adjustment",note,postings:[{acct:a.id,amt:diff,cur:a.cur}]});
     closeSheet();render();toast("Balance updated");return;
+  }
+  if(e.target.id==="fladj"){
+    const l=S.lending.find(x=>x.id===$("#la_id")?.value); if(!l){ alert("Record not found."); return; }
+    const p=lendingPosition(l);
+    const typ=$("#la_type")?.value||"set";
+    const amt=parseAmt($("#la_amt")?.value);
+    const date=$("#la_date")?.value||today();
+    const note=($("#la_note")?.value||"").trim();
+    if(!(amt>=0)){ alert("Enter a non-negative amount."); return; }
+    let delta=0;
+    if(typ==="set"){
+      // Set outstanding interest to amt → adjustment so accrued+adj-paid = amt
+      // interestLeft = accrued + interestAdj - interestPaid; want interestLeft' = amt
+      // newAdj total = amt - accrued + interestPaid; delta on top of existing adj sum
+      const target=amt;
+      const needed=target - p.accrued + p.interestPaid; // total adj sum desired
+      delta=needed - p.interestAdj;
+    }else if(typ==="waiver"){
+      delta=-amt;
+    }else{
+      delta=amt;
+    }
+    if(Math.abs(delta)<0.0000001){ toast("No change"); closeSheet(); return; }
+    const newLeft=Math.max(0, p.interestLeft+delta);
+    if(!confirm("Adjustment: "+(delta>=0?"+":"")+fmt(delta,l.cur)+" interest.\nOutstanding interest will be about "+fmt(newLeft,l.cur)+".\nSave?")) return;
+    l.interestAdjustments=l.interestAdjustments||[];
+    l.interestAdjustments.push({id:uid(), date, amount:delta, note:note||(typ==="set"?"Agreed outstanding interest":typ), created:new Date().toISOString()});
+    save(); closeSheet(); render(); toast("Interest adjustment saved");
+    setTimeout(()=>lendingDetailSheet(l.id), 40);
+    return;
   }
   if(e.target.id==="flendedit"){
     const l=S.lending.find(x=>x.id===$("#leid")?.value); if(!l){ alert("Record not found."); return; }

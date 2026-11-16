@@ -200,3 +200,28 @@ Prior fixed issues (already in 2.2.x): contact notes, add person, UPI save, dema
 | Allocation | Unchanged: repayments still principal-only or interest-only via form |
 | Tests | Principal full + interest pending → not settled; both paid → Fully Settled (`node` scenarios PASS) |
 | Status | **FIXED** |
+
+
+## Update 2.3.2 — Date-based interest & adjustments (2026-11-17)
+
+| Item | Detail |
+|------|--------|
+| Bug | Interest kept accruing until *today* even after full principal repayment |
+| Fix | Interval simple interest on outstanding principal between start → each principal repayment → (today only if principal remains) |
+| Example | ₹50k @ 12% from 15 Sep → 15 Oct ≈ ₹493; no further accrual after 15 Oct |
+| Adjust | “Adjust interest / round off”: set agreed outstanding, waive, or add; stored in `interestAdjustments[]` |
+| Formula | Interest left = accrued + adjustments − interest paid |
+| Tests | Sep→Oct full repay; interest pending; interest+adj settle → PASS |
+| Status | **FIXED** |
+
+
+## Update 2.3.3 — Lending landing UI polish (2026-11-17)
+
+| Item | Detail |
+|------|--------|
+| Change | Cards: outstanding hero amount, 2-column principal/interest stats + bars, short status (Interest pending / Settled / Partial) |
+| Full status | Still on detail sheet; card `title` has full status string |
+| Logic | Unchanged |
+| Layout | `min-width:0`, word-break, flex-wrap foot; ≤360px stacks stats |
+| Checked | Card template structure for long status cases; `node --check` PASS |
+| Status | **PASS** (UI) |
