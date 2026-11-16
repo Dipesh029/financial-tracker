@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.2.2
+**Current version:** 2.2.3
 
 ---
 
@@ -120,6 +120,11 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.2.3 — 2026-11-17
+- **Fix:** Contact name & notes save (`fcontact` / `fcontactedit` handlers).
+- **Fix:** Demat account form save (`fdemat`).
+- Multiline notes; functional test record added.
 
 ### 2.2.2 — 2026-11-17
 - **Fix:** Contact UPI/bank methods now save correctly (form submit handlers were missing).

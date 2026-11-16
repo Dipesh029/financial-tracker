@@ -228,6 +228,7 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 .privacy-chip{flex-shrink:0;min-height:40px}
 .method-card{cursor:pointer}
 .members-only .metric span{font-weight:600}
+textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font:inherit;resize:vertical}
 </style>
 </head>
 <body>
@@ -239,8 +240,9 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.2.2";
+const APP_VERSION = "2.2.3";
 const RELEASES = [
+  {v:"2.2.3", d:"2026-11-17", notes:"Fixed contact name/notes save and new contact save; demat form save; multiline notes."},
   {v:"2.2.2", d:"2026-11-17", notes:"Fixed saving contact UPI/bank methods; UPI display name; copy UPI ID only."},
   {v:"2.2.1", d:"2026-11-17", notes:"Salary schedules: edit/update amount & account, weekly/biweekly, pause/delete, revision history preserved."},
   {v:"2.2.0", d:"2026-11-17", notes:"Home net-worth consolidated; full privacy mask; contact method cards cleaned; Save Details wording."},
@@ -1836,14 +1838,14 @@ document.addEventListener("click", async e=>{
   if("newcontact" in d){
     openSheet(`<h2 style="margin-top:0">Add person</h2>
     <form id="fcontact"><label>Name</label><input id="cname" required placeholder="Type to see suggestions" list="cpeople"><datalist id="cpeople">${allPersonNames().map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
-    <label>Notes (optional)</label><input id="cnotes" placeholder="Optional">
-    <button class="btn" type="submit">Save person</button></form>`); return;
+    <label>Notes (optional)</label><textarea id="cnotes" rows="3" placeholder="Optional notes"></textarea>
+    <button class="btn" type="submit">Save Details</button></form>`); return;
   }
   if(d.contact){
     const c=contactById(d.contact); if(!c) return;
     const methods=c.methods||[];
     openSheet(`<h2 style="margin-top:0">${esc(c.name)}</h2>
-    <div class="muted">${esc(c.notes||"Friend / family contact")}</div>
+    <div class="muted" style="white-space:pre-wrap">${c.notes?esc(c.notes):"No notes yet"}</div>
     <button class="btn alt" data-editcontact="${c.id}" style="margin-top:8px">Edit name & notes</button>
     <h2 style="font-size:15px;margin:16px 0 8px">Accounts & UPI</h2>
     ${methods.map(m=>{
@@ -1864,8 +1866,8 @@ document.addEventListener("click", async e=>{
     openSheet(`<h2 style="margin-top:0">Edit contact</h2>
     <form id="fcontactedit"><input type="hidden" id="ceid" value="${c.id}">
     <label>Name</label><input id="cename" value="${esc(c.name||"")}" required list="cpeople"><datalist id="cpeople">${allPersonNames().map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
-    <label>Notes</label><input id="cenotes" value="${esc(c.notes||"")}" placeholder="Optional">
-    <button class="btn" type="submit">Save</button></form>
+    <label>Notes</label><textarea id="cenotes" rows="4" placeholder="Optional notes">${esc(c.notes||"")}</textarea>
+    <button class="btn" type="submit">Save Details</button></form>
     <button class="btn alt" data-close>Cancel</button>`); return;
   }
   if(d.editmethod){
@@ -2469,6 +2471,66 @@ document.addEventListener("submit", e=>{
   }
   if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today(),status:"active",history:[]}); save(); closeSheet(); render(); toast("SIP saved"); }
   
+  
+  if(e.target.id==="fcontact"){
+    const name=($("#cname")?.value||"").trim();
+    const notes=($("#cnotes")?.value||"").trim();
+    if(!name){ alert("Enter a name."); return; }
+    const existing=(S.contacts||[]).find(x=>x.name.toLowerCase()===name.toLowerCase());
+    if(existing){
+      existing.notes=notes; // update notes if re-adding same name
+      save(); closeSheet(); render(); toast("Contact updated");
+      setTimeout(()=>{ const el=document.querySelector('[data-contact="'+existing.id+'"]'); if(el) el.click(); }, 40);
+      return;
+    }
+    const c={id:uid(),name,notes,methods:[]};
+    if(!S.contacts) S.contacts=[];
+    S.contacts.push(c);
+    save(); closeSheet(); render(); toast("Contact saved");
+    setTimeout(()=>{ const el=document.querySelector('[data-contact="'+c.id+'"]'); if(el) el.click(); }, 40);
+    return;
+  }
+  if(e.target.id==="fcontactedit"){
+    const c=contactById($("#ceid")?.value);
+    if(!c){ alert("Contact not found."); return; }
+    const name=($("#cename")?.value||"").trim();
+    if(!name){ alert("Enter a name."); return; }
+    const notes=($("#cenotes")?.value||"").trim(); // allow empty to clear
+    const old=c.name;
+    c.name=name;
+    c.notes=notes;
+    for(const b of (S.bankContacts||[])){
+      if((b.person||"").toLowerCase()===(old||"").toLowerCase()) b.person=name;
+    }
+    for(const l of (S.lending||[])){
+      if((l.person||"").toLowerCase()===(old||"").toLowerCase()) l.person=name;
+    }
+    if((S.people||[]).includes(old)){
+      S.people=S.people.map(n=>n===old?name:n);
+    }
+    // methods stay on contact object by reference
+    save(); closeSheet(); render(); toast("Details saved");
+    setTimeout(()=>{ const el=document.querySelector('[data-contact="'+c.id+'"]'); if(el) el.click(); }, 40);
+    return;
+  }
+  if(e.target.id==="fdemat"){
+    const name=($("#dn")?.value||"").trim();
+    if(!name){ alert("Enter a nickname."); return; }
+    const owner=($("#downer")?.value||"Me").trim()||"Me";
+    const broker=($("#dbroker")?.value||"").trim();
+    const dematid=($("#ddematid")?.value||"").trim();
+    const cur=$("#dcur")?.value||"INR";
+    const inv=parseAmt($("#dinv")?.value)||0;
+    const val=parseAmt($("#dval")?.value)||0;
+    if(!S.people.includes(owner)) S.people.push(owner);
+    const a={id:uid(),type:"demat",name,owner,broker,accountNumber:dematid,accountMasked:dematid,bank:broker,cur,opening:val,invested:inv};
+    S.accounts.push(a);
+    if(inv>0 && val!==inv){
+      // opening is current value; invested is metadata only
+    }
+    save(); closeSheet(); render(); toast("Demat account saved"); return;
+  }
+
   if(e.target.id==="fmethod"){
     const c=contactById($("#midc")?.value); if(!c){ alert("Contact not found."); return; }
     const kind=$("#mkind")?.value||"bank";
