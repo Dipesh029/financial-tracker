@@ -239,8 +239,9 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.2.0";
+const APP_VERSION = "2.2.1";
 const RELEASES = [
+  {v:"2.2.1", d:"2026-11-17", notes:"Salary schedules: edit/update amount & account, weekly/biweekly, pause/delete, revision history preserved."},
   {v:"2.2.0", d:"2026-11-17", notes:"Home net-worth consolidated; full privacy mask; contact method cards cleaned; Save Details wording."},
   {v:"2.1.1", d:"2026-11-17", notes:"Fixed fmtHide not defined (Home crash after unlock)."},
   {v:"2.1.0", d:"2026-11-17", notes:"Automation safety; hide balances; form guards; insights; empty states; integrity."},
@@ -374,7 +375,7 @@ function migrate(){
     h.exchange=h.exchange||""; h.demat=h.demat||""; h.broker=h.broker||""; h.amc=h.amc||""; h.notes=h.notes||"";
   }
   for(const x of S.sips){ x.status=x.status||"active"; x.history=x.history||[]; }
-  for(const x of S.salaries){ x.status=x.status||"active"; x.history=x.history||[]; }
+  for(const x of S.salaries){ x.status=x.status||"active"; x.history=x.history||[]; x.revisions=x.revisions||[]; x.freqUnit=x.freqUnit||"month"; if(x.freq==null)x.freq=1; }
   for(const p of S.policies){ p.payments=p.payments||[]; }
   try{ migrateContactsFromBank(); }catch(e){ console.warn("contact migrate", e); }
   if(S.autoSip==null) S.autoSip=true;
@@ -655,7 +656,7 @@ function processDueAutomations(){
         addTxn({type:"income",date:payDate,note:x.label||"Salary (auto)",cat:"Salary",person:x.person||"",owner:x.person||a.owner||"Me",salaryId:x.id,postings:[{acct:x.acct,amt:x.amt,cur:x.cur}]},{skipSave:true});
         if(S.txns.length===n){ x.next=addM(x.next,x.freq||1); continue; }
         x.history=x.history||[]; x.history.push({date:payDate,status:"received",amount:x.amt,auto:true});
-        x.next=addM(x.next,x.freq||1); salaries++;
+        x.next=advanceSalaryNext(x, payDate); salaries++;
       }
     }
   }
@@ -1261,6 +1262,25 @@ const expenseCats=()=> (S.expenseCats&&S.expenseCats.length?S.expenseCats:EXPENS
 const incomeCats=()=> (S.incomeCats&&S.incomeCats.length?S.incomeCats:INCOME_CATS);
 
 function addM(t,n){const[y,m,d]=t.split("-").map(Number);const x=new Date(y,m-1+n,1);const last=new Date(x.getFullYear(),x.getMonth()+1,0).getDate();x.setDate(Math.min(d,last));return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");}
+function addDays(t,n){const[y,m,d]=t.split("-").map(Number);const x=new Date(y,m-1,d+n);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");}
+function advanceSalaryNext(x, fromDate){
+  const base=(fromDate||x.next||today());
+  const unit=x.freqUnit||"month";
+  const f=Math.max(1, Number(x.freq)||1);
+  if(unit==="week") return addDays(base, 7*f);
+  if(unit==="day") return addDays(base, f);
+  return addM(base, f);
+}
+function salaryStatusLabel(x){
+  const st=x.status||"active";
+  if(st==="stopped") return "Paused";
+  if(st==="ended") return "Ended";
+  const d=daysTo(x.next);
+  if(d<0) return "Overdue";
+  if(d===0) return "Due today";
+  return "Active";
+}
+
 const daysTo=t=>Math.round((new Date(t+"T00:00")-new Date(today()+"T00:00"))/864e5);
 function fs(title,fid,fields,btn){openSheet(`<h2 style="margin-top:0">${title}</h2><form id="${fid}" autocomplete="off">${fields.map(([i,l,t,o])=>`<label>${l}</label>`+(t==="select"?`<select id="${i}">${o.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>`:`<input id="${i}" type="${t==="date"?"date":"text"}" ${t==="num"?'inputmode="decimal"':""} ${t==="date"?`value="${today()}"`:""}>`)).join("")}<button class="btn" type="submit">${btn}</button></form>`);}
 function lendingPosition(l){
@@ -1333,9 +1353,21 @@ function viewPlan(){
     <button type="button" data-planseg="cover" class="${seg==="cover"?"on":""}">Cover</button>
   </div>`;
   if(seg==="salaries"){
-    return segBar+`<h2 style="margin-top:4px">Salaries</h2>
-  <p class="muted">Recurring credit into a member’s account. Auto-posted on unlock when due (if enabled).</p>
-  ${S.salaries.map(x=>{const a=acct(x.acct)||{};const d=daysTo(x.next);const st=x.status||"active";return `<div class="card" data-salary="${x.id}"><div class="row"><div><b>${esc(x.person||"Me")} · ${esc(x.label||"Salary")}</b><div class="muted">${fmt(x.amt,x.cur)} → ${esc(a.name||"account")} · next ${x.next}${st==="stopped"?" · stopped":""}</div></div><b class="${st==="stopped"?"muted":d<=0?"warn":"muted"}">${st==="stopped"?"stopped":dl(d)}</b></div></div>`}).join("")||`<div class="empty"><div class="empty-title">No salary schedules</div><p>Add a monthly credit for Me, Father, Mother, or others.</p></div>`}
+    return segBar+`<h2 style="margin-top:4px">Salary schedules</h2>
+  <p class="muted">Recurring credits. Auto-posted on unlock when due (if enabled under More). Editing amount does not change past payments.</p>
+  ${S.salaries.map(x=>{
+    const a=acct(x.acct)||{};
+    const d=daysTo(x.next);
+    const st=x.status||"active";
+    const lab=salaryStatusLabel(x);
+    const unit=x.freqUnit||"month";
+    const freqLbl=unit==="week"?(x.freq===2?"Biweekly":"Weekly"):unit==="day"?"Every "+x.freq+" days":(x.freq===1?"Monthly":x.freq===3?"Quarterly":"Every "+x.freq+" months");
+    return `<div class="card tap" data-salary="${x.id}"><div class="row"><div>
+      <b>${esc(x.person||"Me")} · ${esc(x.label||"Salary")}</b>
+      <div class="muted">${fmt(x.amt,x.cur)} → ${esc(a.name||"account")} · ${freqLbl}</div>
+      <div class="muted">Next ${esc(x.next||"—")} · ${lab}</div>
+    </div><b class="${st==="stopped"||st==="ended"?"muted":d<=0?"warn":"muted"}">${st==="stopped"||st==="ended"?lab:dl(d)}</b></div></div>`;
+  }).join("")||`<div class="empty"><div class="empty-title">No salary schedules</div><p>Add a schedule for Me or a family member.</p></div>`}
   <button class="btn" data-newsalary>Add salary schedule</button>`;
   }
   if(seg==="lending"){
@@ -1676,7 +1708,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -1974,26 +2006,85 @@ document.addEventListener("click", async e=>{
   if("newsalary" in d){
     if(!S.accounts.filter(a=>!a.archived).length){ alert("Add a bank account first."); return; }
     const people=(S.people||["Me"]).map(p=>[p,p]);
-    fs("New salary schedule","fsal",[["sp","Member / person","select",people],["sl","Label","text"],["sa","Credit account","select",accOpts()],["sm","Amount","num"],["sf","Frequency","select",[["1","Monthly"],["3","Quarterly"],["6","Half-yearly"],["12","Yearly"]]],["sd","Next credit date","date"]],"Save salary");
-    setTimeout(()=>{ const l=$("#sl"); if(l&&!l.value) l.value="Salary"; },30);
+    openSheet(`<h2 style="margin-top:0">New salary schedule</h2>
+    <form id="fsal" autocomplete="off">
+      <label>Member / person</label><select id="sp">${people.map(([v,n])=>`<option value="${esc(v)}">${esc(n)}</option>`).join("")}</select>
+      <label>Label</label><input id="sl" value="Salary" placeholder="e.g. Salary, Stipend">
+      <label>Credit account</label><select id="sa">${accOpts().map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>
+      <label>Amount</label><input id="sm" inputmode="decimal" required>
+      <label>Frequency</label><select id="sf">
+        <option value="m:1">Monthly</option>
+        <option value="w:1">Weekly</option>
+        <option value="w:2">Biweekly</option>
+        <option value="m:3">Quarterly</option>
+        <option value="m:6">Half-yearly</option>
+        <option value="m:12">Yearly</option>
+      </select>
+      <label>Next / first credit date</label><input type="date" id="sd" value="${today()}" required>
+      <button class="btn" type="submit">Save Details</button>
+    </form>
+    <button class="btn alt" data-close>Cancel</button>`);
     return;
   }
   if(d.salary){
     const x=S.salaries.find(v=>v.id===d.salary); if(!x) return;
     const a=acct(x.acct)||{};
     const hist=(x.history||[]).slice().reverse();
+    const revs=(x.revisions||[]).slice().reverse();
+    const unit=x.freqUnit||"month";
+    const freqLbl=unit==="week"?(x.freq===2?"Biweekly":"Weekly"):(x.freq===1?"Monthly":"Every "+x.freq+" "+unit+(x.freq>1?"s":""));
     openSheet(`<h2 style="margin-top:0">${esc(x.label||"Salary")} · ${esc(x.person||"Me")}</h2>
     <div class="card">
+      <div class="row"><span>Status</span><b>${esc(salaryStatusLabel(x))}</b></div>
       <div class="row"><span>Amount</span><b class="num">${fmt(x.amt,x.cur)}</b></div>
       <div class="row"><span>Account</span><b>${esc(a.name||"")}</b></div>
-      <div class="row"><span>Next credit</span><b>${esc(x.next)}</b></div>
-      <div class="row"><span>Status</span><b>${esc(x.status||"active")}</b></div>
+      <div class="row"><span>Frequency</span><b>${esc(freqLbl)}</b></div>
+      <div class="row"><span>Next credit</span><b>${esc(x.next||"—")}</b></div>
     </div>
-    <button class="btn" data-salaryrecv="${x.id}">Mark received now</button>
-    <button class="btn alt" data-salarystop="${x.id}">${(x.status||"active")==="stopped"?"Resume":"Stop"} schedule</button>
-    ${hist.length?`<h2 style="font-size:15px;margin:16px 0 8px">History</h2><div class="card">${hist.slice(0,12).map(i=>`<div class="row"><span>${esc(i.date)}${i.auto?" · auto":""}</span><b class="num">${fmt(i.amount,x.cur)}</b></div>`).join("")}</div>`:""}
+    <button class="btn" data-editsalary="${x.id}">Edit / update schedule</button>
+    <button class="btn alt" data-salaryrecv="${x.id}">Mark received now</button>
+    <button class="btn alt" data-salarystop="${x.id}">${(x.status||"active")==="stopped"?"Resume schedule":"Pause schedule"}</button>
+    <button class="btn alt" data-salarydel="${x.id}" style="color:var(--out)">Remove schedule</button>
+    ${hist.length?`<h2 style="font-size:15px;margin:16px 0 8px">Payment history</h2><div class="card">${hist.slice(0,20).map(i=>`<div class="row"><span>${esc(i.date)}${i.auto?" · auto":""}</span><b class="num">${fmt(i.amount,x.cur)}</b></div>`).join("")}</div><p class="muted">Past payments stay linked to transactions even if you change the schedule.</p>`:""}
+    ${revs.length?`<h2 style="font-size:15px;margin:16px 0 8px">Schedule changes</h2><div class="card">${revs.slice(0,10).map(r=>`<div class="muted" style="margin:6px 0">${esc(r.date)} · ${esc(r.note||"Updated")}</div>`).join("")}</div>`:""}
     <button class="btn alt" data-close style="margin-top:10px">Close</button>`);
     return;
+  }
+  if(d.editsalary){
+    const x=S.salaries.find(v=>v.id===d.editsalary); if(!x) return;
+    const people=(S.people||["Me"]).map(p=>[p,p]);
+    if(!people.some(([p])=>p===x.person)) people.push([x.person,x.person]);
+    const fv=(x.freqUnit==="week"?"w:":"m:")+(x.freq||1);
+    openSheet(`<h2 style="margin-top:0">Update salary schedule</h2>
+    <p class="muted">Changes apply from the next credit date onward. Past payments are not modified.</p>
+    <form id="fsaledit" autocomplete="off">
+      <input type="hidden" id="seid" value="${x.id}">
+      <label>Member / person</label><select id="sep">${people.map(([v,n])=>`<option value="${esc(v)}" ${v===x.person?"selected":""}>${esc(n)}</option>`).join("")}</select>
+      <label>Label</label><input id="sel" value="${esc(x.label||"Salary")}">
+      <label>Credit account</label><select id="sea">${accOpts().map(([v,n])=>`<option value="${v}" ${v===x.acct?"selected":""}>${esc(n)}</option>`).join("")}</select>
+      <label>Amount</label><input id="sem" inputmode="decimal" value="${x.amt}" required>
+      <label>Frequency</label><select id="sef">
+        <option value="m:1" ${fv==="m:1"?"selected":""}>Monthly</option>
+        <option value="w:1" ${fv==="w:1"?"selected":""}>Weekly</option>
+        <option value="w:2" ${fv==="w:2"?"selected":""}>Biweekly</option>
+        <option value="m:3" ${fv==="m:3"?"selected":""}>Quarterly</option>
+        <option value="m:6" ${fv==="m:6"?"selected":""}>Half-yearly</option>
+        <option value="m:12" ${fv==="m:12"?"selected":""}>Yearly</option>
+      </select>
+      <label>Next credit date</label><input type="date" id="sed" value="${esc(x.next||today())}" required>
+      <label>Effective date of this update</label><input type="date" id="seeffect" value="${today()}">
+      <div class="muted">Recorded in schedule history only — does not change past salary transactions.</div>
+      <button class="btn" type="submit">Save Details</button>
+    </form>
+    <button class="btn alt" data-close>Cancel</button>`);
+    return;
+  }
+  if(d.salarydel){
+    const x=S.salaries.find(v=>v.id===d.salarydel);
+    if(!x) return;
+    if(!confirm("Remove this salary schedule? Past payment transactions stay in Activity.")) return;
+    S.salaries=S.salaries.filter(v=>v.id!==x.id);
+    save(); closeSheet(); render(); toast("Schedule removed"); return;
   }
   if(d.salaryrecv){
     const x=S.salaries.find(v=>v.id===d.salaryrecv); if(!x) return;
@@ -2001,7 +2092,7 @@ document.addEventListener("click", async e=>{
     const payDate=x.next||today();
     addTxn({type:"income",date:payDate,note:x.label||"Salary",cat:"Salary",person:x.person||"",owner:x.person||a.owner||"Me",postings:[{acct:x.acct,amt:x.amt,cur:x.cur}]});
     x.history=x.history||[]; x.history.push({date:payDate,status:"received",amount:x.amt,auto:false});
-    x.next=addM(x.next,x.freq||1); save(); closeSheet(); render(); toast("Salary recorded"); return;
+    x.next=advanceSalaryNext(x, payDate); save(); closeSheet(); render(); toast("Salary recorded"); return;
   }
   if(d.salarystop){
     const x=S.salaries.find(v=>v.id===d.salarystop); if(x){ x.status=x.status==="stopped"?"active":"stopped"; save(); } closeSheet(); render(); return;
@@ -2365,10 +2456,40 @@ document.addEventListener("submit", e=>{
     const person=($("#sp")?.value||"Me").trim();
     const label=($("#sl")?.value||"Salary").trim()||"Salary";
     const a=acct($("#sa").value); const m=parseAmt($("#sm").value);
-    if(!a||m<=0) return;
+    if(!a||!(m>0)){ alert("Enter a valid account and positive amount."); return; }
+    const raw=($("#sf")?.value||"m:1").split(":");
+    const freqUnit=raw[0]==="w"?"week":"month";
+    const freq=Math.max(1, +raw[1]||1);
+    const next=$("#sd")?.value||today();
     if(!S.people.includes(person)) S.people.push(person);
-    S.salaries.push({id:uid(),person,label,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today(),status:"active",history:[]});
-    save(); closeSheet(); render(); toast("Salary schedule saved");
+    // soft duplicate check
+    const dup=S.salaries.find(s=>(s.status||"active")==="active"&&s.person===person&&s.acct===a.id&&Math.abs(s.amt-m)<0.01);
+    if(dup && !confirm("A similar active schedule already exists for this person and account. Add another anyway?")) return;
+    S.salaries.push({id:uid(),person,label,acct:a.id,amt:m,cur:a.cur,freq,freqUnit,next,status:"active",history:[],revisions:[]});
+    save(); closeSheet(); render(); toast("Salary schedule saved"); return;
+  }
+  if(e.target.id==="fsaledit"){
+    const x=S.salaries.find(v=>v.id===$("#seid")?.value); if(!x) return;
+    const person=($("#sep")?.value||x.person||"Me").trim();
+    const label=($("#sel")?.value||"Salary").trim()||"Salary";
+    const a=acct($("#sea").value); const m=parseAmt($("#sem").value);
+    if(!a||!(m>0)){ alert("Enter a valid account and positive amount."); return; }
+    const raw=($("#sef")?.value||"m:1").split(":");
+    const freqUnit=raw[0]==="w"?"week":"month";
+    const freq=Math.max(1, +raw[1]||1);
+    const next=$("#sed")?.value||x.next||today();
+    const effect=$("#seeffect")?.value||today();
+    const noteBits=[];
+    if(x.amt!==m) noteBits.push("amount "+x.amt+" → "+m);
+    if(x.acct!==a.id) noteBits.push("account changed");
+    if((x.freq||1)!==freq||(x.freqUnit||"month")!==freqUnit) noteBits.push("frequency changed");
+    if(x.next!==next) noteBits.push("next date → "+next);
+    x.revisions=x.revisions||[];
+    x.revisions.push({date:effect, note:noteBits.join(", ")||"Updated", prev:{amt:x.amt,acct:x.acct,freq:x.freq,freqUnit:x.freqUnit,next:x.next}});
+    x.person=person; x.label=label; x.acct=a.id; x.amt=m; x.cur=a.cur; x.freq=freq; x.freqUnit=freqUnit; x.next=next;
+    if(!S.people.includes(person)) S.people.push(person);
+    // Do not mutate x.history or past txns
+    save(); closeSheet(); render(); toast("Salary schedule updated"); return;
   }
   if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=parseAmt($("#su").value); if(!x||u<=0){ $("#su").focus(); return; }
     const payDate=x.next||today();
