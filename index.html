@@ -125,8 +125,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.7.1";
 const RELEASES = [
+  {v:"1.7.1", d:"2026-11-17", notes:"Policy premium pay stays available for the last due inside PPT even after that calendar date (late mark-paid)."},
   {v:"1.7.0", d:"2026-11-17", notes:"Person registry (multi bank/UPI); demat accounts; expense→warranty; policy PPT + edit; stocks first in holdings."},
   {v:"1.6.0", d:"2026-11-17", notes:"Segmented Money (Accounts / Investments / Contacts) and Plan (SIPs / Salaries / Lending / Cover). Home stays a summary."},
   {v:"1.5.6", d:"2026-11-15", notes:"Credit card form shows last4/expiry (not bank branch); link card to bank account."},
@@ -254,15 +255,28 @@ function migrate(){
   }
 }
 
+function policyPptEnd(p){
+  if(!p||!p.start||!(Number(p.ppt)>0)) return "";
+  // Last premium due date = commencement + PPT years (e.g. 2016-04-28 + 10y → 2026-04-28).
+  return addM(p.start, Math.round(Number(p.ppt)*12));
+}
 function policyPremiumActive(p){
+  // Payable while the *scheduled next due* is still on/before PPT end (and maturity).
+  // Do NOT cut off merely because today is after PPT end — allows marking the final premium paid late.
   if(!p) return false;
-  const start=p.start||"";
-  const ppt=Number(p.ppt)||0;
-  if(start && ppt>0){
-    const end=addM(start, Math.round(ppt*12));
-    if(daysTo(end)<0) return false; // past PPT
+  const next=(p.next||"").trim();
+  const end=policyPptEnd(p);
+  if(end){
+    if(next){
+      if(next > end) return false; // next due already beyond last allowed premium date
+    }else if(today() > end){
+      return false;
+    }
   }
-  if(p.maturity && daysTo(p.maturity)<0) return false;
+  if(p.maturity){
+    if(next && next > p.maturity) return false;
+    if(!next && today() > p.maturity) return false;
+  }
   return true;
 }
 function nextDue(day){
@@ -1378,7 +1392,10 @@ document.addEventListener("click", async e=>{
     Premium ${fmt(p.premium,p.cur)} every ${p.freq||1} month(s) · next ${p.next}<br>
     ${p.start?"Started "+esc(p.start)+" · ":""}${p.ppt?"PPT "+p.ppt+" years · ":""}${p.term?"Term "+p.term+" years · ":""}${p.maturity?"Matures "+esc(p.maturity):""}<br>
     ${active?`<span class="in">Premium period active</span>`:`<span class="muted">Outside premium-paying term (no due reminders)</span>`}</div>
-    ${active?`<form id="fpay"><input type="hidden" id="pid" value="${p.id}"><label>Paid from</label><select id="pacc">${accOpts().map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select><button class="btn" type="submit">Mark premium paid</button></form>`:`<div class="muted" style="margin:10px 0">Premium not due after PPT / maturity.</div>`}
+    ${(()=>{ const end=policyPptEnd(p); return end?`<div class="muted">Premium-paying term ends ${esc(end)} (commencement + PPT).</div>`:""; })()}
+    ${active?`<form id="fpay"><input type="hidden" id="pid" value="${p.id}"><label>Paid from</label><select id="pacc">${accOpts().map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select><button class="btn" type="submit">Mark premium paid${p.next?" · due "+esc(p.next):""}</button></form>
+    ${p.next&&daysTo(p.next)<0?`<div class="muted warn">This due is overdue — you can still record the payment.</div>`:""}`
+    :`<div class="muted" style="margin:10px 0">No further premiums: next due${p.next?" ("+esc(p.next)+")":""} is after the PPT end${policyPptEnd(p)?" ("+esc(policyPptEnd(p))+")":""} or maturity. Adjust <b>Next due</b> in Edit policy if a final premium still needs recording.</div>`}
     <form id="fpoledit"><input type="hidden" id="peid" value="${p.id}">
     <h2 style="font-size:15px;margin:16px 0 8px">Edit policy</h2>
     <label>Name</label><input id="pen" value="${esc(p.name||"")}">
