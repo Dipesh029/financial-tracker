@@ -187,3 +187,16 @@ Prior fixed issues (already in 2.2.x): contact notes, add person, UPI save, dema
 | Logic | No calculation changes; same `lendingPosition` / edit handlers |
 | Regression | flendedit amount+date, lendrec repayment entry preserved |
 | Status | **PASS** (syntax); visual smoke on device recommended |
+
+
+## Update 2.3.1 — Principal vs interest settlement (2026-11-17)
+
+| Item | Detail |
+|------|--------|
+| Bug | Interest used *remaining* principal, so full principal repayment zeroed interest and showed 100% settled |
+| Fix | Simple interest on **original** principal × rate × days/365.25; outstanding interest = accrued − interest paid |
+| Status | Fully Settled only if principal left + interest left ≈ 0; else “Principal Repaid · Interest Pending” when applicable |
+| Progress | Principal % and total % (principal+interest) shown separately |
+| Allocation | Unchanged: repayments still principal-only or interest-only via form |
+| Tests | Principal full + interest pending → not settled; both paid → Fully Settled (`node` scenarios PASS) |
+| Status | **FIXED** |

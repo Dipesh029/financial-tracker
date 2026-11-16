@@ -269,8 +269,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.3.0";
+const APP_VERSION = "2.3.1";
 const RELEASES = [
+  {v:"2.3.1", d:"2026-11-17", notes:"Lending: principal vs interest outstanding; settled only when both clear; dual progress."},
   {v:"2.3.0", d:"2026-11-17", notes:"Lending UI redesign: summary metrics, progress bars, refined cards and detail sheet."},
   {v:"2.2.7", d:"2026-11-17", notes:"Lending: edit principal amount with repayment-safe validation; keeps date edit."},
   {v:"2.2.6", d:"2026-11-17", notes:"Lending: edit start date; sectioned add form; original lend txn date sync."},
@@ -1399,14 +1400,45 @@ function salaryStatusLabel(x){
 const daysTo=t=>Math.round((new Date(t+"T00:00")-new Date(today()+"T00:00"))/864e5);
 function fs(title,fid,fields,btn){openSheet(`<h2 style="margin-top:0">${title}</h2><form id="${fid}" autocomplete="off">${fields.map(([i,l,t,o])=>`<label>${l}</label>`+(t==="select"?`<select id="${i}">${o.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>`:`<input id="${i}" type="${t==="date"?"date":"text"}" ${t==="num"?'inputmode="decimal"':""} ${t==="date"?`value="${today()}"`:""}>`)).join("")}<button class="btn" type="submit">${btn}</button></form>`);}
 function lendingPosition(l){
-  let principal=l.principal||0;
-  for(const t of S.txns){if(t.status!=="posted"||t.loanId!==l.id||!t.principalReduction)continue;principal-=t.principalReduction;}
-  principal=Math.max(0,principal);
-  const days=Math.max(0,Math.floor((new Date(today()+"T00:00")-new Date((l.start||today())+"T00:00"))/864e5));
-  const accrued=principal*(l.rate||0)/100*days/365.25;
-  const interestPaid=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&t.interestSettlement).reduce((v,t)=>v+Math.abs(t.postings?.[0]?.amt||0),0);
-  const interest=Math.max(0,accrued-interestPaid);
-  return {principal,interest,accrued,interestPaid,total:principal+interest,days};
+  const principalOrig=Math.max(0, Number(l.principal)||0);
+  let principalLeft=principalOrig;
+  let principalRepaid=0;
+  for(const t of S.txns){
+    if(t.status!=="posted"||t.loanId!==l.id||!t.principalReduction) continue;
+    const red=Number(t.principalReduction)||0;
+    principalRepaid+=red;
+    principalLeft-=red;
+  }
+  principalLeft=Math.max(0, principalLeft);
+  principalRepaid=Math.min(principalOrig, Math.max(0, principalRepaid));
+  const days=Math.max(0, Math.floor((new Date(today()+"T00:00")-new Date((l.start||today())+"T00:00"))/864e5));
+  // Simple interest on original principal for elapsed days (rate is annual %).
+  // Using original principal avoids interest vanishing when principal is fully repaid.
+  const rate=Number(l.rate)||0;
+  const accrued=rate>0 ? principalOrig*rate/100*days/365.25 : 0;
+  const interestPaid=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&t.interestSettlement)
+    .reduce((v,t)=>v+Math.abs(t.postings?.[0]?.amt||0),0);
+  const interestLeft=Math.max(0, accrued-interestPaid);
+  const totalOutstanding=principalLeft+interestLeft;
+  const totalPayable=principalOrig+accrued;
+  const totalPaid=principalRepaid+interestPaid;
+  const pctPrincipal=principalOrig>0?Math.min(100, Math.round(principalRepaid/principalOrig*100)):100;
+  const pctTotal=totalPayable>0?Math.min(100, Math.round(totalPaid/totalPayable*100)):100;
+  let status="Unpaid";
+  if(totalOutstanding<=0.0001) status="Fully Settled";
+  else if(principalLeft<=0.0001 && interestLeft>0.0001) status="Principal Repaid · Interest Pending";
+  else if(principalRepaid>0.0001 && interestPaid>0.0001) status="Partially Repaid";
+  else if(principalRepaid>0.0001) status="Partially Repaid";
+  else if(interestPaid>0.0001 && principalLeft>0.0001) status="Interest Partially Paid";
+  else status="Unpaid";
+  return {
+    principal: principalLeft, // remaining principal (backward compatible)
+    principalOrig, principalLeft, principalRepaid,
+    interest: interestLeft, // outstanding interest (backward compatible)
+    interestLeft, accrued, interestPaid, interestAccrued: accrued,
+    total: totalOutstanding, totalOutstanding, totalPayable, totalPaid,
+    pctPrincipal, pctTotal, status, days, rate
+  };
 }
 function newLendingSheet(){
   const accounts=accOpts();
@@ -1474,31 +1506,33 @@ function lendingDetailSheet(id){
   const l=S.lending.find(x=>x.id===id); if(!l) return;
   const p=lendingPosition(l);
   const mine=acct(l.account);
-  const orig=l.principal||0;
-  const out=p.principal;
-  const repaid=Math.max(0,orig-out);
-  const pct=orig>0?Math.min(100,Math.round(repaid/orig*100)):0;
-  const st=out<=0.0001?"Fully repaid":(repaid>0.0001?"Partially repaid":"Outstanding");
+  const st=p.status;
+  const stClass=st==="Fully Settled"?"ok":(st==="Unpaid"?"out":"warn");
   const recv=l.recipientMethod?(l.recipientMethod.kind==="upi"?("UPI "+(l.recipientMethod.upi||"")):((l.recipientMethod.bank||"Bank")+" "+(l.recipientMethod.accountMasked||""))):"";
   const reps=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&(t.principalReduction||t.interestSettlement))
     .slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.created||"").localeCompare(a.created||""));
-  let run=orig;
+  let runPrin=p.principalOrig;
   const repRows=reps.slice().reverse().map(t=>{
-    const amt=t.principalReduction||Math.abs(t.postings?.[0]?.amt||0);
-    if(t.principalReduction) run=Math.max(0,run-t.principalReduction);
-    return `<div class="row"><div><b class="num">${fmt(amt,l.cur)}</b><div class="muted">${esc(t.date||"")} · ${t.principalReduction?"Principal":"Interest"}${t.note?" · "+esc(t.note):""}</div></div><span class="muted">bal ${fmt(run,l.cur)}</span></div>`;
+    const isPrin=!!t.principalReduction;
+    const amt=isPrin?t.principalReduction:Math.abs(t.postings?.[0]?.amt||0);
+    if(isPrin) runPrin=Math.max(0, runPrin-t.principalReduction);
+    return `<div class="row"><div><b class="num">${fmt(amt,l.cur)}</b><div class="muted">${esc(t.date||"")} · ${isPrin?"Principal":"Interest"}${t.note?" · "+esc(t.note):""}</div></div><span class="muted">${isPrin?("prin left "+fmt(runPrin,l.cur)):""}</span></div>`;
   }).join("");
   openSheet(`<h2 style="margin-top:0">${esc(l.person)}</h2>
-  <div class="muted">${l.direction==="lent"?"You lent · they owe you":"You borrowed · you owe them"} · <span class="status-pill ${st==="Fully repaid"?"ok":st==="Partially repaid"?"warn":"out"}">${st}</span></div>
+  <div class="muted">${l.direction==="lent"?"You lent · they owe you":"You borrowed · you owe them"} · <span class="status-pill ${stClass}">${esc(st)}</span></div>
 
   <div class="form-section" style="margin-top:12px">
     <div class="form-section-title">Lending summary</div>
-    <div class="row"><span>Original amount</span><b class="num">${fmt(orig,l.cur)}</b></div>
-    <div class="row"><span>Repaid</span><b class="num">${fmt(repaid,l.cur)} · ${pct}%</b></div>
-    <div class="row"><span>Outstanding</span><b class="num ${out>0?"in":""}">${fmt(out,l.cur)}</b></div>
-    <div class="lend-progress ${st==="Fully repaid"?"full":st==="Partially repaid"?"partial":"none"}"><i style="width:${pct}%"></i></div>
-    <div class="row"><span>Lending date</span><b>${esc(l.start||"—")}</b></div>
-    ${p.interest?`<div class="row"><span>Est. interest due</span><b class="num">${fmt(p.interest,l.cur)}</b></div>`:""}
+    <div class="row"><span>Original principal</span><b class="num">${fmt(p.principalOrig,l.cur)}</b></div>
+    <div class="row"><span>Principal repaid</span><b class="num">${fmt(p.principalRepaid,l.cur)} · ${p.pctPrincipal}%</b></div>
+    <div class="row"><span>Principal left</span><b class="num">${fmt(p.principalLeft,l.cur)}</b></div>
+    <div class="lend-progress ${p.pctPrincipal>=100?"full":(p.principalRepaid>0?"partial":"none")}" title="Principal progress"><i style="width:${p.pctPrincipal}%"></i></div>
+    <div class="row"><span>Interest accrued</span><b class="num">${fmt(p.accrued,l.cur)}</b></div>
+    <div class="row"><span>Interest paid</span><b class="num">${fmt(p.interestPaid,l.cur)}</b></div>
+    <div class="row"><span>Interest outstanding</span><b class="num">${fmt(p.interestLeft,l.cur)}</b></div>
+    <div class="row"><span>Total outstanding</span><b class="num ${p.totalOutstanding>0?"in":""}">${fmt(p.totalOutstanding,l.cur)}</b></div>
+    <div class="lend-progress ${p.pctTotal>=100?"full":(p.totalPaid>0?"partial":"none")}" title="Total repayment progress"><i style="width:${p.pctTotal}%"></i></div>
+    <div class="muted" style="margin-top:4px">Total progress ${p.pctTotal}% · lending date ${esc(l.start||"—")}${p.rate?` · ${p.rate}% simple interest`:""}</div>
   </div>
 
   <div class="form-section">
@@ -1520,7 +1554,7 @@ function lendingDetailSheet(id){
       <div class="form-section-title">Edit details</div>
       <label>Lending amount (${esc(l.cur)})</label>
       <input id="leprincipal" inputmode="decimal" value="${l.principal}" required>
-      <div class="muted">Outstanding ${fmt(out,l.cur)} · repaid ${fmt(repaid,l.cur)}</div>
+      <div class="muted">Principal left ${fmt(p.principalLeft,l.cur)} · interest left ${fmt(p.interestLeft,l.cur)}</div>
       <label>Lending date</label>
       <input type="date" id="lestart" value="${esc(l.start||today())}" required>
     </div>
@@ -1536,9 +1570,13 @@ function lendingPaymentSheet(id){
   const l=S.lending.find(x=>x.id===id); if(!l)return;
   const p=lendingPosition(l);
   openSheet(`<h2 style="margin-top:0">Record repayment</h2><div class="muted">${esc(l.person)} · ${l.direction==="lent"?"they owe you":"you owe them"}</div>
-  <div class="card" style="margin:10px 0"><div class="row"><span>Outstanding</span><b class="num">${fmt(p.principal,l.cur)}</b></div>${p.interest?`<div class="row"><span>Est. interest</span><b class="num">${fmt(p.interest,l.cur)}</b></div>`:""}</div>
+  <div class="card" style="margin:10px 0">
+    <div class="row"><span>Principal left</span><b class="num">${fmt(p.principalLeft,l.cur)}</b></div>
+    <div class="row"><span>Interest outstanding</span><b class="num">${fmt(p.interestLeft,l.cur)}</b></div>
+    <div class="row"><span>Total outstanding</span><b class="num">${fmt(p.totalOutstanding,l.cur)}</b></div>
+  </div>
   <form id="flr"><input type="hidden" id="lrid" value="${l.id}">
-  <label>Transaction type</label><select id="lrtype"><option value="principal">Principal repayment / return</option><option value="interest">Interest paid / received</option></select>
+  <label>Apply payment to</label><select id="lrtype"><option value="principal">Principal only</option><option value="interest">Interest only</option></select>
   <label>Amount</label><input id="lramt" inputmode="decimal" required>
   <label>Account</label><select id="lracct">${accOpts().map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>
   <label>Date</label><input id="lrdate" type="date" value="${today()}">
@@ -1573,25 +1611,25 @@ function viewPlan(){
   <button class="btn" data-newsalary>Add salary schedule</button>`;
   }
   if(seg==="lending"){
-    let outstandingLent=0, outstandingBorrowed=0, originalLent=0, repaidLent=0, active=0;
+    let outstandingLent=0, outstandingBorrowed=0, originalLent=0, repaidLent=0, active=0, interestLent=0;
     for(const l of S.lending){
       const p=lendingPosition(l);
-      const orig=toDisplay(l.principal||0,l.cur);
-      const out=toDisplay(p.principal,l.cur);
-      const rep=Math.max(0,orig-out);
-      if(l.direction==="lent"){ outstandingLent+=out; originalLent+=orig; repaidLent+=rep; }
+      const orig=toDisplay(p.principalOrig,l.cur);
+      const out=toDisplay(p.totalOutstanding,l.cur);
+      const rep=toDisplay(p.totalPaid,l.cur);
+      if(l.direction==="lent"){ outstandingLent+=out; originalLent+=orig; repaidLent+=rep; interestLent+=toDisplay(p.interestLeft,l.cur); }
       else outstandingBorrowed+=out;
-      if(p.principal>0.0001) active++;
+      if(p.totalOutstanding>0.0001) active++;
     }
     const cards=S.lending.map(l=>{
       const p=lendingPosition(l);
-      const orig=l.principal||0;
-      const out=p.principal;
-      const repaid=Math.max(0,orig-out);
-      const pct=orig>0?Math.min(100,Math.round(repaid/orig*100)):0;
-      const st=out<=0.0001?"Repaid":(repaid>0.0001?"Partial":"Outstanding");
-      const stClass=st==="Repaid"?"ok":(st==="Partial"?"warn":"out");
-      const progClass=st==="Repaid"?"full":(st==="Partial"?"partial":"none");
+      const orig=p.principalOrig;
+      const out=p.totalOutstanding;
+      const repaid=p.totalPaid;
+      const pct=p.pctTotal;
+      const st=p.status;
+      const stClass=st==="Fully Settled"?"ok":(st==="Unpaid"?"out":"warn");
+      const progClass=st==="Fully Settled"?"full":(p.totalPaid>0?"partial":"none");
       const recv=l.recipientMethod?(l.recipientMethod.kind==="upi"?("UPI "+(l.recipientMethod.upi||"")):((l.recipientMethod.bank||"")+(" "+(l.recipientMethod.accountMasked||"")).trim())):"";
       const dir=l.direction==="lent"?"Lent":"Borrowed";
       return `<div class="card tap lend-card" data-lend="${l.id}">
@@ -1603,12 +1641,13 @@ function viewPlan(){
               <span class="muted">Original</span><b class="num">${fmt(orig,l.cur)}</b>
             </div>
             <div class="row" style="margin:4px 0 0;border:0;padding:0">
-              <span class="muted">Outstanding</span><b class="num ${out>0?(l.direction==="lent"?"in":"out"):""}">${fmt(out,l.cur)}</b>
+              <span class="muted">Total outstanding</span><b class="num ${out>0?(l.direction==="lent"?"in":"out"):""}">${fmt(out,l.cur)}</b>
             </div>
-            <div class="lend-progress ${progClass}" aria-hidden="true"><i style="width:${pct}%"></i></div>
+            <div class="muted" style="font-size:12px;margin-top:2px">Principal left ${fmt(p.principalLeft,l.cur)}${p.interestLeft>0.0001?` · Interest ${fmt(p.interestLeft,l.cur)}`:""}</div>
+            <div class="lend-progress ${progClass}" aria-hidden="true" title="Total repayment progress"><i style="width:${pct}%"></i></div>
             <div class="row" style="margin:0;border:0;padding:0;align-items:center">
-              <span class="status-pill ${stClass}">${st}${pct&&st!=="Outstanding"?` · ${pct}% repaid`:""}</span>
-              <span class="muted num" style="font-size:12px">${repaid>0?fmt(repaid,l.cur)+" repaid":"No repayments"}</span>
+              <span class="status-pill ${stClass}">${esc(st)}</span>
+              <span class="muted num" style="font-size:12px">${p.pctPrincipal}% principal · ${pct}% total</span>
             </div>
             ${l.note?`<div class="muted" style="margin-top:6px;font-size:12px">${esc(l.note)}</div>`:""}
           </div>
@@ -2664,7 +2703,8 @@ document.addEventListener("submit", e=>{
     if(!l||amount<=0||!a){alert("Enter a positive amount and account.");return;}
     if(a.cur!==l.cur){alert("Choose an account in "+l.cur+".");return;}
     const p=lendingPosition(l);
-    if(kind==="principal"&&amount>p.principal+0.005){alert("Principal transaction exceeds the outstanding principal.");return;}
+    if(kind==="principal"&&amount>p.principalLeft+0.005){alert("Amount exceeds principal left ("+fmt(p.principalLeft,l.cur)+").");return;}
+    if(kind==="interest"&&amount>p.interestLeft+0.005){alert("Amount exceeds interest outstanding ("+fmt(p.interestLeft,l.cur)+").");return;}
     if(kind==="principal"){
       const incoming=l.direction==="lent", typ=incoming?"lendback":"repay";
       addTxn({type:typ,date,person:l.person,loanId:l.id,pd:incoming?-amount:amount,principalReduction:amount,postings:[{acct:a.id,amt:incoming?amount:-amount,cur:l.cur}],note});
