@@ -125,8 +125,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.8.1";
 const RELEASES = [
+  {v:"1.8.1", d:"2026-11-17", notes:"Premium pay advances next due correctly (no false overdue); policy payment history; updated in-app user guide."},
   {v:"1.8.0", d:"2026-11-17", notes:"Policy pay always when premium owed; full contacts rebuild; family↔contacts move; Manage members in More; nav Home/Money/+/Plan/More."},
   {v:"1.7.2", d:"2026-11-17", notes:"Policy pay/overdue aligned with PPT; contacts reinstate from bankContacts; manage family members + net worth by person."},
   {v:"1.7.1", d:"2026-11-17", notes:"Policy premium pay stays available for the last due inside PPT even after that calendar date (late mark-paid)."},
@@ -246,6 +247,7 @@ function migrate(){
   }
   for(const x of S.sips){ x.status=x.status||"active"; x.history=x.history||[]; }
   for(const x of S.salaries){ x.status=x.status||"active"; x.history=x.history||[]; }
+  for(const p of S.policies){ p.payments=p.payments||[]; }
   if(S.autoSip==null) S.autoSip=true;
   if(S.autoSalary==null) S.autoSalary=true;
   if(!Array.isArray(S.expenseCats)||!S.expenseCats.length) S.expenseCats=EXPENSE_CATS.slice();
@@ -263,40 +265,56 @@ function policyPptEnd(p){
   return addM(p.start, Math.round(Number(p.ppt)*12));
 }
 function policyEffectiveNext(p){
-  // If next due drifted past PPT end, treat payable due as PPT end so final premium can still be recorded.
+  // Source of truth is stored p.next (next unpaid due). Do not clamp past-PPT next back to PPT end
+  // — that caused permanent overdue after the final premium was recorded.
   if(!p) return "";
   const next=(p.next||"").trim();
-  const end=policyPptEnd(p);
-  if(end && next && next > end) return end;
-  if(end && !next && today() > end) return end;
-  return next || end || "";
+  if(next) return next;
+  return "";
 }
 function policyPremiumActive(p){
-  // Show pay whenever a premium amount exists and policy is not explicitly closed.
-  // PPT still drives *due reminders* and suggested payable date via policyEffectiveNext.
   if(!p) return false;
   if(p.status==="closed"||p.status==="stopped") return false;
   if(!(Number(p.premium)>0)) return false;
   return true;
 }
 function policyFullyPaidTerm(p){
+  if(p.finalPremiumPaid) return true;
   const end=policyPptEnd(p);
-  if(!end) return false;
   const next=(p.next||"").trim();
-  if(next && next > end) return true;
-  if(!next && today() > end) return true;
+  // next past PPT only counts as complete after a recorded final payment
+  if(end && next && next > end && p.finalPremiumPaid) return true;
   return false;
 }
-function policyDueForReminder(p){
-  // Due-soon strip only if payable date is within PPT window (or no PPT set).
-  if(!p||p.status==="closed"||p.status==="stopped") return false;
-  if(!(Number(p.premium)>0)) return false;
+function policyHasOpenPremium(p){
+  // True when a premium can still be recorded.
+  if(!policyPremiumActive(p)) return false;
+  if(p.finalPremiumPaid) return false;
+  const next=policyEffectiveNext(p);
   const end=policyPptEnd(p);
-  const eff=policyEffectiveNext(p);
-  if(!eff) return false;
-  if(end && eff > end) return false;
-  if(p.maturity && eff > p.maturity) return false;
+  if(!next){
+    // No next stored: open if still inside PPT or PPT unknown
+    if(end && today() > end) return false;
+    return true;
+  }
+  if(end && next > end){
+    // Next drifted past PPT but final not flagged — still allow one final payment (payable date = PPT end)
+    return true;
+  }
+  if(p.maturity && next > p.maturity) return false;
   return true;
+}
+function policyDueForReminder(p){
+  if(!policyHasOpenPremium(p)) return false;
+  const due=policyPayableDate(p);
+  return !!due;
+}
+function policyPayableDate(p){
+  // Date to record for Mark paid: if next slipped past PPT end but final not marked, use PPT end once.
+  const next=policyEffectiveNext(p);
+  const end=policyPptEnd(p);
+  if(end && next && next > end && !p.finalPremiumPaid) return end;
+  return next || today();
 }
 function nextDue(day){
   const t=today();
@@ -672,63 +690,77 @@ function viewAccounts(){
   <button class="btn" data-newacct>Add account</button>`;
 }
 
-function readmeHtml(){return `<h2 style="margin-top:0">My Finance · App guide</h2>
-<div class="card"><b>1. Home dashboard</b><p class="muted">Shows net worth, assets, liabilities, monthly income and spending, six-month cash flow chart, asset mix and recent activity. Use the owner filter to view one family member or everyone. Save monthly net-worth snapshots to build the trend chart.</p></div>
-<div class="card"><b>2. Accounts and cards</b><p class="muted">Create bank, cash and credit-card accounts with owner and currency. Bank accounts support bank/provider, branch, IFSC and branch code. Open an account to maintain linked debit-card details or credit-card number suffix, network, expiry, annual fee, credit limit, statement day and due day. Only the last four card digits are saved; CVV/CVC and PIN are never stored.</p></div>
-<div class="card"><b>3. Friends / recipient bank accounts</b><p class="muted">Save a friend's account holder, bank, account number/IBAN, IFSC, branch, branch code and currency. Select a saved recipient while recording a transfer. This is a reference record; external transfers do not automatically update balances or contact banks.</p></div>
-<div class="card"><b>4. Transactions</b><p class="muted">Record income, expenses and transfers. Transfers between your own accounts are balance movements, not income or expenses. You can edit ordinary transactions, record refunds, void and restore entries, export/import transaction CSV and reconcile account balances.</p></div>
-<div class="card"><b>5. Investments and SIPs</b><p class="muted">Track mutual funds and stocks, owners, folios/identifiers, ISIN, units, cost and manually updated prices. Record buy/sell activity, import supported stock holdings files, and set SIP reminders. A SIP reminder never creates a transaction until you confirm the debit and units.</p></div>
-<div class="card"><b>6. Insurance</b><p class="muted">Track policy number, provider, owner, commencement, premium, payment frequency, premium-paying term, policy term, sum assured, bonus, maturity and next due date. Mark premiums paid to record the expense.</p></div>
-<div class="card"><b>7. Friends and family lending</b><p class="muted">Record money lent or borrowed, principal repayments and interest settlements. Principal is not income/expense; interest is. Interest outstanding is an estimate using simple interest on remaining principal and does not model every daily rate change or compounding convention.</p></div>
-<div class="card"><b>8. Purchases and warranties</b><p class="muted">Record purchased items, payment account, amount, date and warranty duration; see upcoming/expired warranty dates.</p></div>
-<div class="card"><b>9. Reports, currency and history</b><p class="muted">Change display currency and maintain the EUR/INR rate. Transactions preserve an FX rate at entry; old rates cannot be reconstructed if missing. Save monthly net-worth snapshots for trend reporting.</p></div>
-<div class="card"><b>10. Security, backups and limitations</b><p class="muted">The vault is encrypted locally with AES-256-GCM. Passphrase-derived keys use PBKDF2-HMAC-SHA-256 (600,000 iterations for new vaults). Biometric unlock depends on device/browser support. Save encrypted backups regularly. There is no cloud sync, live bank feed, live market-price feed or native push notification. This app has not undergone an independent security audit. Keep the app on HTTPS and protect your phone.</p></div>
-<div class="card"><b>11. Important accounting behaviour</b><p class="muted">Credit-card purchases increase card liability and count as expenses. Paying a credit-card bill reduces bank balance and card liability; it is not a second expense. Own-account transfers are not income/expense. Loan principal is not income/expense. Reconciliation posts an adjustment rather than silently changing history.</p></div>
-<button class="btn alt" data-close>Close guide</button>`;}
+function readmeHtml(){
+  return `<h2 style="margin-top:0">My Finance guide</h2>
+<p class="muted">Local, encrypted money tracker for you and your family. Nothing is uploaded to a server.</p>
 
-function viewSettings(){
-  return `<h2 style="margin-top:4px">Settings</h2>
-  <div class="card"><div class="row"><span class="muted">App version</span><b>v${esc(APP_VERSION)}</b></div><button class="btn alt" data-releases style="margin-top:10px">Release notes</button></div>
-  <div class="card"><b>Automatic postings</b>
-  <div class="row"><span>Auto-post due SIPs on unlock</span><button class="chip ${S.autoSip!==false?"on":""}" data-togglesip>${S.autoSip!==false?"On":"Off"}</button></div>
-  <div class="row"><span>Auto-post due salaries on unlock</span><button class="chip ${S.autoSalary!==false?"on":""}" data-togglesal>${S.autoSalary!==false?"On":"Off"}</button></div>
-  <div class="muted" style="margin-top:8px">Runs only when you open/unlock the app. SIP units use the fund’s current price when set; otherwise cost is recorded with 0 units until you update price.</div></div>
-  <div class="card"><b>Family members</b>
-  <div class="muted">Names used in Family view and as account owners. Moving someone to Contacts only changes visibility — data is kept.</div>
-  <button class="btn alt" data-editpeople style="margin-top:8px">Manage family members</button></div>
-  <div class="card"><b>Activity</b>
-  <div class="muted">Full transaction list (also reachable from Home history).</div>
-  <button class="btn alt" data-tab="activity" style="margin-top:8px">Open activity</button></div>
-  <div class="card"><b>Plan</b>
-  <div class="muted">SIPs, salaries, lending and cover remain on the Plan tab.</div>
-  <button class="btn alt" data-tab="plan" style="margin-top:8px">Open plan</button></div>
-  <div class="card"><b>Categories</b>
-  <div class="muted">Customise labels used for income and expenses (including cash).</div>
-  <button class="btn alt" data-editcats="expense" style="margin-top:8px">Edit expense categories</button>
-  <button class="btn alt" data-editcats="income">Edit income categories</button></div>
-  <div class="card"><label style="margin-top:0">Exchange rate: INR per 1 EUR</label>
-  <input id="rate" inputmode="decimal" value="${S.rate}"><div class="muted" style="margin-top:6px">Used only to show totals in one currency. Each account keeps its own currency.</div></div>
-  <div class="card"><b>Security</b><div class="muted">AES-256-GCM encrypted vault. New passphrases use PBKDF2-HMAC-SHA-256 with 600,000 iterations. Your passphrase is never stored.</div>
-  <button class="btn alt" data-change-pass>Change passphrase</button>
-  ${BIO?`<div class="muted" style="margin-top:10px">Fingerprint / device passkey unlock is enabled on this device.</div><button class="btn alt" data-bio-disable>Disable biometric unlock</button>`:`<button class="btn alt" data-bio-enable>Enable fingerprint / passkey unlock</button>`}
-  <div class="security-note">Biometric unlock uses the WebAuthn PRF extension when supported by your Android device and browser. It wraps the encryption key; fingerprint data never leaves Android. If unsupported, the passphrase remains available. Keep a strong passphrase and encrypted backup as recovery.</div></div>
-  <div class="card"><b>Backup Location</b><div id="backupFolderStatus" class="muted" style="margin-top:6px">Checking saved folder…</div>
-  <button class="btn alt" data-backup-folder>Choose folder on this device</button><button class="btn alt" data-backup-forget>Forget selected folder</button>
-  <div class="security-note" style="margin-top:8px">Only encrypted .enc backup files are written. Browser permission may need renewal. No cloud upload or sync is performed.</div></div>
-  <div class="card"><b>Backup</b><div class="muted">Your data is encrypted with your passphrase and stored locally in this browser on this phone. Choose a device folder under Backup Location where supported; backups are encrypted before writing. Otherwise use the browser download/file-picker fallback. There is no automatic cloud sync in this version. Save encrypted backup files regularly and store them somewhere safe; you need the passphrase to restore them.</div>
-  <button class="btn" data-export>Save backup file</button>
-  <button class="btn alt" data-csv>Export transactions (CSV)</button>
-  <button class="btn alt" data-import>Restore from backup file</button>
-  <button class="btn alt" data-holds>Import stock holdings</button>
-  <button class="btn alt" data-csvimp>Import transactions (CSV)</button>
-  <button class="btn alt" data-csvtpl>Download CSV template</button><input type="file" id="csvf" accept="*/*" hidden>
-  <input type="file" id="file" accept="*/*" hidden></div>
-  <div class="card"><b>Check my data</b><div class="muted">Confirms every transaction balances and points at a real account.</div>
-  <button class="btn alt" data-check>Run check</button></div>
-  <div class="card"><b>App guide / README</b><div class="muted">A guide to the features, how calculations work, and important limitations.</div><button class="btn alt" data-readme>Open app guide</button></div>
-  <div class="card"><b>Erase everything</b><div class="muted">Deletes all data on this phone. Save a backup first.</div>
-  <button class="btn danger" data-wipe>Erase all data</button></div>`;
+<div class="card"><b>1. Quick start</b>
+<ol class="muted" style="margin:8px 0 0;padding-left:18px;line-height:1.55">
+<li>Add accounts under <b>Money → Accounts</b> (bank, cash, card).</li>
+<li>Use <b>+</b> for spending, income, transfers.</li>
+<li>Optional: add people under <b>Money → Contacts</b> and family names under <b>More → Family members</b>.</li>
+<li>Save encrypted backups from <b>More</b> regularly.</li>
+</ol></div>
+
+<div class="card"><b>2. Home (dashboard)</b>
+<p class="muted">Net worth, due-soon items, investment snapshot, and member tiles when Family view is <b>All family</b>.</p>
+<ul class="muted" style="margin:6px 0 0;padding-left:18px;line-height:1.5">
+<li><b>Family view</b> filter focuses one person or everyone.</li>
+<li>Filters: All members · With net worth · Zero/empty.</li>
+<li>Tap a member tile to focus that person. Manage names in <b>More</b>.</li>
+<li><b>See all activity</b> opens the full transaction list.</li>
+</ul></div>
+
+<div class="card"><b>3. Insurance & premiums</b>
+<p class="muted">Plan → <b>Cover</b>.</p>
+<ul class="muted" style="margin:6px 0 0;padding-left:18px;line-height:1.5">
+<li>Set commencement, <b>PPT (years)</b>, premium, frequency, and <b>next due</b>.</li>
+<li>Last premium date ≈ commencement + PPT (e.g. 28 Apr 2016 + 10y → 28 Apr 2026).</li>
+<li><b>Mark premium paid</b> saves an expense, stores payment history on the policy, and advances <b>next due</b>.</li>
+<li>After the final PPT premium, next due moves past the PPT end so <b>overdue clears</b>.</li>
+<li>Edit any field on the policy sheet if dates look wrong, then save.</li>
+</ul></div>
+
+<div class="card"><b>4. Contacts</b>
+<p class="muted">Money → <b>Contacts</b> — one person, many bank accounts or UPI IDs.</p>
+<ul class="muted" style="margin:6px 0 0;padding-left:18px;line-height:1.5">
+<li>Used for external transfers and as shared names with lending.</li>
+<li>Not balances — reference details only.</li>
+<li>Older recipient accounts are restored into Contacts when you unlock.</li>
+</ul></div>
+
+<div class="card"><b>5. Family view</b>
+<p class="muted">Home filter + member net worth. Names come from <b>More → Family members</b>.</p>
+<ul class="muted" style="margin:6px 0 0;padding-left:18px;line-height:1.5">
+<li><b>Move to Contacts</b> — leaves Family view; data kept.</li>
+<li><b>Move to Family view</b> — from a contact card; contact details kept.</li>
+<li>Moving is not delete. Remove from list only drops the label, not accounts.</li>
+</ul></div>
+
+<div class="card"><b>6. Money, Activity, Plan</b>
+<ul class="muted" style="margin:6px 0 0;padding-left:18px;line-height:1.5">
+<li><b>Money</b> — Accounts · Investments (demat/stocks/funds) · Contacts.</li>
+<li><b>Activity</b> — all transactions (via Home or More).</li>
+<li><b>Plan</b> — SIPs, salaries, lending, insurance & warranties.</li>
+<li><b>+</b> — expense, income, transfer, invest, lend.</li>
+</ul></div>
+
+<div class="card"><b>7. More & navigation</b>
+<p class="muted">Bottom bar: <b>Home · Money · + · Plan · More</b>.</p>
+<ul class="muted" style="margin:6px 0 0;padding-left:18px;line-height:1.5">
+<li><b>More</b> — family members, activity, categories, backup, security, this guide.</li>
+<li>Backups are encrypted with your passphrase. Prefer a folder or download regularly.</li>
+</ul></div>
+
+<div class="card"><b>8. Tips</b>
+<ul class="muted" style="margin:6px 0 0;padding-left:18px;line-height:1.5">
+<li>Transfers between your accounts are not income/expense.</li>
+<li>External send uses Contacts and is recorded as spending.</li>
+<li>SIPs/salaries can auto-post when you unlock (toggle in More).</li>
+<li>If the app looks old after an update, clear site cache and reopen.</li>
+</ul></div>`;
 }
+
 
 /* ---------- sheets ---------- */
 function openSheet(html){ $("#layer").innerHTML = `<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`; try{if(navigator.vibrate)navigator.vibrate(8);}catch(e){} }
@@ -958,12 +990,12 @@ function viewPlan(){
   if(seg==="cover"){
     return segBar+`<h2 style="margin-top:4px">Insurance</h2>
   ${S.policies.map(p=>{
-    const active=policyPremiumActive(p);
-    const due=policyEffectiveNext(p)||p.next||"";
-    const d=due?daysTo(due):null;
-    const status=!active&&policyFullyPaidTerm(p)?"PPT complete":!active?"No premium due":d===null?"—":dl(d);
-    const cls=!active?"muted":(d!==null&&d<=30?"warn":"muted");
-    return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · next ${esc(due||p.next||"—")}</div></div><b class="${cls}">${status}</b></div></div>`;
+    const open=policyHasOpenPremium(p);
+    const due=open?(policyPayableDate(p)||p.next||""):(p.next||"");
+    const d=open&&due?daysTo(due):null;
+    const status=policyFullyPaidTerm(p)?"Up to date":!open?"No due":d===null?"—":dl(d);
+    const cls=open&&d!==null&&d<=30?"warn":"muted";
+    return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · next ${esc(due||"—")}</div></div><b class="${cls}">${status}</b></div></div>`;
   }).join("")||`<div class="empty"><div class="empty-title">No policies</div><p>Track premiums and due dates.</p></div>`}
   <button class="btn" data-newpol>Add policy</button>
   <h2>Purchases & warranties</h2>
@@ -998,7 +1030,7 @@ function dueHtml(){
   }
   for(const p of S.policies){
     if(!policyDueForReminder(p)) continue;
-    const due=policyEffectiveNext(p)||p.next;
+    const due=policyPayableDate(p);
     if(!due) continue;
     const d=daysTo(due);
     if(d<=30) r.push([d, "Premium · "+esc(p.name), fmt(p.premium,p.cur), `data-pol="${p.id}"`, d<0?"warn":""]);
@@ -1554,9 +1586,9 @@ document.addEventListener("click", async e=>{
   if("newpol" in d){ fs("New insurance policy","fpol",[["pn","Policy / scheme name","text"],["pno","Policy number","text"],["pp","Provider / insurer","text"],["po","Owner","select",S.people.map(n=>[n,n])],["pstart","Commencement date","date"],["ps","Sum assured","num"],["bonus","Bonus (optional)","num"],["pa","Premium per payment","num"],["ppt","Premium paying term (years)","num"],["pt","Policy term (years)","num"],["mat","Maturity date","date"],["pc","Currency","select",[["INR","INR"],["EUR","EUR"]]],["pf","Paid every","select",[["1","Month"],["3","3 months"],["6","6 months"],["12","Year"]]],["pd","Next premium due","date"]],"Save policy"); return; }
   if(d.pol){
     const p=S.policies.find(v=>v.id===d.pol); if(!p) return;
-    const active=policyPremiumActive(p);
+    const active=policyHasOpenPremium(p);
     const end=policyPptEnd(p);
-    const eff=policyEffectiveNext(p)||"";
+    const eff=active?policyPayableDate(p):(p.next||"");
     let termNote="";
     if(end) termNote+="Premium-paying term ends <b>"+esc(end)+"</b> (commencement + PPT). ";
     if(eff) termNote+="Payable due: <b>"+esc(eff)+"</b>. ";
@@ -1574,6 +1606,7 @@ document.addEventListener("click", async e=>{
       "</div>"+
       (termNote?'<div class="muted" style="margin-top:8px">'+termNote+"</div>":"")+
       payBlock+
+      (function(){const pays=(p.payments||[]).slice().reverse().slice(0,8); if(!pays.length) return '<div class="muted" style="margin:10px 0">No premium payments recorded yet.</div>'; return '<h2 style="font-size:15px;margin:16px 0 8px">Payment history</h2><div class="card">'+pays.map(function(x){return '<div class="row"><span>'+esc(x.date)+'</span><b class="num">'+fmt(x.amount,x.cur||p.cur)+'</b></div>';}).join('')+'</div>';})()+
       '<form id="fpoledit"><input type="hidden" id="peid" value="'+p.id+'">'+
       '<h2 style="font-size:15px;margin:16px 0 8px">Edit policy</h2>'+
       '<label>Name</label><input id="pen" value="'+esc(p.name||"")+'">'+
@@ -1886,21 +1919,36 @@ document.addEventListener("submit", e=>{
     save(); closeSheet(); render(); toast("Policy updated"); return;
   }
   if(e.target.id==="fpay"){
-    const p=S.policies.find(v=>v.id===$("#pid").value), a=acct($("#pacc").value); if(!p||!a) return;
+    const p=S.policies.find(v=>v.id===$("#pid").value), a=acct($("#pacc").value);
+    if(!p||!a){ alert("Policy or account missing."); return; }
     if(a.cur!==p.cur){ alert("Pay from an account in "+p.cur+"."); return; }
-    const due=policyEffectiveNext(p)||p.next||today();
-    addTxn({type:"expense",date:due,note:"Premium · "+(p.name||"Policy"),cat:"Insurance premium",owner:p.owner||"Me",postings:[{acct:a.id,amt:-p.premium,cur:p.cur}]});
-    // Advance from the effective due; if that was the PPT end, mark term complete by setting next past end
+    if(!(Number(p.premium)>0)){ alert("Premium amount is zero — edit the policy first."); return; }
     const end=policyPptEnd(p);
-    let next=addM(due, p.freq||1);
-    if(end && next > end){
-      // Final premium recorded — park next just after PPT so dues stop
-      p.next=addM(end,1);
+    const due=policyPayableDate(p);
+    // Persist expense + link to policy
+    const txn=addTxn({type:"expense",date:due,note:"Premium · "+(p.name||"Policy"),cat:"Insurance premium",owner:p.owner||a.owner||"Me",policyId:p.id,postings:[{acct:a.id,amt:-Math.abs(p.premium),cur:p.cur}]});
+    p.payments=p.payments||[];
+    p.payments.push({id:uid(),date:due,amount:p.premium,cur:p.cur,acct:a.id,txnId:txn.id});
+    // Advance next unpaid due from the date we just paid
+    const freq=Math.max(1, Number(p.freq)||1);
+    let next=addM(due, freq);
+    if(end){
+      if(due >= end || next > end){
+        // Final premium inside PPT recorded — move next past PPT so overdue clears
+        p.next=addM(end, 1);
+        p.finalPremiumPaid=true;
+      }else{
+        p.next=next;
+        p.finalPremiumPaid=false;
+      }
     }else{
       p.next=next;
     }
-    // If stored next had drifted past PPT, clear that drift by using computed value
-    save(); closeSheet(); render(); toast("Premium recorded"); return;
+    save();
+    closeSheet();
+    render();
+    toast("Premium recorded · next "+(p.next||""));
+    return;
   }
   if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const newName=($("#anameEdit")?.value||"").trim(); if(!newName){alert("Enter an account nickname.");return;} a.name=newName; const newOwner=($("#aownerEdit")?.value||"").trim()||"Me"; a.owner=newOwner; if(!S.people.includes(newOwner))S.people.push(newOwner); const last4=($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expiry=($("#expiry")?.value||"").trim(); if(expiry&&!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){alert("Enter expiry as MM/YY.");return;} a.cardMeta={last4,network:($("#network")?.value||"").trim(),cardType:($("#cardType")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="demat"){ if($("#abrokerEdit")) a.broker=$("#abrokerEdit").value.trim(); if($("#adematEdit")) a.dematId=$("#adematEdit").value.trim(); if($("#ainvestedEdit")) a.invested=parseAmt($("#ainvestedEdit").value||"0"); } if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";const n=($("#aacctnoEdit")?.value||"").replace(/\s/g,"").trim();a.accountNumber=n;a.accountMasked=n?(n.length>4?"••••"+n.slice(-4):"••••"):"";} if(a.type==="card"){ if($("#abankEdit")) a.bank=($("#abankEdit").value||"").trim()||a.bank||""; a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value); if($("#alinked")) a.linkedBankId=$("#alinked").value||"";} log("account-details",a.id);save(); } closeSheet(); render(); toast("Account details saved"); }
   if(e.target.id==="fa2"){
