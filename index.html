@@ -222,6 +222,12 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 .btn,button.btn{min-height:44px}input,select{min-height:44px;font-size:16px}
 .month-sep{font-size:12px;font-weight:650;color:var(--muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.03em}
 
+
+.home-toolbar{display:flex;align-items:flex-end;gap:10px;margin-bottom:8px}
+.home-toolbar .home-filter{flex:1;margin:0}
+.privacy-chip{flex-shrink:0;min-height:40px}
+.method-card{cursor:pointer}
+.members-only .metric span{font-weight:600}
 </style>
 </head>
 <body>
@@ -233,8 +239,9 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.1.1";
+const APP_VERSION = "2.2.0";
 const RELEASES = [
+  {v:"2.2.0", d:"2026-11-17", notes:"Home net-worth consolidated; full privacy mask; contact method cards cleaned; Save Details wording."},
   {v:"2.1.1", d:"2026-11-17", notes:"Fixed fmtHide not defined (Home crash after unlock)."},
   {v:"2.1.0", d:"2026-11-17", notes:"Automation safety; hide balances; form guards; insights; empty states; integrity."},
   {v:"2.0.1", d:"2026-11-17", notes:"Fixed light/dark/system themes (neutral dark, true light, OS-following system); UI polish."},
@@ -455,7 +462,7 @@ const today = () => { const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimez
 
 /* ---------- money ---------- */
 const fmt = (n,cur) => new Intl.NumberFormat(cur==="INR"?"en-IN":"nl-NL",{style:"currency",currency:cur,maximumFractionDigits:2}).format(n||0);
-const fmtHide = (n,cur) => (S && S.hideBalances) ? "••••" : fmt(n,cur);
+const fmtHide = (n,cur) => { if(!(S&&S.hideBalances)) return fmt(n,cur); return (cur==="INR"||(!cur&&S.display==="INR")?"₹":"")+"••••••"; };
 const toDisplay = (n,cur) => cur===S.display ? n : (cur==="EUR" ? n*S.rate : n/S.rate);
 const toDisplayAt = (n,cur,rate) => cur===S.display ? n : (cur==="EUR" ? n*(rate||S.rate) : n/(rate||S.rate));
 const parseAmt = v => { const n = parseFloat(String(v).replace(/,/g,".").replace(/[^0-9.]/g,"")); return isFinite(n)?n:0; };
@@ -859,45 +866,55 @@ function viewHome0(){
   const cats={}; for(const x of S.txns){ if(x.status==="posted"&&x.type==="expense"&&monthKey(x.date)===monthKey(today())&&(!owner||x.owner===owner)){ cats[x.cat]=(cats[x.cat]||0)+toDisplayAt(-x.postings[0].amt,x.postings[0].cur,x.fxRate);} }
   for(const x of S.txns){ if(x.status==="posted"&&x.type==="refund"&&monthKey(x.date)===monthKey(today())&&(!owner||x.owner===owner)&&cats[x.cat]!=null) cats[x.cat]-=toDisplayAt(x.postings[0].amt,x.postings[0].cur,x.fxRate); }
   const top=Object.entries(cats).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]).slice(0,4),max=top.length?top[0][1]:1;
-  const memberNw = homeOwner==="All family" ? owners.filter(o=>o!=="All family").map(o=>{ const nw=netWorth(o); return {o, total:nw.total, assets:nw.assets, owed:nw.owed}; }) : [];
+  const memberNw = homeOwner==="All family" ? owners.filter(o=>o!=="All family").map(o=>{ const n=netWorth(o); return {o, total:n.total}; }) : [];
   const nwFilter = homeNwFilter||"all";
   let memberShow = memberNw;
   if(nwFilter==="with") memberShow = memberNw.filter(m=>Math.abs(m.total)>0.001);
   if(nwFilter==="zero") memberShow = memberNw.filter(m=>Math.abs(m.total)<=0.001);
-  return `<div class="home-filter"><label>Family view</label><select id="homeOwner">${owners.map(o=>`<option ${homeOwner===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>
-  ${homeOwner==="All family"?`<div class="chips" style="margin:0 0 10px">
-    <button type="button" class="chip ${nwFilter==="all"?"on":""}" data-homenwf="all">All members</button>
-    <button type="button" class="chip ${nwFilter==="with"?"on":""}" data-homenwf="with">With net worth</button>
-    <button type="button" class="chip ${nwFilter==="zero"?"on":""}" data-homenwf="zero">Zero / empty</button>
+  const hide=!!S.hideBalances;
+  const eye=hide?"Show balances":"Hide balances";
+  return `<div class="home-toolbar">
+    <div class="home-filter"><label>Family view</label><select id="homeOwner">${owners.map(o=>`<option ${homeOwner===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>
+    <button type="button" class="chip privacy-chip ${hide?"on":""}" data-togglehide title="${eye}">${hide?"👁 Show":"👁 Hide"}</button>
   </div>
-  ${memberShow.length?`<div class="metric-grid">${memberShow.map(m=>`<div class="metric tap" data-setowner="${esc(m.o)}"><span>${esc(m.o)}</span><b class="num ${m.total<0?"out":""}">${fmt(m.total,S.display)}</b></div>`).join("")}</div><p class="muted" style="margin:6px 0 0">Tap a person to filter Home. Manage members under More.</p>`:`<p class="muted">No members match this filter. Manage members under More → Family members.</p>`}`:""}
-  <div class="hero"><div class="muted">${owner?esc(owner)+" · ":"Family net worth · "}${S.display}</div><div class="big num">${fmt(nw.total,S.display)}</div><div class="muted">Assets ${fmt(nw.assets,S.display)} · Liabilities ${fmt(nw.owed,S.display)}</div></div>
-  <div class="metric-grid"><div class="metric"><span class="muted">Income this month</span><b class="in num">${fmt(t.inc,S.display)}</b></div><div class="metric"><span class="muted">Spending this month</span><b class="out num">${fmt(t.exp,S.display)}</b></div><div class="metric"><span class="muted">Net cash flow</span><b class="num">${fmt(t.inc-t.exp,S.display)}</b></div><div class="metric"><span class="muted">Accounts</span><b>${S.accounts.filter(a=>!a.archived&&(!owner||a.owner===owner)).length}</b></div></div>
-  
+  ${homeOwner==="All family"?`<div class="chips" style="margin:0 0 10px">
+    <button type="button" class="chip ${nwFilter==="all"?"on":""}" data-homenwf="all">All</button>
+    <button type="button" class="chip ${nwFilter==="with"?"on":""}" data-homenwf="with">With balance</button>
+    <button type="button" class="chip ${nwFilter==="zero"?"on":""}" data-homenwf="zero">Empty</button>
+  </div>
+  ${memberShow.length?`<div class="metric-grid members-only">${memberShow.map(m=>`<div class="metric tap" data-setowner="${esc(m.o)}"><span>${esc(m.o)}</span><b class="num ${m.total<0?"out":""}">${fmtHide(m.total,S.display)}</b></div>`).join("")}</div><p class="muted" style="margin:6px 0 12px">Tap a member to focus. Manage names under More.</p>`:`<p class="muted">No members match this filter.</p>`}`:""}
+
   <div class="hero-nw">
-    <div class="label">Net worth${owner?" · "+esc(owner):" · Family"}</div>
+    <div class="label">${owner?esc(owner)+" · net worth":"Family net worth"}</div>
     <div class="value">${fmtHide(nw.total,S.display)}</div>
-    <div class="split"><div><span>Assets</span><b>${fmtHide(nw.assets,S.display)}</b></div><div><span>Liabilities</span><b>${fmtHide(nw.owed,S.display)}</b></div></div>
+    <div class="split">
+      <div><span>Assets</span><b>${fmtHide(nw.assets,S.display)}</b></div>
+      <div><span>Liabilities</span><b>${fmtHide(nw.owed,S.display)}</b></div>
+    </div>
   </div>
   <div class="wealth-grid">
-    <div class="wealth-pill"><span>Cash</span><b class="num">${fmt(wb.cash,S.display)}</b></div>
-    <div class="wealth-pill"><span>Bank</span><b class="num">${fmt(wb.bank,S.display)}</b></div>
-    <div class="wealth-pill"><span>Invested</span><b class="num">${fmt(wb.invested,S.display)}</b></div>
-    <div class="wealth-pill"><span>Cards owed</span><b class="num out">${fmt(wb.cardLiab,S.display)}</b></div>
+    <div class="wealth-pill"><span>Cash</span><b class="num">${fmtHide(wb.cash,S.display)}</b></div>
+    <div class="wealth-pill"><span>Bank</span><b class="num">${fmtHide(wb.bank,S.display)}</b></div>
+    <div class="wealth-pill"><span>Invested</span><b class="num">${fmtHide(wb.invested,S.display)}</b></div>
+    <div class="wealth-pill"><span>Cards owed</span><b class="num out">${fmtHide(wb.cardLiab,S.display)}</b></div>
   </div>
-  <p class="muted">Invested = demat accounts + stock/fund holdings (manual prices).</p>
+  <p class="muted" style="margin-top:0">Invested = demat + holdings (manual prices).</p>
+
   <div class="card">
-    <div class="row"><span>This month in</span><b class="num in">${fmt(t.in,S.display)}</b></div>
-    <div class="row"><span>This month out</span><b class="num out">${fmt(t.out,S.display)}</b></div>
-    <div class="row"><span>Savings (in − out)</span><b class="num ${(t.in-t.out)<0?"out":"in"}">${fmt(t.in-t.out,S.display)}</b></div>
-    <div class="row"><span>Savings rate</span><b class="num">${t.in>0?Math.round((t.in-t.out)/t.in*100)+"%":"—"}</b></div>
+    <div class="row"><span>Income this month</span><b class="num in">${fmtHide(t.inc,S.display)}</b></div>
+    <div class="row"><span>Spending this month</span><b class="num out">${fmtHide(t.exp,S.display)}</b></div>
+    <div class="row"><span>Savings</span><b class="num ${(t.inc-t.exp)<0?"out":"in"}">${fmtHide(t.inc-t.exp,S.display)}</b></div>
+    <div class="row"><span>Savings rate</span><b class="num">${hide?"••••":(t.inc>0?Math.round((t.inc-t.exp)/t.inc*100)+"%":"—")}</b></div>
   </div>
-<div class="quick-grid"><button data-add data-quick="expense">＋ Expense</button><button data-add data-quick="income">＋ Income</button><button data-add data-quick="transfer">⇄ Transfer</button></div>
-  ${chartHtml(owner)}
-  ${allocationHtml(owner)}
-  ${netWorthChartHtml(owner)}
-  ${top.length?`<h2>Spending categories</h2><div class="card">${top.map(([c,v])=>`<div style="margin:8px 0"><div class="row"><span>${esc(c)}</span><b class="num">${fmt(v,S.display)}</b></div><div class="bar"><i style="width:${Math.min(100,Math.round(v/max*100))}%"></i></div></div>`).join("")}</div>`:""}
-  <h2>Recent activity</h2>${recent.length?`<div class="card">${recent.map(txnRow).join("")}</div>`:`<div class="empty"><div class="empty-title">No activity yet</div><p>Tap + to add an expense, income, or transfer.</p></div>`}`;
+
+  <div class="quick-grid"><button data-add data-quick="expense">＋ Expense</button><button data-add data-quick="income">＋ Income</button><button data-add data-quick="transfer">⇄ Transfer</button></div>
+  ${hide?`<p class="muted">Balances hidden. Charts still use structure only where amounts are masked.</p>`:""}
+  ${hide?"":chartHtml(owner)}
+  ${hide?"":allocationHtml(owner)}
+  ${hide?"":netWorthChartHtml(owner)}
+  ${!hide&&top.length?`<h2>Spending</h2><div class="card">${top.map(([c,v])=>`<div style="margin:8px 0"><div class="row"><span>${esc(c)}</span><b class="num">${fmtHide(v,S.display)}</b></div><div class="bar"><i style="width:${Math.min(100,Math.round(v/max*100))}%"></i></div></div>`).join("")}</div>`:""}
+  <div class="section-hd"><h2>Recent</h2><button type="button" class="chip" data-tab="activity">All activity</button></div>
+  ${recent.length?`<div class="card">${hide?recent.map(t=>`<div class="row"><span class="muted">${esc(t.date||"")} · ${esc(t.type)}</span><b>••••••</b></div>`).join(""):recent.map(txnRow).join("")}</div>`:`<div class="empty"><div class="empty-title">No activity yet</div><p>Tap + to add a transaction.</p></div>`}`;
 }
 
 function txnRow(t){
@@ -1795,12 +1812,10 @@ document.addEventListener("click", async e=>{
     <div class="muted">${esc(c.notes||"Friend / family contact")}</div>
     <button class="btn alt" data-editcontact="${c.id}" style="margin-top:8px">Edit name & notes</button>
     <h2 style="font-size:15px;margin:16px 0 8px">Accounts & UPI</h2>
-    ${methods.map(m=>`<div class="card"><div class="row"><div><b>${m.kind==="upi"?"UPI":esc(m.bank||"Bank")}</b><div class="muted">${m.kind==="upi"?esc(m.upi||m.accountNumber||""):esc(m.holder||"")+" · "+esc(m.accountMasked||m.accountNumber||"")}${m.ifsc?" · IFSC "+esc(m.ifsc):""}</div></div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        <button class="chip" data-copymethod="${c.id}::${m.id}">Copy</button>
-        <button class="chip" data-editmethod="${c.id}::${m.id}">Edit</button>
-        <button class="chip" data-delmethod="${c.id}::${m.id}">Remove</button>
-      </div></div></div>`).join("")||`<div class="muted">No bank or UPI yet.</div>`}
+    ${methods.map(m=>`<div class="card tap method-card" data-editmethod="${c.id}::${m.id}">
+      <div class="row"><div><b>${m.kind==="upi"?"UPI":esc(m.bank||"Bank")}</b>
+        <div class="muted">${m.kind==="upi"?esc(m.upi||m.accountNumber||""):esc(m.holder||"")+" · "+esc(m.accountMasked||m.accountNumber||"")}${m.ifsc?" · IFSC "+esc(m.ifsc):""}</div>
+      </div><span class="muted">Edit ›</span></div></div>`).join("")||`<div class="muted">No bank or UPI yet.</div>`}
     <button class="btn" data-addmethod="${c.id}">Add bank / UPI</button>
     ${!(S.people||[]).includes(c.name)?`<button class="btn alt" data-movetofamily="${esc(c.name)}">Move to Family view</button>`:`<div class="muted" style="margin-top:8px">Also in Family view</div>`}
     <button class="btn alt" data-delcontact="${c.id}">Remove from Contacts</button>
@@ -1832,7 +1847,11 @@ document.addEventListener("click", async e=>{
       <label>UPI ID</label><input id="meupi" value="${esc(m.upi||(m.kind==="upi"?m.accountNumber:"" )||"")}">
     </div>
     <label>Currency</label><select id="mecur"><option ${m.cur==="INR"?"selected":""}>INR</option><option ${m.cur==="EUR"?"selected":""}>EUR</option></select>
-    <button class="btn" type="submit">Save method</button></form>
+    <button class="btn" type="submit">Save Details</button></form>
+    <div class="row" style="margin-top:12px;gap:8px">
+      <button class="btn alt" data-copymethod="${c.id}::${m.id}">Copy details</button>
+      <button class="btn alt" data-delmethod="${c.id}::${m.id}" style="color:var(--out)">Delete</button>
+    </div>
     <button class="btn alt" data-close>Cancel</button>`);
     const sync=()=>{const k=$("#mekind")?.value; if($("#mebankfields"))$("#mebankfields").style.display=k==="bank"?"block":"none"; if($("#meupifields"))$("#meupifields").style.display=k==="upi"?"block":"none";};
     const mk=$("#mekind"); if(mk){mk.onchange=sync;sync();}

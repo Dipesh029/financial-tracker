@@ -1,7 +1,7 @@
 /* My Finance PWA shell cache.
    Network-first for HTML so updates appear after deploy; offline falls back to cache. */
 "use strict";
-const CACHE = "myfinance-shell-v43";
+const CACHE = "myfinance-shell-v44";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (event) => {
