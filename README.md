@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 1.6.0
+**Current version:** 2.0.0
 
 ---
 
@@ -107,6 +107,7 @@ If the UI looks old, the service worker is still serving a cached shell — clea
 
 | Version | Notes |
 |---------|--------|
+| **2.0.0** | Premium mobile UI, Home wealth breakdown, themes, Activity pages |
 | **1.6.0** | Segmented Money & Plan tabs (less scrolling) |
 | **1.5.0** | Auto SIP debit + salary schedules on unlock |
 | 1.4.x | Account numbers, debit card meta, folder backup fix, unlock/crypto fixes, UI polish |

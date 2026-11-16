@@ -116,6 +116,21 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 .due-pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .due-pill.over{background:color-mix(in srgb,var(--out) 16%,transparent);color:var(--out)}
 .limit-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px}
+
+.hero-nw{background:linear-gradient(145deg,#3563e9,#1e3a8a);color:#fff;border-radius:18px;padding:18px 16px;margin:12px 0;box-shadow:var(--shadow)}
+.hero-nw .label{opacity:.9;font-size:13px}.hero-nw .value{font-size:30px;font-weight:700;margin:6px 0 12px;font-variant-numeric:tabular-nums}
+.hero-nw .split{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hero-nw .split div{background:rgba(255,255,255,.14);border-radius:10px;padding:8px 10px}
+.hero-nw .split span{display:block;font-size:11px;opacity:.85}
+.wealth-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.wealth-pill{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.wealth-pill span{display:block;font-size:11px;color:var(--muted)}
+#app{max-width:430px;margin:0 auto}
+nav{padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-size:28px}
+.btn,button.btn{min-height:44px}input,select{min-height:44px;font-size:16px}
+.month-sep{font-size:12px;font-weight:650;color:var(--muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.03em}
+html[data-theme="dark"]{--bg:#0b1220;--card:#121a2a;--ink:#e8eef8;--muted:#94a3b8;--line:#243044;--accent:#7c9cff;--accent-ink:#0b1020}
 </style>
 </head>
 <body>
@@ -127,8 +142,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.8.5";
+const APP_VERSION = "2.0.0";
 const RELEASES = [
+  {v:"2.0.0", d:"2026-11-17", notes:"Premium mobile UI; Home wealth breakdown; theme preference; Activity pagination; ledger balance self-test."},
   {v:"1.8.5", d:"2026-11-17", notes:"Edit contacts and methods; fixed copy text; lending picks contact methods by person."},
   {v:"1.8.4", d:"2026-11-17", notes:"Restored missing viewSettings (unlock regression)."},
   {v:"1.8.3", d:"2026-11-17", notes:"Lock screen hides nav; unlock errors surface real cause; migrate contacts on unlock; auth required before any app UI."},
@@ -430,7 +446,10 @@ function unvoid(id){ const t=S.txns.find(x=>x.id===id); if(t){ t.status="posted"
 let S=null, CK=null, BIO=null, SALT=null, KDF_ITER=250000, chain=Promise.resolve();
 
 /* ---------- UI state ---------- */
-let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family", xferMode="self", moneySeg="accounts", moneyAcctFilter="all", moneyHoldFilter="all", planSeg="sips", homeNwFilter="all";
+let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family", xferMode="self", moneySeg="accounts", moneyAcctFilter="all", moneyHoldFilter="all", planSeg="sips", homeNwFilter="all", actLimit=40, filterType="";
+function getThemePref(){try{return localStorage.getItem("myfinance.theme")||"system";}catch(e){return "system";}}
+function applyTheme(pref){const p=pref||getThemePref();document.documentElement.setAttribute("data-theme",(p==="light"||p==="dark")?p:"system");try{localStorage.setItem("myfinance.theme",(p==="light"||p==="dark")?p:"system");}catch(e){}}
+applyTheme(getThemePref());
 const $ = s => document.querySelector(s);
 function copyToClipboard(text){
   const t=String(text||"").trim();
@@ -532,6 +551,7 @@ function render(){
   const v = {home:viewHome,plan:viewPlan, activity:viewActivity, accounts:viewAccounts, settings:viewSettings}[tab];
   try{
     $("#app").innerHTML = v();
+    if(tab==="settings"){ const tp=$("#themePref"); if(tp) tp.value=getThemePref(); }
   }catch(err){
     console.error(err);
     $("#app").innerHTML = `<div class="empty"><div class="empty-title">Screen error</div><p class="muted">${esc(String(err.message||err))}</p><button class="btn" data-tab="home">Go home</button></div>`;
@@ -541,6 +561,19 @@ function render(){
 function personNetWorth(person){
   // Net worth attributed to this owner label (accounts + holdings).
   return netWorth(person).total;
+}
+function wealthBreakdown(owner){
+  let cash=0,bank=0,demat=0,cardLiab=0,holdings=0;
+  for(const a of S.accounts){
+    if(a.archived||(owner&&a.owner!==owner))continue;
+    const b=toDisplay(balance(a),a.cur);
+    if(a.type==="cash") cash+=Math.max(0,b);
+    else if(a.type==="bank") bank+=Math.max(0,b);
+    else if(a.type==="demat") demat+=Math.max(0,b);
+    else if(a.type==="card"&&b<0) cardLiab+=-b;
+  }
+  for(const h of S.holdings){if(!(owner&&h.owner!==owner)) holdings+=toDisplay(holdPos(h).v,h.cur);}
+  return {cash,bank,demat,holdings,invested:demat+holdings,cardLiab};
 }
 function netWorth(owner){
   let assets=0,owed=0;
@@ -620,6 +653,10 @@ function viewSettings(){
   <button class="btn alt" data-editcats="expense" style="margin-top:8px">Edit expense categories</button>
   <button class="btn alt" data-editcats="income">Edit income categories</button></div>
 
+  <div class="card"><b>Appearance</b>
+  <label>Theme</label>
+  <select id="themePref"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
+  <div class="muted">Remembered on this device.</div></div>
   <div class="card"><b>Display</b>
   <label>EUR → INR rate</label>
   <input id="rate" inputmode="decimal" value="${S.rate||104.16}">
@@ -681,7 +718,7 @@ function viewHome0(){
   const owners=["All family",...new Set([...S.people,...S.accounts.map(a=>a.owner||"Me"),...S.holdings.map(h=>h.owner||"Me")])];
   if(!owners.includes(homeOwner))homeOwner="All family";
   const owner=homeOwner==="All family"?null:homeOwner;
-  const nw=netWorth(owner),t=monthTotals(monthKey(today()),owner);
+  const nw=netWorth(owner), wb=wealthBreakdown(owner), t=monthTotals(monthKey(today()),owner);
   const recent=S.txns.filter(x=>!owner||x.owner===owner).slice().sort((a,b)=>b.date.localeCompare(a.date)||b.created.localeCompare(a.created)).slice(0,5);
   const cats={}; for(const x of S.txns){ if(x.status==="posted"&&x.type==="expense"&&monthKey(x.date)===monthKey(today())&&(!owner||x.owner===owner)){ cats[x.cat]=(cats[x.cat]||0)+toDisplayAt(-x.postings[0].amt,x.postings[0].cur,x.fxRate);} }
   for(const x of S.txns){ if(x.status==="posted"&&x.type==="refund"&&monthKey(x.date)===monthKey(today())&&(!owner||x.owner===owner)&&cats[x.cat]!=null) cats[x.cat]-=toDisplayAt(x.postings[0].amt,x.postings[0].cur,x.fxRate); }
@@ -700,7 +737,20 @@ function viewHome0(){
   ${memberShow.length?`<div class="metric-grid">${memberShow.map(m=>`<div class="metric tap" data-setowner="${esc(m.o)}"><span>${esc(m.o)}</span><b class="num ${m.total<0?"out":""}">${fmt(m.total,S.display)}</b></div>`).join("")}</div><p class="muted" style="margin:6px 0 0">Tap a person to filter Home. Manage members under More.</p>`:`<p class="muted">No members match this filter. Manage members under More → Family members.</p>`}`:""}
   <div class="hero"><div class="muted">${owner?esc(owner)+" · ":"Family net worth · "}${S.display}</div><div class="big num">${fmt(nw.total,S.display)}</div><div class="muted">Assets ${fmt(nw.assets,S.display)} · Liabilities ${fmt(nw.owed,S.display)}</div></div>
   <div class="metric-grid"><div class="metric"><span class="muted">Income this month</span><b class="in num">${fmt(t.inc,S.display)}</b></div><div class="metric"><span class="muted">Spending this month</span><b class="out num">${fmt(t.exp,S.display)}</b></div><div class="metric"><span class="muted">Net cash flow</span><b class="num">${fmt(t.inc-t.exp,S.display)}</b></div><div class="metric"><span class="muted">Accounts</span><b>${S.accounts.filter(a=>!a.archived&&(!owner||a.owner===owner)).length}</b></div></div>
-  <div class="quick-grid"><button data-add data-quick="expense">＋ Expense</button><button data-add data-quick="income">＋ Income</button><button data-add data-quick="transfer">⇄ Transfer</button></div>
+  
+  <div class="hero-nw">
+    <div class="label">Net worth${owner?" · "+esc(owner):" · Family"}</div>
+    <div class="value">${fmt(nw.total,S.display)}</div>
+    <div class="split"><div><span>Assets</span><b>${fmt(nw.assets,S.display)}</b></div><div><span>Liabilities</span><b>${fmt(nw.owed,S.display)}</b></div></div>
+  </div>
+  <div class="wealth-grid">
+    <div class="wealth-pill"><span>Cash</span><b class="num">${fmt(wb.cash,S.display)}</b></div>
+    <div class="wealth-pill"><span>Bank</span><b class="num">${fmt(wb.bank,S.display)}</b></div>
+    <div class="wealth-pill"><span>Invested</span><b class="num">${fmt(wb.invested,S.display)}</b></div>
+    <div class="wealth-pill"><span>Cards owed</span><b class="num out">${fmt(wb.cardLiab,S.display)}</b></div>
+  </div>
+  <p class="muted">Invested = demat accounts + stock/fund holdings (manual prices).</p>
+<div class="quick-grid"><button data-add data-quick="expense">＋ Expense</button><button data-add data-quick="income">＋ Income</button><button data-add data-quick="transfer">⇄ Transfer</button></div>
   ${chartHtml(owner)}
   ${allocationHtml(owner)}
   ${netWorthChartHtml(owner)}
@@ -719,13 +769,26 @@ function txnRow(t){
 }
 
 function viewActivity(){
-  let list=S.txns.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.created.localeCompare(a.created));
-  if(filterAcct) list=list.filter(t=>t.postings.some(p=>p.acct===filterAcct));
-  if(q){ const s=q.toLowerCase(); list=list.filter(t=>((t.cat||"")+" "+(t.note||"")+" "+t.type).toLowerCase().includes(s)); }
+  let list=S.txns.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.created||"").localeCompare(a.created||""));
+  if(filterAcct) list=list.filter(t=>t.postings&&t.postings.some(p=>p.acct===filterAcct));
+  if(filterType) list=list.filter(t=>t.type===filterType);
+  if(q){ const s=q.toLowerCase(); list=list.filter(t=>((t.cat||"")+" "+(t.note||"")+" "+t.type+" "+(t.person||"")).toLowerCase().includes(s)); }
+  const limit=actLimit||40;
+  const shown=list.slice(0,limit);
+  let html="", lastM="";
+  for(const t of shown){
+    const mk=(t.date||"").slice(0,7);
+    if(mk && mk!==lastM){ lastM=mk; html+=`<div class="month-sep">${esc(mk)}</div>`; }
+    html+=txnRow(t);
+  }
   return `<h2 style="margin-top:4px">Activity</h2>
-  <input id="q" type="search" placeholder="Search note or category" value="${esc(q)}">
+  <input id="q" type="search" placeholder="Search note, category, person" value="${esc(q)}">
   <select id="fa" style="margin-top:8px"><option value="">All accounts</option>${S.accounts.map(a=>`<option value="${a.id}" ${filterAcct===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
-  ${list.length?`<div class="card">${list.map(txnRow).join("")}</div>`:`<div class="empty"><div class="empty-title">No matches</div><p>Try another search or clear the account filter.</p></div>`}`;
+  <select id="ft" style="margin-top:8px"><option value="">All types</option>${["expense","income","transfer","buy","sell","lend","borrow","adjustment","open","refund"].map(t=>`<option value="${t}" ${filterType===t?"selected":""}>${t}</option>`).join("")}</select>
+  <div class="row" style="margin-top:8px"><span class="muted">${list.length} match${list.length===1?"":"es"}</span>
+  ${(filterAcct||filterType||q)?`<button type="button" class="chip" data-clearfilters>Clear filters</button>`:""}</div>
+  ${shown.length?html:`<div class="empty"><div class="empty-title">No transactions</div><p>Try clearing filters or add one with +.</p></div>`}
+  ${list.length>limit?`<button class="btn alt" data-actmore style="margin-top:12px">Show more (${Math.min(list.length,limit+40)>list.length?list.length:limit+40} / ${list.length})</button>`:""}`;
 }
 
 function viewAccounts(){
@@ -1372,6 +1435,18 @@ async function unlockBiometric(){
 /* ---------- integrity check ---------- */
 function runCheck(){
   const issues=[]; const ids=new Set();
+  // Reconstruct balances from openings + postings and compare to balance()
+  for(const a of S.accounts){
+    if(a.archived) continue;
+    let recon=Number(a.opening)||0;
+    for(const t of S.txns){
+      if(t.status!=="posted"||!t.postings) continue;
+      for(const p of t.postings){ if(p.acct===a.id) recon+=Number(p.amt)||0; }
+    }
+    const live=balance(a);
+    if(Math.abs(recon-live)>0.02) issues.push("Balance mismatch "+(a.name||a.id)+": live="+live+" recon="+recon);
+  }
+
   for(const t of S.txns){
     if(ids.has(t.id)) issues.push("Duplicate ID "+t.id); ids.add(t.id);
     if(!Array.isArray(t.postings)) issues.push("Transaction has no postings");
@@ -1436,7 +1511,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -1527,6 +1602,8 @@ document.addEventListener("click", async e=>{
   if(d.moneyacctf){ moneyAcctFilter=d.moneyacctf; render(); return; }
   if(d.moneyholdf){ moneyHoldFilter=d.moneyholdf; render(); return; }
   if(d.homenwf){ homeNwFilter=d.homenwf; render(); return; }
+  if("actmore" in d){ actLimit=(actLimit||40)+40; render(); return; }
+  if("clearfilters" in d){ q=""; filterAcct=""; filterType=""; actLimit=40; render(); return; }
   if("add" in d){ if(el.dataset.quick){sheetType=el.dataset.quick;chosenCat=null;} addSheet(); return; }
   if(d.type){ sheetType=d.type; addSheet(); return; }
   if(d.cat){ chosenCat=d.cat; document.querySelectorAll("#cats .chip").forEach(c=>c.classList.toggle("on",c.dataset.cat===chosenCat)); return; }
@@ -1876,10 +1953,12 @@ document.addEventListener("click", async e=>{
 });
 
 document.addEventListener("change", e=>{
-  if(e.target.id==="fa"){ filterAcct=e.target.value; render(); }
+  if(e.target.id==="fa"){ filterAcct=e.target.value; actLimit=40; render(); }
+  if(e.target.id==="ft"){ filterType=e.target.value; actLimit=40; render(); }
   if(e.target.id==="homeOwner"){homeOwner=e.target.value;render();}
   if(e.target.id==="hf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>holdParse(rd.result); rd.readAsText(fl); return; }
   if(e.target.id==="csvf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>importCSV(String(rd.result)); rd.readAsText(fl); e.target.value=""; return; }
+  if(e.target.id==="themePref"){ applyTheme(e.target.value); return; }
   if(e.target.id==="rate"){ const r=parseAmt(e.target.value); if(r>0){ S.rate=r; save(); toast("Rate saved"); } }
   if(e.target.id==="from"||e.target.id==="to") updateRecv();
   if(e.target.id==="file"){
