@@ -229,6 +229,15 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 .method-card{cursor:pointer}
 .members-only .metric span{font-weight:600}
 textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font:inherit;resize:vertical}
+
+.expiry-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:8px;margin:6px 0 2px}
+.expiry-row input,.expiry-row select{min-width:0;width:100%}
+@media (max-width:380px){.expiry-row{grid-template-columns:1fr 1fr}.expiry-row input{grid-column:1/-1}}
+
+.form-section{border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:0 0 12px;background:var(--card)}
+.form-section-title{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+.lend-form label{margin-top:8px}
+.lend-form .form-section label:first-of-type{margin-top:0}
 </style>
 </head>
 <body>
@@ -240,8 +249,11 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.2.4";
+const APP_VERSION = "2.2.7";
 const RELEASES = [
+  {v:"2.2.7", d:"2026-11-17", notes:"Lending: edit principal amount with repayment-safe validation; keeps date edit."},
+  {v:"2.2.6", d:"2026-11-17", notes:"Lending: edit start date; sectioned add form; original lend txn date sync."},
+  {v:"2.2.5", d:"2026-11-17", notes:"Card expiry: type MMYY auto 08/29; month/year pickers; validation."},
   {v:"2.2.4", d:"2026-11-17", notes:"App-wide validation: fixed New purchase save (fpur); salary mark-received idempotency; validation report."},
   {v:"2.2.3", d:"2026-11-17", notes:"Fixed contact name/notes save and new contact save; demat form save; multiline notes."},
   {v:"2.2.2", d:"2026-11-17", notes:"Fixed saving contact UPI/bank methods; UPI display name; copy UPI ID only."},
@@ -1099,7 +1111,84 @@ function readmeHtml(){
 
 
 /* ---------- sheets ---------- */
-function openSheet(html){ $("#layer").innerHTML = `<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`; try{if(navigator.vibrate)navigator.vibrate(8);}catch(e){} }
+
+function formatExpiryInput(raw){
+  const digits=String(raw||"").replace(/\D/g,"").slice(0,4);
+  if(digits.length<=2) return digits;
+  return digits.slice(0,2)+"/"+digits.slice(2);
+}
+function parseExpiryParts(s){
+  const n=formatExpiryInput(s);
+  const m=/^(0[1-9]|1[0-2])\/(\d{2})$/.exec(n);
+  return m?{mm:m[1],yy:m[2]}:null;
+}
+function isExpiryValid(s,opts){
+  opts=opts||{};
+  const p=parseExpiryParts(s); if(!p) return false;
+  if(opts.allowPast) return true;
+  const now=new Date(), cy=now.getFullYear()%100, cm=now.getMonth()+1;
+  const y=+p.yy, mo=+p.mm;
+  if(y>cy) return true; if(y<cy) return false; return mo>=cm;
+}
+function expiryPickerHtml(idPrefix, initial){
+  const p=parseExpiryParts(initial||"")||{};
+  const mm=p.mm||"", yy=p.yy||"";
+  const yNow=new Date().getFullYear();
+  let years="";
+  for(let y=yNow;y<=yNow+20;y++){ const short=String(y).slice(-2); years+='<option value="'+short+'"'+(yy===short?' selected':'')+'>'+y+'</option>'; }
+  const months=[["01","Jan"],["02","Feb"],["03","Mar"],["04","Apr"],["05","May"],["06","Jun"],["07","Jul"],["08","Aug"],["09","Sep"],["10","Oct"],["11","Nov"],["12","Dec"]];
+  let monthOpts="";
+  for(const pair of months){ monthOpts+='<option value="'+pair[0]+'"'+(mm===pair[0]?' selected':'')+'>'+pair[0]+' '+pair[1]+'</option>'; }
+  const shown=initial?formatExpiryInput(initial):"";
+  return '<label>Card expiry</label>'+
+    '<input type="hidden" id="'+idPrefix+'" value="'+esc(shown)+'">'+
+    '<div class="expiry-row">'+
+    '<input id="'+idPrefix+'_num" inputmode="numeric" pattern="[0-9]*" placeholder="MMYY or MM/YY" maxlength="5" value="'+esc(shown)+'" autocomplete="cc-exp" aria-label="Expiry digits">'+
+    '<select id="'+idPrefix+'_mm" aria-label="Month"><option value="">Month</option>'+monthOpts+'</select>'+
+    '<select id="'+idPrefix+'_yy" aria-label="Year"><option value="">Year</option>'+years+'</select>'+
+    '</div>'+
+    '<div class="muted">Type 0829 for 08/29, or pick month & year. Slash is optional.</div>';
+}
+function wireExpiryField(idPrefix){
+  const hidden=document.getElementById(idPrefix);
+  const num=document.getElementById(idPrefix+"_num");
+  const mm=document.getElementById(idPrefix+"_mm");
+  const yy=document.getElementById(idPrefix+"_yy");
+  if(!hidden||!num) return;
+  const apply=function(){
+    if(mm&&yy&&mm.value&&yy.value){ const v=mm.value+"/"+yy.value; hidden.value=v; if(num.value!==v) num.value=v; return; }
+    hidden.value=formatExpiryInput(num.value);
+  };
+  num.addEventListener("input", function(){
+    const f=formatExpiryInput(num.value);
+    if(num.value!==f) num.value=f;
+    const p=parseExpiryParts(num.value);
+    if(p&&mm&&yy){ mm.value=p.mm; yy.value=p.yy; }
+    hidden.value=formatExpiryInput(num.value);
+  });
+  if(mm) mm.addEventListener("change", apply);
+  if(yy) yy.addEventListener("change", apply);
+  apply();
+}
+function readExpiryField(idPrefix, opts){
+  opts=opts||{};
+  const hidden=document.getElementById(idPrefix);
+  const num=document.getElementById(idPrefix+"_num");
+  let v=(hidden&&hidden.value)||"";
+  if(!v&&num) v=formatExpiryInput(num.value);
+  v=formatExpiryInput(v);
+  if(!v) return opts.required?{ok:false,error:"Enter the card expiry."}:{ok:true,value:""};
+  const p=parseExpiryParts(v);
+  if(!p) return {ok:false,error:"Enter a valid expiry (month 01–12 and year)."};
+  v=p.mm+"/"+p.yy;
+  if(!isExpiryValid(v,{allowPast:!!opts.allowPast})) return {ok:false,error:"This expiry is in the past."};
+  return {ok:true,value:v};
+}
+
+function openSheet(html){ $("#layer").innerHTML = `<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`; try{if(navigator.vibrate)navigator.vibrate(8);}catch(e){}
+  // Wire card expiry widgets if present
+  try{ ["adexpiry","cexpiry","expiry"].forEach(id=>{ if(document.getElementById(id)) wireExpiryField(id); }); }catch(e){}
+}
 function closeSheet(){ $("#layer").innerHTML=""; }
 function toast(msg, undo){
   const el=document.createElement("div"); el.className="toast"; el.innerHTML=`<span>${esc(msg)}</span>${undo?`<button>Undo</button>`:""}`;
@@ -1301,21 +1390,46 @@ function lendingPosition(l){
 function newLendingSheet(){
   const accounts=accOpts();
   const names=allPersonNames();
-  openSheet(`<h2 style="margin-top:0">New friends & family lending record</h2><form id="flend">
-  <label>Person</label><input id="lpname" list="lpeople" required placeholder="Contact or family name"><datalist id="lpeople">${names.map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
-  <label>Direction</label><select id="ldir"><option value="lent">I lent money (they owe me)</option><option value="borrowed">I borrowed money (I owe them)</option></select>
-  <label>Principal amount</label><input id="lprincipal" inputmode="decimal" required>
-  <label>Currency</label><select id="lcur"><option>INR</option><option>EUR</option></select>
-  <label>Annual simple interest rate (%) — optional</label><input id="lrate" inputmode="decimal" value="0">
-  <label>Start date</label><input type="date" id="lstart" value="${today()}">
-  <label>My account (from / to)</label><select id="laccount" required>${accounts.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>
-  <label>Their account / UPI (optional)</label>
-  <select id="lrecv"><option value="">— Not specified —</option>
-  ${(S.contacts||[]).flatMap(c=>(c.methods||[]).map(m=>`<option value="${c.id}::${m.id}">${esc(c.name)} · ${m.kind==="upi"?"UPI "+esc(m.upi||m.accountNumber||""):esc(m.bank||"Bank")+" "+esc(m.accountMasked||"")}</option>`)).join("")}
-  </select>
-  <div class="muted">Recipient method is optional. Add bank/UPI under Money → Contacts first if needed.</div>
-  <button class="btn" type="submit">Save lending record</button></form>`);
-  // Prefer matching methods when person name changes
+  openSheet(`<h2 style="margin-top:0">New lending record</h2>
+  <form id="flend" class="lend-form">
+    <div class="form-section">
+      <div class="form-section-title">Lending details</div>
+      <label>Person</label>
+      <input id="lpname" list="lpeople" required placeholder="Contact or family name">
+      <datalist id="lpeople">${names.map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+      <label>Direction</label>
+      <select id="ldir">
+        <option value="lent">I lent money (they owe me)</option>
+        <option value="borrowed">I borrowed money (I owe them)</option>
+      </select>
+      <label>Principal amount</label>
+      <input id="lprincipal" inputmode="decimal" required placeholder="0.00">
+      <label>Currency</label>
+      <select id="lcur"><option>INR</option><option>EUR</option></select>
+      <label>Lending date</label>
+      <input type="date" id="lstart" value="${today()}" required>
+      <label>Interest rate % / year (optional)</label>
+      <input id="lrate" inputmode="decimal" value="0" placeholder="0">
+    </div>
+    <div class="form-section">
+      <div class="form-section-title">Payment details</div>
+      <label>My account (from / to)</label>
+      <select id="laccount" required>${accounts.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>
+      <label>Their account / UPI (optional)</label>
+      <select id="lrecv">
+        <option value="">— Not specified —</option>
+        ${(S.contacts||[]).flatMap(c=>(c.methods||[]).map(m=>`<option value="${c.id}::${m.id}">${esc(c.name)} · ${m.kind==="upi"?"UPI "+esc(m.upi||m.accountNumber||""):esc(m.bank||"Bank")+" "+esc(m.accountMasked||"")}</option>`)).join("")}
+      </select>
+      <div class="muted">Optional recipient method. Add bank/UPI under Money → Contacts if needed.</div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-title">Additional</div>
+      <label>Message / notes (optional)</label>
+      <textarea id="lnote" rows="2" placeholder="Optional note for this loan"></textarea>
+    </div>
+    <button class="btn" type="submit">Save Details</button>
+  </form>
+  <button class="btn alt" data-close>Cancel</button>`);
   const nameEl=$("#lpname"), recv=$("#lrecv");
   if(nameEl&&recv){
     const filterRecv=()=>{
@@ -1334,6 +1448,39 @@ function newLendingSheet(){
     nameEl.addEventListener("change", filterRecv);
     nameEl.addEventListener("input", filterRecv);
   }
+}
+function lendingDetailSheet(id){
+  const l=S.lending.find(x=>x.id===id); if(!l) return;
+  const p=lendingPosition(l);
+  const mine=acct(l.account);
+  const recv=l.recipientMethod?(l.recipientMethod.kind==="upi"?("UPI "+(l.recipientMethod.upi||"")):((l.recipientMethod.bank||"Bank")+" "+(l.recipientMethod.accountMasked||""))):"—";
+  openSheet(`<h2 style="margin-top:0">${esc(l.person)}</h2>
+  <div class="muted">${l.direction==="lent"?"You lent · they owe you":"You borrowed · you owe them"}</div>
+  <div class="card" style="margin-top:10px">
+    <div class="row"><span>Principal</span><b class="num">${fmt(l.principal,l.cur)}</b></div>
+    <div class="row"><span>Outstanding</span><b class="num">${fmt(p.principal,l.cur)}</b></div>
+    <div class="row"><span>Est. interest</span><b class="num">${fmt(p.interest,l.cur)}</b></div>
+    <div class="row"><span>Lending date</span><b>${esc(l.start||"—")}</b></div>
+    <div class="row"><span>Your account</span><b>${esc(mine?mine.name:"—")}</b></div>
+    <div class="row"><span>Their method</span><b>${esc(recv)}</b></div>
+    ${l.note?`<div class="row"><span>Notes</span><b>${esc(l.note)}</b></div>`:""}
+    ${l.created?`<div class="muted" style="margin-top:6px">Record created ${esc(String(l.created).slice(0,10))}</div>`:""}
+  </div>
+  <form id="flendedit" class="lend-form" style="margin-top:12px">
+    <input type="hidden" id="leid" value="${l.id}">
+    <div class="form-section">
+      <div class="form-section-title">Edit lending details</div>
+      <label>Lending amount (${esc(l.cur)})</label>
+      <input id="leprincipal" inputmode="decimal" value="${l.principal}" required>
+      <div class="muted">Current outstanding ${fmt(p.principal,l.cur)} · repaid so far ${fmt(Math.max(0,(l.principal||0)-p.principal),l.cur)}</div>
+      <label>Lending date</label>
+      <input type="date" id="lestart" value="${esc(l.start||today())}" required>
+      <div class="muted">Repayments are kept. Creation time and record ID stay the same. Changing amount updates the original lend/borrow entry only.</div>
+    </div>
+    <button class="btn" type="submit">Save Details</button>
+  </form>
+  <button class="btn" data-lendrec="${l.id}" style="margin-top:8px">Record repayment</button>
+  <button class="btn alt" data-close>Close</button>`);
 }
 
 function lendingPaymentSheet(id){
@@ -1383,10 +1530,10 @@ function viewPlan(){
   <div class="row"><span>You owe</span><b class="num out">${fmt(borrowed,S.display)}</b></div></div>
   <h2 style="font-size:15px">Records</h2>
   ${S.lending.map(l=>{const p=lendingPosition(l);const mine=acct(l.account);const st=p.principal<=0.0001?"Repaid":(p.principal<l.principal-0.0001?"Partial":"Outstanding");const recv=l.recipientMethod? (l.recipientMethod.kind==="upi"?"UPI "+(l.recipientMethod.upi||""):((l.recipientMethod.bank||"Bank")+" "+(l.recipientMethod.accountMasked||""))) : "";
-    return `<div class="card"><div class="row"><div><b>${esc(l.person)}</b><div class="muted">${l.direction==="lent"?"You lent":"You borrowed"} · ${fmt(l.principal,l.cur)} · ${l.start||""}${l.rate?` · ${l.rate}%`:""}</div>
-    <div class="muted">Your account: ${esc(mine?mine.name:"—")}${recv?` · Their account: ${esc(recv)}`:""}</div>
-    <div class="muted">${st} principal ${fmt(p.principal,l.cur)}${p.interest?` · est. interest ${fmt(p.interest,l.cur)}`:""}</div></div>
-    <button class="chip" data-lendrec="${l.id}">Record</button></div></div>`;}).join("")||`<div class="empty"><div class="empty-title">No lending records</div><p>Track money lent or borrowed with optional simple interest.</p></div>`}
+    return `<div class="card tap" data-lend="${l.id}"><div class="row"><div><b>${esc(l.person)}</b><div class="muted">${l.direction==="lent"?"You lent":"You borrowed"} · ${fmt(l.principal,l.cur)} · ${l.start||""}${l.rate?` · ${l.rate}%`:""}</div>
+    <div class="muted">Your account: ${esc(mine?mine.name:"—")}${recv?` · Their method: ${esc(recv)}`:""}</div>
+    <div class="muted">${st} · outstanding ${fmt(p.principal,l.cur)}${p.interest?` · est. interest ${fmt(p.interest,l.cur)}`:""}</div></div>
+    <span class="muted">Edit ›</span></div></div>`;}).join("")||`<div class="empty"><div class="empty-title">No lending records</div><p>Track money lent or borrowed with optional simple interest.</p></div>`}
   <button class="btn" data-newlend>Add lending record</button>`;
   }
   if(seg==="cover"){
@@ -1500,7 +1647,7 @@ function newAcctSheet(){
     <p class="muted" style="margin:4px 0 0">A debit card spends from this bank balance — it is not a separate account.</p>
     <label>Last 4 digits</label><input id="adlast4" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off">
     <label>Network</label><select id="adnetwork"><option value="">—</option><option>Visa</option><option>Mastercard</option><option>RuPay</option><option>Amex</option><option>Other</option></select>
-    <label>Expiry (MM/YY)</label><input id="adexpiry" inputmode="numeric" placeholder="08/28" maxlength="5">
+    ${expiryPickerHtml("adexpiry","")}
     <div class="muted" style="margin-top:6px">CVV and PIN are never stored. Expiry can appear under Due soon.</div>
   </div>
   <div id="cardFields" style="display:none">
@@ -1508,7 +1655,7 @@ function newAcctSheet(){
     <label>Card network</label><select id="cnetwork"><option value="">—</option><option>Visa</option><option>Mastercard</option><option>RuPay</option><option>Amex</option><option>Other</option></select>
     <label>Card type</label><select id="ctype"><option value="">—</option><option>Credit</option><option>Charge</option><option>Corporate</option><option>Other</option></select>
     <label>Last 4 digits only</label><input id="clast4" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off">
-    <label>Expiry (MM/YY)</label><input id="cexpiry" inputmode="numeric" placeholder="08/28" maxlength="5">
+    ${expiryPickerHtml("cexpiry","")}
     <label>Credit limit</label><input id="climit" inputmode="decimal" placeholder="Optional">
     <label>Statement day (1–31)</label><input id="cstmt" inputmode="numeric" placeholder="e.g. 15">
     <label>Payment due day (1–31)</label><input id="cdue" inputmode="numeric" placeholder="e.g. 5">
@@ -1570,7 +1717,7 @@ function acctSheet(id){
   <label>Last 4 digits</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc((a.cardMeta||{}).last4||"")}" placeholder="1234" autocomplete="off">
   <label>Network</label><select id="network"><option value="">—</option>${["Visa","Mastercard","RuPay","Amex","Other"].map(n=>`<option ${((a.cardMeta||{}).network||"")===n?"selected":""}>${n}</option>`).join("")}</select>
   <label>Card type</label><select id="cardType"><option value="">—</option>${["Debit","Credit","Charge","Corporate","Other"].map(n=>`<option ${((a.cardMeta||{}).cardType||"")===n?"selected":""}>${n}</option>`).join("")}</select>
-  <label>Expiry (MM/YY)</label><input id="expiry" inputmode="numeric" value="${esc((a.cardMeta||{}).expiry||"")}" placeholder="08/28" maxlength="5">
+  ${expiryPickerHtml("expiry",(a.cardMeta||{}).expiry||"")}
   <div class="muted">CVV/CVC and PIN are never collected or stored.</div>
   <label>Annual fee</label><input id="annualFee" inputmode="decimal" value="${(a.cardMeta||{}).annualFee||""}">
   ${a.type==="card"?`<label>Credit limit</label><input id="cl" inputmode="decimal" value="${a.limit||""}"><label>Statement day of month</label><input id="cs" inputmode="numeric" value="${a.stmtDay||""}"><label>Payment due day of month</label><input id="cd" inputmode="numeric" value="${a.dueDay||""}"><label>Linked bank account</label><select id="alinked"><option value="">— Not linked —</option>${S.accounts.filter(x=>!x.archived&&x.type==="bank").map(x=>`<option value="${x.id}" ${a.linkedBankId===x.id?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("")}</select><div class="muted">Bank you usually pay this card from.</div>`:""}
@@ -1713,7 +1860,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -1825,6 +1972,7 @@ document.addEventListener("click", async e=>{
   if("toggle" in d){ S.display=S.display==="INR"?"EUR":"INR"; save(); render(); return; }
   if("snapshot" in d){ const owner=homeOwner==="All family"?null:homeOwner,nw=netWorth(owner).total,m=today().slice(0,7); const old=S.history.find(x=>x.month===m&&(x.owner||null)===owner); if(old){old.value=nw;old.date=today();old.cur=S.display;old.fxRate=S.rate;}else S.history.push({month:m,date:today(),value:nw,cur:S.display,fxRate:S.rate,owner}); save(); render(); toast("Net worth snapshot saved"); return; }
   if("newlend" in d){newLendingSheet();return;}
+  if(d.lend){ lendingDetailSheet(d.lend); return; }
   if(d.lendrec){lendingPaymentSheet(d.lendrec);return;}
   if(d.reconcile){const a=acct(d.reconcile);if(!a)return;const cur=balance(a);openSheet(`<h2 style="margin-top:0">Set current balance</h2>
 <div class="muted">${esc(a.name)} · recorded now: <b class="num">${fmt(cur,a.cur)}</b></div>
@@ -2346,6 +2494,53 @@ document.addEventListener("submit", e=>{
     addTxn({type:"adjustment",date,cat:"Balance adjustment",note,postings:[{acct:a.id,amt:diff,cur:a.cur}]});
     closeSheet();render();toast("Balance updated");return;
   }
+  if(e.target.id==="flendedit"){
+    const l=S.lending.find(x=>x.id===$("#leid")?.value); if(!l){ alert("Record not found."); return; }
+    const start=($("#lestart")?.value||"").trim();
+    if(!start){ alert("Enter a lending date."); return; }
+    const newPrincipal=parseAmt($("#leprincipal")?.value);
+    if(!(newPrincipal>0)){ alert("Enter a positive lending amount."); return; }
+    // Sum principal repayments (never change those rows)
+    let repaid=0;
+    for(const t of S.txns){
+      if(t.status!=="posted"||t.loanId!==l.id||!t.principalReduction) continue;
+      repaid+=Number(t.principalReduction)||0;
+    }
+    repaid=Math.round(repaid*100)/100;
+    if(newPrincipal+1e-9<repaid){
+      alert("Cannot set amount to "+fmt(newPrincipal,l.cur)+". Already repaid "+fmt(repaid,l.cur)+". Raise the amount or void repayments first.");
+      return;
+    }
+    const prevP=l.principal, prevStart=l.start;
+    const amountChanged=Math.abs(prevP-newPrincipal)>0.0001;
+    const dateChanged=prevStart!==start;
+    if(amountChanged||dateChanged){
+      const lines=[];
+      if(amountChanged) lines.push("Amount: "+fmt(prevP,l.cur)+" → "+fmt(newPrincipal,l.cur));
+      if(dateChanged) lines.push("Date: "+(prevStart||"—")+" → "+start);
+      if(repaid>0 && amountChanged) lines.push("Repayments kept: "+fmt(repaid,l.cur)+" (new outstanding "+fmt(newPrincipal-repaid,l.cur)+")");
+      if(!confirm("Confirm changes:\n\n"+lines.join("\n"))) return;
+    }
+    l.principal=newPrincipal;
+    l.start=start;
+    // Update original lend/borrow txn only (not repayments / interest)
+    for(const t of S.txns){
+      if(t.status!=="posted") continue;
+      if(t.lendingId!==l.id && t.loanId!==l.id) continue;
+      if(t.type!=="lend" && t.type!=="borrow") continue;
+      if(t.principalReduction || t.interestSettlement) continue;
+      t.date=start;
+      if(t.postings&&t.postings[0]){
+        const sign=t.postings[0].amt<0?-1:1;
+        // lend: negative outflow; borrow: positive inflow — preserve sign
+        t.postings[0].amt=sign*Math.abs(newPrincipal);
+      }
+    }
+    save(); closeSheet(); render();
+    toast(amountChanged&&dateChanged?"Amount & date updated":amountChanged?"Amount updated":dateChanged?"Lending date updated":"Saved");
+    setTimeout(()=>lendingDetailSheet(l.id), 40);
+    return;
+  }
   if(e.target.id==="flend"){
     const person=$("#lpname").value.trim(), principal=parseAmt($("#lprincipal").value), cur=$("#lcur").value, a=acct($("#laccount").value), dir=$("#ldir").value, rate=parseAmt($("#lrate").value), start=$("#lstart").value||today();
     if(!person||principal<=0||!a){alert("Enter a person, positive amount and your account.");return;}
@@ -2362,9 +2557,10 @@ document.addEventListener("submit", e=>{
         recipientMethod={person:c.name,kind:m.kind,bank:m.bank||"",accountMasked:m.accountMasked||"",upi:m.upi||"",ifsc:m.ifsc||""};
       }
     }
-    const l={id:uid(),person,direction:dir,principal,rate,cur,start,account:a.id,recipientMethodId,recipientMethod};
+    const note=($("#lnote")?.value||"").trim();
+    const l={id:uid(),person,direction:dir,principal,rate,cur,start,account:a.id,recipientMethodId,recipientMethod,note,created:new Date().toISOString()};
     S.lending.push(l);
-    addTxn({type:dir==="lent"?"lend":"borrow",date:start,person,note:recipientMethod?(recipientMethod.kind==="upi"?"UPI "+(recipientMethod.upi||""):(recipientMethod.bank||"")+" "+(recipientMethod.accountMasked||"")):"",lendingId:l.id,postings:[{acct:a.id,amt:dir==="lent"?-principal:principal,cur}]});
+    addTxn({type:dir==="lent"?"lend":"borrow",date:start,person,note:note||(recipientMethod?(recipientMethod.kind==="upi"?"UPI "+(recipientMethod.upi||""):(recipientMethod.bank||"")+" "+(recipientMethod.accountMasked||"")):""),lendingId:l.id,loanId:l.id,postings:[{acct:a.id,amt:dir==="lent"?-principal:principal,cur}]});
     save(); closeSheet(); render(); toast("Lending record saved"); return;
   }
   if(e.target.id==="flr"){
@@ -2703,7 +2899,7 @@ document.addEventListener("submit", e=>{
     toast("Premium recorded · next "+(p.next||""));
     return;
   }
-  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const newName=($("#anameEdit")?.value||"").trim(); if(!newName){alert("Enter an account nickname.");return;} a.name=newName; const newOwner=($("#aownerEdit")?.value||"").trim()||"Me"; a.owner=newOwner; if(!S.people.includes(newOwner))S.people.push(newOwner); const last4=($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expiry=($("#expiry")?.value||"").trim(); if(expiry&&!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){alert("Enter expiry as MM/YY.");return;} a.cardMeta={last4,network:($("#network")?.value||"").trim(),cardType:($("#cardType")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="demat"){ if($("#abrokerEdit")) a.broker=$("#abrokerEdit").value.trim(); if($("#adematEdit")) a.dematId=$("#adematEdit").value.trim(); if($("#ainvestedEdit")) a.invested=parseAmt($("#ainvestedEdit").value||"0"); } if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";const n=($("#aacctnoEdit")?.value||"").replace(/\s/g,"").trim();a.accountNumber=n;a.accountMasked=n?(n.length>4?"••••"+n.slice(-4):"••••"):"";} if(a.type==="card"){ if($("#abankEdit")) a.bank=($("#abankEdit").value||"").trim()||a.bank||""; a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value); if($("#alinked")) a.linkedBankId=$("#alinked").value||"";} log("account-details",a.id);save(); } closeSheet(); render(); toast("Account details saved"); }
+  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const newName=($("#anameEdit")?.value||"").trim(); if(!newName){alert("Enter an account nickname.");return;} a.name=newName; const newOwner=($("#aownerEdit")?.value||"").trim()||"Me"; a.owner=newOwner; if(!S.people.includes(newOwner))S.people.push(newOwner); const last4=($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expR=readExpiryField("expiry",{allowPast:true}); if(!expR.ok){alert(expR.error);return;} const expiry=expR.value; a.cardMeta={last4,network:($("#network")?.value||"").trim(),cardType:($("#cardType")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="demat"){ if($("#abrokerEdit")) a.broker=$("#abrokerEdit").value.trim(); if($("#adematEdit")) a.dematId=$("#adematEdit").value.trim(); if($("#ainvestedEdit")) a.invested=parseAmt($("#ainvestedEdit").value||"0"); } if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";const n=($("#aacctnoEdit")?.value||"").replace(/\s/g,"").trim();a.accountNumber=n;a.accountMasked=n?(n.length>4?"••••"+n.slice(-4):"••••"):"";} if(a.type==="card"){ if($("#abankEdit")) a.bank=($("#abankEdit").value||"").trim()||a.bank||""; a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value); if($("#alinked")) a.linkedBankId=$("#alinked").value||"";} log("account-details",a.id);save(); } closeSheet(); render(); toast("Account details saved"); }
   if(e.target.id==="fa2"){
     const name=$("#an").value.trim(); if(!name) return;
     let o=parseAmt($("#ao").value); const type=$("#at").value;
@@ -2719,16 +2915,14 @@ document.addEventListener("submit", e=>{
       owner:($("#aowner").value.trim()||"Me"),type,cur:$("#ac").value,opening:o,archived:false};
     if(type==="bank"){
       const last4=($("#adlast4")?.value||"").replace(/\D/g,"").slice(-4);
-      const expiry=($("#adexpiry")?.value||"").trim();
-      if(expiry && !/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){ alert("Enter debit card expiry as MM/YY."); return; }
+      const expAd=readExpiryField("adexpiry",{allowPast:false}); if(!expAd.ok){alert(expAd.error);return;} const expiry=expAd.value;
       if(last4 || expiry || ($("#adnetwork")?.value||"").trim()){
         a.cardMeta={last4, network:($("#adnetwork")?.value||"").trim(), cardType:"Debit", expiry, annualFee:0};
       }
     }
     if(type==="card"){
       const last4=(($("#clast4")?.value)||"").replace(/\D/g,"").slice(-4);
-      const expiry=(($("#cexpiry")?.value)||"").trim();
-      if(expiry && !/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){ alert("Enter expiry as MM/YY."); return; }
+      const expC=readExpiryField("cexpiry",{allowPast:false}); if(!expC.ok){alert(expC.error);return;} const expiry=expC.value;
       a.cardMeta={last4, network:($("#cnetwork")?.value||"").trim(), cardType:($("#ctype")?.value||"").trim(), expiry, annualFee:parseAmt($("#cfee")?.value||"0")};
       a.limit=parseAmt($("#climit")?.value||"0");
       const day=v=>{const n=Math.round(parseAmt(v||"0")); return n>=1&&n<=31?n:0;};

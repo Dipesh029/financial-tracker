@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.2.4
+**Current version:** 2.2.7
 
 ---
 
@@ -120,6 +120,16 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.2.7 — 2026-11-17
+- Lending: edit principal amount on existing records; blocks amount below total repaid; date edit unchanged.
+
+### 2.2.6 — 2026-11-17
+- Lending: edit lending date on existing records; original lend/borrow activity date updated; creation time preserved.
+- Redesigned add-lending form into Lending details / Payment details / Additional sections.
+
+### 2.2.5 — 2026-11-17
+- Card expiry: enter digits only (0829 → 08/29) or use month/year pickers; validation for month and past dates.
 
 ### 2.2.4 — 2026-11-17
 - App-wide form validation: fixed **New purchase** save (`fpur` handler was missing).
