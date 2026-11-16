@@ -233,8 +233,9 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.1.0";
+const APP_VERSION = "2.1.1";
 const RELEASES = [
+  {v:"2.1.1", d:"2026-11-17", notes:"Fixed fmtHide not defined (Home crash after unlock)."},
   {v:"2.1.0", d:"2026-11-17", notes:"Automation safety; hide balances; form guards; insights; empty states; integrity."},
   {v:"2.0.1", d:"2026-11-17", notes:"Fixed light/dark/system themes (neutral dark, true light, OS-following system); UI polish."},
   {v:"2.0.0", d:"2026-11-17", notes:"Premium mobile UI; Home wealth breakdown; theme preference; Activity pagination; ledger balance self-test."},
@@ -454,6 +455,7 @@ const today = () => { const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimez
 
 /* ---------- money ---------- */
 const fmt = (n,cur) => new Intl.NumberFormat(cur==="INR"?"en-IN":"nl-NL",{style:"currency",currency:cur,maximumFractionDigits:2}).format(n||0);
+const fmtHide = (n,cur) => (S && S.hideBalances) ? "••••" : fmt(n,cur);
 const toDisplay = (n,cur) => cur===S.display ? n : (cur==="EUR" ? n*S.rate : n/S.rate);
 const toDisplayAt = (n,cur,rate) => cur===S.display ? n : (cur==="EUR" ? n*(rate||S.rate) : n/(rate||S.rate));
 const parseAmt = v => { const n = parseFloat(String(v).replace(/,/g,".").replace(/[^0-9.]/g,"")); return isFinite(n)?n:0; };
