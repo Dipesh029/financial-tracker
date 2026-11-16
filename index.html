@@ -125,8 +125,13 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.5.3";
+const APP_VERSION = "1.7.0";
 const RELEASES = [
+  {v:"1.7.0", d:"2026-11-17", notes:"Person registry (multi bank/UPI); demat accounts; expense→warranty; policy PPT + edit; stocks first in holdings."},
+  {v:"1.6.0", d:"2026-11-17", notes:"Segmented Money (Accounts / Investments / Contacts) and Plan (SIPs / Salaries / Lending / Cover). Home stays a summary."},
+  {v:"1.5.6", d:"2026-11-15", notes:"Credit card form shows last4/expiry (not bank branch); link card to bank account."},
+  {v:"1.5.5", d:"2026-11-15", notes:"Transfer modes: between my accounts vs to external contact."},
+  {v:"1.5.4", d:"2026-11-15", notes:"Editable income/expense categories; clearer transfer vs recipient; account pickers show Bank/Cash/Card."},
   {v:"1.5.3", d:"2026-11-15", notes:"SIP fund picker and lists show folio number to distinguish schemes."},
   {v:"1.5.2", d:"2026-11-15", notes:"Edit account nickname from account details."},
   {v:"1.5.1", d:"2026-11-15", notes:"Sample recipient placeholder name updated."},
@@ -203,7 +208,7 @@ async function chooseBackupFolder(){
   }
 }
 /* ---------- encryption & vault helpers ---------- */
-const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],salaries:[],policies:[],purchases:[],snaps:[],history:[],lending:[],bankContacts:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null,autoSip:true,autoSalary:true});
+const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],salaries:[],policies:[],purchases:[],snaps:[],history:[],lending:[],bankContacts:[],contacts:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null,autoSip:true,autoSalary:true});
 const LBL={adjust:"Portfolio sync · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to "};
 const isSecureContext = window.isSecureContext === true;
 function b64(u){let t=""; for(const x of new Uint8Array(u)) t+=String.fromCharCode(x); return btoa(t);}
@@ -223,7 +228,7 @@ async function unseal(env, key){
 }
 function save(){ if(!CK||!S) return; chain=chain.then(async()=>store.set(await seal(S))).catch(err=>console.warn("save failed",err)); }
 function migrate(){
-  for(const k of ["accounts","holdings","sips","salaries","policies","purchases","snaps","history","lending","bankContacts","people","txns","audit"]) S[k]=S[k]||[];
+  for(const k of ["accounts","holdings","sips","salaries","policies","purchases","snaps","history","lending","bankContacts","contacts","people","txns","audit"]) S[k]=S[k]||[];
   S.v=2;
   if(S.rate==null) S.rate=104.16;
   if(!S.display) S.display="INR";
@@ -240,10 +245,25 @@ function migrate(){
   for(const x of S.salaries){ x.status=x.status||"active"; x.history=x.history||[]; }
   if(S.autoSip==null) S.autoSip=true;
   if(S.autoSalary==null) S.autoSalary=true;
+  if(!Array.isArray(S.expenseCats)||!S.expenseCats.length) S.expenseCats=EXPENSE_CATS.slice();
+  if(S.expenseCats && !S.expenseCats.includes("Sent externally")) S.expenseCats.push("Sent externally");
+  if(!Array.isArray(S.incomeCats)||!S.incomeCats.length) S.incomeCats=INCOME_CATS.slice();
   for(const t of S.txns){
     if(t.fxRate==null) t.fxRate=S.rate||104.16;
     if(!t.owner&&t.postings?.[0]) t.owner=(S.accounts.find(a=>a.id===t.postings[0].acct)||{}).owner||"Me";
   }
+}
+
+function policyPremiumActive(p){
+  if(!p) return false;
+  const start=p.start||"";
+  const ppt=Number(p.ppt)||0;
+  if(start && ppt>0){
+    const end=addM(start, Math.round(ppt*12));
+    if(daysTo(end)<0) return false; // past PPT
+  }
+  if(p.maturity && daysTo(p.maturity)<0) return false;
+  return true;
 }
 function nextDue(day){
   const t=today();
@@ -264,6 +284,27 @@ const toDisplay = (n,cur) => cur===S.display ? n : (cur==="EUR" ? n*S.rate : n/S
 const toDisplayAt = (n,cur,rate) => cur===S.display ? n : (cur==="EUR" ? n*(rate||S.rate) : n/(rate||S.rate));
 const parseAmt = v => { const n = parseFloat(String(v).replace(/,/g,".").replace(/[^0-9.]/g,"")); return isFinite(n)?n:0; };
 const acct = id => S.accounts.find(a=>a.id===id);
+
+function contactById(id){ return (S.contacts||[]).find(c=>c.id===id); }
+function ensureContactByName(name){
+  name=(name||"").trim(); if(!name) return null;
+  let c=(S.contacts||[]).find(x=>x.name.toLowerCase()===name.toLowerCase());
+  if(!c){ c={id:uid(),name,notes:"",methods:[]}; S.contacts.push(c); if(!S.people.includes(name)) S.people.push(name); }
+  return c;
+}
+function migrateContactsFromBank(){
+  if(!S.contacts) S.contacts=[];
+  for(const b of (S.bankContacts||[])){
+    if(b._migrated) continue;
+    const c=ensureContactByName(b.person||b.holder||"Contact");
+    const exists=c.methods.some(m=>m.accountNumber&&b.accountNumber&&m.accountNumber===b.accountNumber);
+    if(!exists){
+      c.methods.push({id:b.id||uid(),kind:b.upi||(b.bank||"").toUpperCase()==="UPI"?"upi":"bank",bank:b.bank||"",holder:b.holder||"",accountNumber:b.accountNumber||"",accountMasked:b.accountMasked||"",ifsc:b.ifsc||"",branch:b.branch||"",branchCode:b.branchCode||"",upi:b.upi||"",cur:b.cur||"INR",nickname:b.nickname||""});
+    }
+    b._migrated=true;
+  }
+}
+
 const fundLabel = h => { if(!h) return "Fund"; const bits=[h.name]; if(h.folio) bits.push("Folio "+h.folio); if(h.owner&&h.owner!=="Me") bits.push(h.owner); return bits.join(" · "); };
 
 /* ---------- ledger: every transaction = balanced postings; balances are derived ---------- */
@@ -293,7 +334,7 @@ function unvoid(id){ const t=S.txns.find(x=>x.id===id); if(t){ t.status="posted"
 let S=null, CK=null, BIO=null, SALT=null, KDF_ITER=250000, chain=Promise.resolve();
 
 /* ---------- UI state ---------- */
-let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family";
+let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family", xferMode="self", moneySeg="accounts", moneyAcctFilter="all", moneyHoldFilter="all", planSeg="sips";
 const $ = s => document.querySelector(s);
 
 
@@ -478,24 +519,72 @@ function viewActivity(){
 }
 
 function viewAccounts(){
-  return `<h2 style="margin-top:4px">Accounts</h2>
-  ${S.accounts.length?"":`<div class="empty">No accounts yet.</div>`}
-  ${S.accounts.filter(a=>!a.archived).map(a=>{ const b=balance(a);
+  const seg = moneySeg||"accounts";
+  const segBar = `<div class="seg" style="margin:4px 0 12px">
+    <button type="button" data-moneyseg="accounts" class="${seg==="accounts"?"on":""}">Accounts</button>
+    <button type="button" data-moneyseg="investments" class="${seg==="investments"?"on":""}">Investments</button>
+    <button type="button" data-moneyseg="contacts" class="${seg==="contacts"?"on":""}">Contacts</button>
+  </div>`;
+  if(seg==="contacts"){
+    const list=S.contacts||[];
+    return segBar+`<h2 style="margin-top:4px">People registry</h2>
+  <p class="muted">One person, many bank accounts or UPI IDs. Same names work for lending and external transfers. Not balances — reference only.</p>
+  ${list.map(c=>{
+    const n=(c.methods||[]).length;
+    const banks=(c.methods||[]).filter(m=>m.kind!=="upi").length;
+    const upis=(c.methods||[]).filter(m=>m.kind==="upi").length;
+    const bits=[n?`${n} method${n>1?"s":""}`:"No methods yet"];
+    if(banks) bits.push(banks+" bank");
+    if(upis) bits.push(upis+" UPI");
+    return `<div class="card tap" data-contact="${c.id}"><div class="row"><div><b>${esc(c.name)}</b><div class="muted">${bits.join(" · ")}</div></div><span class="muted">Open</span></div></div>`;
+  }).join("")||`<div class="empty"><div class="empty-title">No people yet</div><p>Register a friend once, then add multiple accounts or UPI IDs.</p></div>`}
+  <button class="btn" data-newcontact>Add person</button>`;
+  }
+  if(seg==="investments"){
+    const f = moneyHoldFilter||"all";
+    const demats=S.accounts.filter(a=>!a.archived&&a.type==="demat");
+    let holds = S.holdings.slice();
+    if(f==="fund") holds = holds.filter(h=>h.type==="fund");
+    if(f==="stock") holds = holds.filter(h=>h.type==="stock");
+    if(f==="demat") holds = [];
+    const filterBar = `<div class="chips" style="margin-bottom:10px">
+      <button type="button" class="chip ${f==="all"?"on":""}" data-moneyholdf="all">All</button>
+      <button type="button" class="chip ${f==="demat"?"on":""}" data-moneyholdf="demat">Demat</button>
+      <button type="button" class="chip ${f==="stock"?"on":""}" data-moneyholdf="stock">Stocks</button>
+      <button type="button" class="chip ${f==="fund"?"on":""}" data-moneyholdf="fund">Mutual funds</button>
+    </div>`;
+    const dematHtml=(f==="all"||f==="demat")?(demats.map(a=>{const b=balance(a);const inv=a.invested||0;const pl=b-inv;const pct=inv>0?Math.round(pl/inv*1000)/10:0;return `<div class="card tap" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · Demat${a.broker?" · "+esc(a.broker):""}${a.dematId?" · "+esc(a.dematId):""}</div></div>
+    <div style="text-align:right"><b class="num">${fmt(b,a.cur)}</b><div class="muted">invested ${fmt(inv,a.cur)}${inv?` · ${pl>=0?"+":""}${pct}%`:""}</div></div></div></div>`;}).join("")+(demats.length?"":"")):"";
+    const holdHtml=holds.map(h=>{const p=holdPos(h);const pl=p.v-p.c;const pct=p.c>0?Math.round(pl/p.c*1000)/10:0;return `<div class="card tap" data-hold="${h.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted">${esc(h.owner||"Me")} · ${h.type==="stock"?"Stock":"Fund"}${h.folio?" · Folio "+esc(h.folio):""}${h.symbol?" · "+esc(h.symbol):""}</div></div>
+    <div style="text-align:right"><b class="num">${fmt(p.v,h.cur)}</b><div class="muted ${pl<0?"out":"in"}">${h.price?((pl>=0?"+":"")+pct+"%"):"set price"}</div></div></div></div>`;}).join("");
+    const empty=!dematHtml&&!holdHtml;
+    return segBar+`<h2 style="margin-top:4px">Investments</h2>${filterBar}
+  ${empty?`<div class="empty"><div class="empty-title">No investments yet</div><p>Add a demat account (e.g. Zerodha) with invested vs current value, or track individual stocks.</p></div>`:dematHtml+holdHtml}
+  <button class="btn" data-newdemat>Add demat account</button>
+  <button class="btn alt" data-newhold>Add stock / fund holding</button>
+  <button class="btn alt" data-csvimp>Import stock CSV</button>`;
+  }
+  // accounts segment
+  const af = moneyAcctFilter||"all";
+  let list = S.accounts.filter(a=>!a.archived&&a.type!=="demat");
+  if(af==="bank") list = list.filter(a=>a.type==="bank");
+  if(af==="cash") list = list.filter(a=>a.type==="cash");
+  if(af==="card") list = list.filter(a=>a.type==="card");
+  const filterBar = `<div class="chips" style="margin-bottom:10px">
+    <button type="button" class="chip ${af==="all"?"on":""}" data-moneyacctf="all">All</button>
+    <button type="button" class="chip ${af==="bank"?"on":""}" data-moneyacctf="bank">Bank</button>
+    <button type="button" class="chip ${af==="cash"?"on":""}" data-moneyacctf="cash">Cash</button>
+    <button type="button" class="chip ${af==="card"?"on":""}" data-moneyacctf="card">Cards</button>
+  </div>`;
+  return segBar+`<h2 style="margin-top:4px">Accounts</h2>${filterBar}
+  ${list.length?list.map(a=>{ const b=balance(a);
     const used=a.type==="card"&&a.limit?Math.min(100,Math.round(Math.max(0,-b)/a.limit*100)):0;
     const barCls=used>=90?"out":used>=70?"warn":"";
-    return `<div class="card tap" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · ${a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank"}${a.type==="bank"&&a.cardMeta?.last4?" + debit":""}${a.bank?" · "+esc(a.bank):""}${a.accountMasked?" · "+esc(a.accountMasked):""}${a.cardMeta?.last4?" · •••• "+esc(a.cardMeta.last4):""}${a.cardMeta?.expiry?" · exp "+esc(a.cardMeta.expiry):""} · ${a.cur}</div></div>
+    return `<div class="card tap" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · ${a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank"}${a.type==="bank"&&a.cardMeta?.last4?" + debit":""}${a.type==="card"&&a.linkedBankId?(acct(a.linkedBankId)?" · via "+esc(acct(a.linkedBankId).name):""):""}${a.bank?" · "+esc(a.bank):""}${a.accountMasked?" · "+esc(a.accountMasked):""}${a.cardMeta?.last4?" · •••• "+esc(a.cardMeta.last4):""}${a.cardMeta?.expiry?" · exp "+esc(a.cardMeta.expiry):""} · ${a.cur}</div></div>
     <div style="text-align:right"><b class="num ${b<0?"out":""}">${fmt(b,a.cur)}</b>${a.type==="card"&&b<0?`<div class="muted">outstanding</div>`:""}</div></div>
     ${a.type==="card"&&a.limit?`<div class="bar ${barCls}"><i style="width:${used}%"></i></div><div class="limit-meta"><span>Limit ${fmt(a.limit,a.cur)}</span><span>${used}% used</span></div>`:""}
-    </div>`; }).join("")}
-  <button class="btn" data-newacct>Add account</button>
-  <h2>Friends & contacts bank accounts</h2>
-  <p class="muted">Save recipient bank details here. They are encrypted with the rest of your local vault and are reference details only; transfers to them do not change your own account balances automatically.</p>
-  ${S.bankContacts.map(b=>`<div class="card"><div class="row"><div><b>${esc(b.person)} · ${esc(b.bank)}</b><div class="muted">${esc(b.holder)} · ${esc(b.accountMasked||"Account saved")} · ${esc(b.cur)}${b.ifsc?" · IFSC "+esc(b.ifsc):""}${b.branchCode?" · Branch "+esc(b.branchCode):""}</div></div><div style="display:flex;gap:6px;flex-shrink:0"><button class="chip" data-copybank="${b.id}">Copy</button><button class="chip" data-delbank="${b.id}">Remove</button></div></div></div>`).join("")||`<div class="muted">No recipient accounts saved.</div>`}
-  <button class="btn alt" data-newbank>Add friend / recipient bank account</button>
-  <h2>Investments</h2>${S.holdings.map(h=>{const p=holdPos(h);const pl=p.v-p.c;const pct=p.c>0?Math.round(pl/p.c*1000)/10:0;return `<div class="card tap" data-hold="${h.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted num">${esc(h.owner||"Me")} · ${p.u} units · cost ${fmt(p.c,h.cur)}</div></div><div style="text-align:right"><b class="num">${fmt(p.v,h.cur)}</b><div class="muted num ${pl<0?"out":"in"}">${h.price?(fmt(pl,h.cur)+" · "+pct+"%"):"set price"}</div></div></div></div>`}).join("")||`<div class="muted">No holdings yet.</div>`}
-  <button class="btn alt" data-newhold>Add fund or stock</button>
-  ${S.snaps.length>1?`<div class="muted" style="margin-top:8px">Stock portfolio at each import:<br>${S.snaps.slice(-5).map(x=>x.date+" · value "+fmt(x.val,"INR")+" · invested "+fmt(x.inv,"INR")).join("<br>")}</div>`:""}
-  <h2>People (lending)</h2>${Object.entries(personPos()).map(([n,v])=>`<div class="card"><div class="row"><b>${esc(n)}</b><b class="num ${v<0?"out":"in"}">${v<0?"You owe ":"Owes you "}${fmt(Math.abs(v),S.display)}</b></div></div>`).join("")||`<div class="muted">Record a loan with + then Lend.</div>`}`;
+    </div>`; }).join(""):`<div class="empty"><div class="empty-title">No accounts here</div><p>Add a bank, cash or credit card account to start.</p></div>`}
+  <button class="btn" data-newacct>Add account</button>`;
 }
 
 function readmeHtml(){return `<h2 style="margin-top:0">My Finance · App guide</h2>
@@ -519,6 +608,10 @@ function viewSettings(){
   <div class="row"><span>Auto-post due SIPs on unlock</span><button class="chip ${S.autoSip!==false?"on":""}" data-togglesip>${S.autoSip!==false?"On":"Off"}</button></div>
   <div class="row"><span>Auto-post due salaries on unlock</span><button class="chip ${S.autoSalary!==false?"on":""}" data-togglesal>${S.autoSalary!==false?"On":"Off"}</button></div>
   <div class="muted" style="margin-top:8px">Runs only when you open/unlock the app. SIP units use the fund’s current price when set; otherwise cost is recorded with 0 units until you update price.</div></div>
+  <div class="card"><b>Categories</b>
+  <div class="muted">Customise labels used for income and expenses (including cash).</div>
+  <button class="btn alt" data-editcats="expense" style="margin-top:8px">Edit expense categories</button>
+  <button class="btn alt" data-editcats="income">Edit income categories</button></div>
   <div class="card"><label style="margin-top:0">Exchange rate: INR per 1 EUR</label>
   <input id="rate" inputmode="decimal" value="${S.rate}"><div class="muted" style="margin-top:6px">Used only to show totals in one currency. Each account keeps its own currency.</div></div>
   <div class="card"><b>Security</b><div class="muted">AES-256-GCM encrypted vault. New passphrases use PBKDF2-HMAC-SHA-256 with 600,000 iterations. Your passphrase is never stored.</div>
@@ -553,31 +646,72 @@ function toast(msg, undo){
   if(undo) el.querySelector("button").onclick=()=>{ clearTimeout(t); el.remove(); undo(); };
 }
 
+
+function openCatsSheet(kind){
+  const isInc = kind==="income";
+  const list = isInc ? incomeCats().slice() : expenseCats().slice();
+  openSheet(`<h2 style="margin-top:0">${isInc?"Income":"Expense"} categories</h2>
+  <p class="muted">These labels appear when you add ${isInc?"income":"expenses"}. Order is kept.</p>
+  <div id="catList">${list.map((c,i)=>`<div class="row" style="gap:8px"><input id="cat_${i}" value="${esc(c)}" style="flex:1"><button type="button" class="chip" data-catdel="${i}">Remove</button></div>`).join("")}</div>
+  <button type="button" class="btn alt" data-catadd>Add category</button>
+  <form id="fcats"><input type="hidden" id="catKind" value="${isInc?"income":"expense"}">
+  <button class="btn" type="submit">Save categories</button></form>
+  <button class="btn alt" data-close>Cancel</button>`);
+}
 function addSheet(){
   if(!S.accounts.length){ newAcctSheet(); return; }
   if(sheetType==="invest"||sheetType==="lend") return addSheet2();
-  const cats = sheetType==="income"?INCOME_CATS:EXPENSE_CATS;
+  const cats = sheetType==="income"?incomeCats():expenseCats();
   if(!chosenCat || !cats.includes(chosenCat)) chosenCat = cats[0];
   const def = S.lastAcct && acct(S.lastAcct) ? S.lastAcct : S.accounts[0].id;
-  const opts = (sel)=>S.accounts.filter(a=>!a.archived).map(a=>`<option value="${a.id}" ${a.id===sel?"selected":""}>${esc(a.name)} (${a.cur})</option>`).join("");
-  const other = S.accounts.find(a=>a.id!==def);
+  const opts = (sel)=>S.accounts.filter(a=>!a.archived).map(a=>`<option value="${a.id}" ${a.id===sel?"selected":""}>${esc(a.name)} · ${acctTypeLabel(a)} (${a.cur})</option>`).join("");
+  const other = S.accounts.find(a=>a.id!==def && a.type!=="card") || S.accounts.find(a=>a.id!==def);
   const chips = sheetType==="transfer" ? [500,1000,2000,5000,10000] : [50,100,200,500,1000,2000,5000];
+  const catKind = sheetType==="income"?"income":"expense";
   openSheet(`
   <div class="seg" id="seg">${["expense","income","transfer","invest","lend"].map(k=>`<button data-type="${k}" class="${sheetType===k?"on":""}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}</div>
   <form id="f" autocomplete="off">
     <input class="amt" id="amt" inputmode="decimal" placeholder="0" aria-label="Amount" autofocus>
     <div class="amt-chips">${chips.map(n=>`<button type="button" class="chip" data-amtchip="${n}">${n>=1000?(n/1000)+"k":n}</button>`).join("")}</div>
     ${sheetType==="transfer"?`
-      <label>From</label><select id="from">${opts(def)}</select>
-      <label>To</label><select id="to">${opts(other?other.id:def)}</select>
-      <label>Recipient bank account (optional)</label><select id="recipientBank"><option value="">Not specified / own account transfer</option>${S.bankContacts.map(b=>`<option value="${b.id}">${esc(b.person)} · ${esc(b.bank)} · ${esc(b.accountMasked||"")}</option>`).join("")}</select><div id="recvWrap"></div>`:`
-      <label>Category</label><div class="chips" id="cats">${cats.map(c=>`<button type="button" class="chip ${c===chosenCat?"on":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}</div>
-      <label>${sheetType==="income"?"Into account":"From account"}</label><select id="from">${opts(def)}</select>`}
+      <div class="seg" id="xferModeSeg" style="margin-top:10px">
+        <button type="button" data-xfermode="self" class="${xferMode!=="external"?"on":""}">Between my accounts</button>
+        <button type="button" data-xfermode="external" class="${xferMode==="external"?"on":""}">To external person</button>
+      </div>
+      ${xferMode==="external"?`
+        <p class="muted" style="margin:10px 0 0">Money leaves <b>one of your accounts</b>. Recorded as spending (“Sent externally”). The recipient is a contact note only — not a third balance here.</p>
+        <label>From (your account)</label><select id="from">${opts(def)}</select>
+        <label>Recipient method</label>
+        <select id="recipientBank">
+          <option value="">Select person · account / UPI…</option>
+          ${(S.contacts||[]).flatMap(c=>(c.methods||[]).map(m=>`<option value="${c.id}::${m.id}">${esc(c.name)} · ${m.kind==="upi"?"UPI "+esc(m.upi||m.accountNumber||""):esc(m.bank||"Bank")+" "+esc(m.accountMasked||m.upi||"")}</option>`)).join("")}
+        </select>
+        ${(S.contacts||[]).some(c=>(c.methods||[]).length)?"":`<div class="muted">No payment methods yet. Add a person under Money → Contacts.</div>`}
+        <div id="recvWrap"></div>
+      `:`
+        <p class="muted" style="margin:10px 0 0">Self-transfer: only <b>your</b> bank, cash, or cards. Not income or expense.</p>
+        <label>From (your account)</label><select id="from">${opts(def)}</select>
+        <label>To (your account)</label><select id="to">${opts(other?other.id:def)}</select>
+        <div id="recvWrap"></div>
+      `}`:`
+      <div class="row" style="margin-top:8px;align-items:center"><label style="margin:0">Category</label>
+        <button type="button" class="chip" data-editcats="${catKind}">Edit categories</button></div>
+      <div class="chips" id="cats">${cats.map(c=>`<button type="button" class="chip ${c===chosenCat?"on":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+      <label>${sheetType==="income"?"Into account (bank or cash)":"Paid from (bank, cash, or card)"}</label>
+      <select id="from">${opts(def)}</select>
+      <div class="muted" style="margin-top:6px">${sheetType==="income"?"Cash income: choose a Cash account. Salary to bank: choose that bank account.":"Cash spending: choose Cash. Card purchase: choose the credit card."}</div>`}
     <label>Date</label><input type="date" id="date" value="${today()}">
     <label>Note (optional)</label><input id="note" maxlength="80" placeholder="Optional">
+    ${sheetType==="expense"?`<label class="row" style="align-items:center;gap:8px;margin-top:12px"><input type="checkbox" id="asPurchase" style="width:auto"> Also track as purchase / warranty</label>
+    <div id="purchaseExtra" style="display:none">
+      <label>Item name</label><input id="pitem" placeholder="e.g. Phone, appliance">
+      <label>Warranty months (0 if none)</label><input id="pwarr" inputmode="numeric" value="12">
+    </div>`:""}
     <button class="btn" type="submit">Save</button>
   </form>`);
-  setTimeout(()=>{ const a=$("#amt"); if(a) a.focus(); },50);
+  setTimeout(()=>{ const a=$("#amt"); if(a) a.focus();
+    const cb=$("#asPurchase"); if(cb){ cb.onchange=()=>{ const x=$("#purchaseExtra"); if(x) x.style.display=cb.checked?"block":"none"; }; }
+  },50);
   updateRecv();
 }
 function updateRecv(){
@@ -587,7 +721,7 @@ function updateRecv(){
 }
 
 function addSheet2(){
-  const opts=S.accounts.filter(x=>!x.archived).map(x=>`<option value="${x.id}" ${x.id===S.lastAcct?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("");
+  const opts=S.accounts.filter(x=>!x.archived).map(x=>`<option value="${x.id}" ${x.id===S.lastAcct?"selected":""}>${esc(x.name)} · ${acctTypeLabel(x)} (${x.cur})</option>`).join("");
   const seg=`<div class="seg">${["expense","income","transfer","invest","lend"].map(k=>`<button data-type="${k}" class="${sheetType===k?"on":""}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}</div>`;
   let mid;
   if(sheetType==="invest") mid=S.holdings.length?`<label>Action</label><select id="ia"><option value="buy">Buy</option><option value="sell">Sell</option></select><label>Holding</label><select id="ih">${S.holdings.map(h=>`<option value="${h.id}">${esc(h.name)} (${h.cur})</option>`).join("")}</select><label>Units or shares</label><input id="iu" inputmode="decimal">`:`<div class="empty">Add a fund or stock first, under Accounts.</div>`;
@@ -599,7 +733,7 @@ function newHoldSheet(){
   openSheet(`<h2 style="margin-top:0">New holding</h2>
 <form id="fh" autocomplete="off">
 <label>Scheme / stock name</label><input id="hn" required placeholder="e.g. Reliance Industries or HDFC Flexi Cap">
-<label>Type</label><select id="ht"><option value="fund">Mutual fund</option><option value="stock">Stock</option></select>
+<label>Type</label><select id="ht"><option value="stock">Stock</option><option value="fund">Mutual fund</option></select>
 <label>Owner</label><input id="ho" value="Me" list="owners2" required><datalist id="owners2">${peopleOpts}</datalist>
 <label>Symbol / ticker (stocks)</label><input id="hsym" placeholder="e.g. RELIANCE">
 <label>Exchange</label><select id="hex"><option value="">—</option><option value="NSE">NSE</option><option value="BSE">BSE</option><option value="Other">Other</option></select>
@@ -665,7 +799,11 @@ function doHolds(){
   S.snaps=S.snaps||[]; S.snaps.push({date,inv:Math.round(P.items.reduce((a,x)=>a+x.qty*x.avg,0)),val:Math.round(P.items.reduce((a,x)=>a+x.qty*x.prev,0))});
   pendH=null; save(); closeSheet(); render(); toast(added+" new, "+changed+" changed, "+price+" prices, "+sold+" sold");
 }
-const accOpts=()=>S.accounts.filter(a=>!a.archived).map(a=>[a.id,a.name+" ("+a.cur+")"]);
+const acctTypeLabel=a=>({bank:"Bank",cash:"Cash",card:"Card",demat:"Demat"}[a.type]||a.type||"Account");
+const accOpts=()=>S.accounts.filter(a=>!a.archived).map(a=>[a.id,`${a.name} · ${acctTypeLabel(a)} (${a.cur})`]);
+const expenseCats=()=> (S.expenseCats&&S.expenseCats.length?S.expenseCats:EXPENSE_CATS);
+const incomeCats=()=> (S.incomeCats&&S.incomeCats.length?S.incomeCats:INCOME_CATS);
+
 function addM(t,n){const[y,m,d]=t.split("-").map(Number);const x=new Date(y,m-1+n,1);const last=new Date(x.getFullYear(),x.getMonth()+1,0).getDate();x.setDate(Math.min(d,last));return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");}
 const daysTo=t=>Math.round((new Date(t+"T00:00")-new Date(today()+"T00:00"))/864e5);
 function fs(title,fid,fields,btn){openSheet(`<h2 style="margin-top:0">${title}</h2><form id="${fid}" autocomplete="off">${fields.map(([i,l,t,o])=>`<label>${l}</label>`+(t==="select"?`<select id="${i}">${o.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>`:`<input id="${i}" type="${t==="date"?"date":"text"}" ${t==="num"?'inputmode="decimal"':""} ${t==="date"?`value="${today()}"`:""}>`)).join("")}<button class="btn" type="submit">${btn}</button></form>`);}
@@ -682,7 +820,7 @@ function lendingPosition(l){
 function newLendingSheet(){
   const accounts=accOpts();
   openSheet(`<h2 style="margin-top:0">New friends & family lending record</h2><form id="flend">
-  <label>Person</label><input id="lpname" list="lpeople" required><datalist id="lpeople">${S.people.map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+  <label>Person</label><input id="lpname" list="lpeople" required placeholder="Same names as Contacts"><datalist id="lpeople">${[...new Set([...(S.people||[]),...(S.contacts||[]).map(c=>c.name)])].map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
   <label>Direction</label><select id="ldir"><option value="lent">I lent money (they owe me)</option><option value="borrowed">I borrowed money (I owe them)</option></select>
   <label>Principal amount</label><input id="lprincipal" inputmode="decimal" required>
   <label>Currency</label><select id="lcur"><option>EUR</option><option>INR</option></select>
@@ -705,21 +843,39 @@ function lendingPaymentSheet(id){
 }
 function viewPlan(){
   const dl=d=>d<0?`${-d}d overdue`:d===0?"due today":`in ${d}d`;
-  return `<h2 style="margin-top:4px">Friends & family lending</h2>${S.lending.map(l=>{const p=lendingPosition(l);return `<div class="card"><div class="row"><div><b>${esc(l.person)}</b><div class="muted">${l.direction==="lent"?"They owe you":"You owe them"} · ${fmt(l.principal,l.cur)} · ${l.rate||0}% simple interest</div><div class="muted">Outstanding ${fmt(p.principal,l.cur)} · estimated interest ${fmt(p.interest,l.cur)} interest outstanding (estimate)</div><div class="muted">Estimate only: simple interest on remaining principal from start date, not daily reducing-balance accrual.</div></div><button class="chip" data-lendrec="${l.id}">Record</button></div></div>`}).join("")||`<div class="muted">No lending records yet.</div>`}
-  <button class="btn alt" data-newlend>Add lending record</button>
-  <h2>SIPs</h2>
-  <p class="muted">Due SIPs are posted automatically when you unlock the app (bank debit + units from current price if set). You can still open a SIP to mark missed or stop it.</p>
-  ${S.sips.map(x=>{const h=S.holdings.find(v=>v.id===x.hold)||{},d=daysTo(x.next);const hist=x.history||[];const paid=hist.filter(i=>i.status==="paid").length,missed=hist.filter(i=>i.status==="missed").length;const st=x.status||"active";return `<div class="card" data-sip="${x.id}"><div class="row"><div><b>${esc(h.name)}</b>${h.folio?`<div class="muted">Folio ${esc(h.folio)}</div>`:""}<div class="muted">${fmt(x.amt,x.cur)} · ${({1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1])} · next ${x.next}${st==="stopped"?" · stopped":""}${paid||missed?` · ${paid} paid / ${missed} missed`:""}</div></div><b class="${st==="stopped"?"muted":d<=0?"warn":"muted"}">${st==="stopped"?"stopped":dl(d)}</b></div></div>`}).join("")||`<div class="muted">No SIPs yet.</div>`}
-  <button class="btn alt" data-newsip>Add SIP</button>
-  <h2>Salaries</h2>
-  <p class="muted">Recurring salary credit into a member’s account. Posted automatically when due if auto-salary is on.</p>
-  ${S.salaries.map(x=>{const a=acct(x.acct)||{};const d=daysTo(x.next);const st=x.status||"active";return `<div class="card" data-salary="${x.id}"><div class="row"><div><b>${esc(x.person||"Me")} · ${esc(x.label||"Salary")}</b><div class="muted">${fmt(x.amt,x.cur)} → ${esc(a.name||"account")} · next ${x.next}${st==="stopped"?" · stopped":""}</div></div><b class="${st==="stopped"?"muted":d<=0?"warn":"muted"}">${st==="stopped"?"stopped":dl(d)}</b></div></div>`}).join("")||`<div class="muted">No salary schedules yet.</div>`}
-  <button class="btn alt" data-newsalary>Add salary schedule</button>
-  <h2>Insurance</h2>${S.policies.map(p=>{const d=daysTo(p.next);return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · ${p.next}</div></div><b class="${d<=30?"warn":"muted"}">${dl(d)}</b></div></div>`}).join("")||`<div class="muted">No policies yet.</div>`}
-  <button class="btn alt" data-newpol>Add policy</button>
-  <h2>Purchases and warranties</h2>${S.purchases.map(p=>{const d=p.expiry?daysTo(p.expiry):null;return `<div class="card"><div class="row"><div><b>${esc(p.item)}</b><div class="muted">${p.date} · ${fmt(p.amt,p.cur)}</div></div><div style="text-align:right"><b class="${d!==null&&d<60?"warn":"muted"}">${d===null?"no warranty":d<0?"expired":d+"d left"}</b><div><button class="chip" data-delpur="${p.id}">Remove</button></div></div></div></div>`}).join("")||`<div class="muted">No purchases yet.</div>`}
+  const seg = planSeg||"sips";
+  const segBar = `<div class="seg" style="margin:4px 0 12px">
+    <button type="button" data-planseg="sips" class="${seg==="sips"?"on":""}">SIPs</button>
+    <button type="button" data-planseg="salaries" class="${seg==="salaries"?"on":""}">Salaries</button>
+    <button type="button" data-planseg="lending" class="${seg==="lending"?"on":""}">Lending</button>
+    <button type="button" data-planseg="cover" class="${seg==="cover"?"on":""}">Cover</button>
+  </div>`;
+  if(seg==="salaries"){
+    return segBar+`<h2 style="margin-top:4px">Salaries</h2>
+  <p class="muted">Recurring credit into a member’s account. Auto-posted on unlock when due (if enabled).</p>
+  ${S.salaries.map(x=>{const a=acct(x.acct)||{};const d=daysTo(x.next);const st=x.status||"active";return `<div class="card" data-salary="${x.id}"><div class="row"><div><b>${esc(x.person||"Me")} · ${esc(x.label||"Salary")}</b><div class="muted">${fmt(x.amt,x.cur)} → ${esc(a.name||"account")} · next ${x.next}${st==="stopped"?" · stopped":""}</div></div><b class="${st==="stopped"?"muted":d<=0?"warn":"muted"}">${st==="stopped"?"stopped":dl(d)}</b></div></div>`}).join("")||`<div class="empty"><div class="empty-title">No salary schedules</div><p>Add a monthly credit for Me, Father, Mother, or others.</p></div>`}
+  <button class="btn" data-newsalary>Add salary schedule</button>`;
+  }
+  if(seg==="lending"){
+    return segBar+`<h2 style="margin-top:4px">Friends & family lending</h2>
+  ${S.lending.map(l=>{const p=lendingPosition(l);return `<div class="card"><div class="row"><div><b>${esc(l.person)}</b><div class="muted">${l.direction==="lent"?"They owe you":"You owe them"} · ${fmt(l.principal,l.cur)} · ${l.rate||0}% simple interest</div><div class="muted">Outstanding ${fmt(p.principal,l.cur)} · est. interest ${fmt(p.interest,l.cur)}</div></div><button class="chip" data-lendrec="${l.id}">Record</button></div></div>`}).join("")||`<div class="empty"><div class="empty-title">No lending records</div><p>Track money lent or borrowed with optional simple interest.</p></div>`}
+  <button class="btn" data-newlend>Add lending record</button>`;
+  }
+  if(seg==="cover"){
+    return segBar+`<h2 style="margin-top:4px">Insurance</h2>
+  ${S.policies.map(p=>{const d=daysTo(p.next);return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · ${p.next}</div></div><b class="${d<=30?"warn":"muted"}">${dl(d)}</b></div></div>`}).join("")||`<div class="empty"><div class="empty-title">No policies</div><p>Track premiums and due dates.</p></div>`}
+  <button class="btn" data-newpol>Add policy</button>
+  <h2>Purchases & warranties</h2>
+  ${S.purchases.map(p=>{const d=p.expiry?daysTo(p.expiry):null;return `<div class="card"><div class="row"><div><b>${esc(p.item)}</b><div class="muted">${p.date} · ${fmt(p.amt,p.cur)}</div></div><div style="text-align:right"><b class="${d!==null&&d<60?"warn":"muted"}">${d===null?"no warranty":d<0?"expired":d+"d left"}</b><div><button class="chip" data-delpur="${p.id}">Remove</button></div></div></div></div>`}).join("")||`<div class="muted">No purchases logged.</div>`}
   <button class="btn alt" data-newpur>Add purchase</button>`;
+  }
+  // sips default
+  return segBar+`<h2 style="margin-top:4px">SIPs</h2>
+  <p class="muted">Due SIPs post automatically on unlock (bank debit + units from price if set).</p>
+  ${S.sips.map(x=>{const h=S.holdings.find(v=>v.id===x.hold)||{},d=daysTo(x.next);const hist=x.history||[];const paid=hist.filter(i=>i.status==="paid").length,missed=hist.filter(i=>i.status==="missed").length;const st=x.status||"active";return `<div class="card" data-sip="${x.id}"><div class="row"><div><b>${esc(h.name)}</b>${h.folio?`<div class="muted">Folio ${esc(h.folio)}</div>`:""}<div class="muted">${fmt(x.amt,x.cur)} · ${({1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1])} · next ${x.next}${st==="stopped"?" · stopped":""}${paid||missed?` · ${paid} paid / ${missed} missed`:""}</div></div><b class="${st==="stopped"?"muted":d<=0?"warn":"muted"}">${st==="stopped"?"stopped":dl(d)}</b></div></div>`}).join("")||`<div class="empty"><div class="empty-title">No SIPs yet</div><p>Add a SIP after you have a mutual fund holding.</p></div>`}
+  <button class="btn" data-newsip>Add SIP</button>`;
 }
+
 function dueHtml(){
   const r=[];
   for(const x of S.sips){
@@ -740,6 +896,7 @@ function dueHtml(){
     }
   }
   for(const p of S.policies){
+    if(!policyPremiumActive(p)) continue;
     const d=daysTo(p.next);
     if(d<=30) r.push([d, "Premium · "+esc(p.name), fmt(p.premium,p.cur), `data-pol="${p.id}"`, d<0?"warn":""]);
   }
@@ -819,7 +976,9 @@ function newAcctSheet(){
     <label>Statement day (1–31)</label><input id="cstmt" inputmode="numeric" placeholder="e.g. 15">
     <label>Payment due day (1–31)</label><input id="cdue" inputmode="numeric" placeholder="e.g. 5">
     <label>Annual fee</label><input id="cfee" inputmode="decimal" placeholder="0">
-    <div class="muted" style="margin-top:6px">CVV and PIN are never collected or stored.</div>
+    <label>Linked bank account (for bill payments)</label>
+    <select id="clinked"><option value="">— Not linked —</option>${S.accounts.filter(a=>!a.archived&&a.type==="bank").map(a=>`<option value="${a.id}">${esc(a.name)} (${a.cur})</option>`).join("")}</select>
+    <div class="muted" style="margin-top:6px">Optional. Bank account you usually pay this card from. CVV and PIN are never stored.</div>
   </div>
   <label id="obl">Current balance</label><input id="ao" inputmode="decimal" placeholder="0">
   <div class="muted" id="oh" style="margin-top:6px"></div>
@@ -827,9 +986,9 @@ function newAcctSheet(){
   <button class="btn alt" data-close>Cancel</button>`);
   const sync=()=>{
     const t=$("#at").value;
-    const isCard=t==="card", isCash=t==="cash";
+    const isCard=t==="card", isCash=t==="cash", isBank=t==="bank";
     const bf=$("#bankFields"), cf=$("#cardFields");
-    if(bf) bf.style.display=isCash?"none":"block";
+    if(bf) bf.style.display=isBank?"block":"none";
     if(cf) cf.style.display=isCard?"block":"none";
     if($("#obl")) $("#obl").textContent=isCard?"Amount currently owed":"Current / opening balance";
     if($("#oh")) $("#oh").textContent=isCard?"Enter what you owe today as a positive number. It is stored as a liability.":isCash?"Cash on hand right now.":"Balance available in this account.";
@@ -856,6 +1015,11 @@ function acctSheet(id){
   <form id="fcard"><input type="hidden" id="cid" value="${a.id}">
   <label>Account nickname</label><input id="anameEdit" value="${esc(a.name||"")}" required placeholder="e.g. HDFC Salary">
   <label>Owner</label><input id="aownerEdit" list="ownersEdit" value="${esc(a.owner||"Me")}"><datalist id="ownersEdit">${(S.people||[]).map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+  ${a.type==="demat"?`<b>Demat details</b>
+  <label>Broker</label><input id="abrokerEdit" value="${esc(a.broker||"")}">
+  <label>Demat / client ID</label><input id="adematEdit" value="${esc(a.dematId||"")}">
+  <label>Total invested (cost)</label><input id="ainvestedEdit" inputmode="decimal" value="${a.invested||""}">
+  <div class="muted">Current value is the balance above — use Set current balance to update standings.</div>`:""}
   ${a.type==="bank"?`<b>Bank account details</b>
 <label>Bank / provider</label><input id="abankEdit" value="${esc(a.bank||"")}">
 <label>Account number / IBAN</label><input id="aacctnoEdit" inputmode="numeric" autocomplete="off" value="${esc(a.accountNumber||"")}" placeholder="Full account number">
@@ -872,7 +1036,7 @@ function acctSheet(id){
   <label>Expiry (MM/YY)</label><input id="expiry" inputmode="numeric" value="${esc((a.cardMeta||{}).expiry||"")}" placeholder="08/28" maxlength="5">
   <div class="muted">CVV/CVC and PIN are never collected or stored.</div>
   <label>Annual fee</label><input id="annualFee" inputmode="decimal" value="${(a.cardMeta||{}).annualFee||""}">
-  ${a.type==="card"?`<label>Credit limit</label><input id="cl" inputmode="decimal" value="${a.limit||""}"><label>Statement day of month</label><input id="cs" inputmode="numeric" value="${a.stmtDay||""}"><label>Payment due day of month</label><input id="cd" inputmode="numeric" value="${a.dueDay||""}">`:""}
+  ${a.type==="card"?`<label>Credit limit</label><input id="cl" inputmode="decimal" value="${a.limit||""}"><label>Statement day of month</label><input id="cs" inputmode="numeric" value="${a.stmtDay||""}"><label>Payment due day of month</label><input id="cd" inputmode="numeric" value="${a.dueDay||""}"><label>Linked bank account</label><select id="alinked"><option value="">— Not linked —</option>${S.accounts.filter(x=>!x.archived&&x.type==="bank").map(x=>`<option value="${x.id}" ${a.linkedBankId===x.id?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("")}</select><div class="muted">Bank you usually pay this card from.</div>`:""}
   <button class="btn alt" type="submit">Save card details</button></form>
   <button class="btn" data-reconcile="${a.id}">Set current balance</button>
   <button class="btn alt" data-filter="${a.id}">See transactions</button>
@@ -980,15 +1144,31 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if("close" in d){ if(el.classList.contains("sheet-bg") && e.target!==el) return; closeSheet(); return; }
   if(d.tab){ tab=d.tab; render(); window.scrollTo(0,0); return; }
+  if(d.moneyseg){ moneySeg=d.moneyseg; render(); window.scrollTo(0,0); return; }
+  if(d.planseg){ planSeg=d.planseg; render(); window.scrollTo(0,0); return; }
+  if(d.moneyacctf){ moneyAcctFilter=d.moneyacctf; render(); return; }
+  if(d.moneyholdf){ moneyHoldFilter=d.moneyholdf; render(); return; }
   if("add" in d){ if(el.dataset.quick){sheetType=el.dataset.quick;chosenCat=null;} addSheet(); return; }
   if(d.type){ sheetType=d.type; addSheet(); return; }
   if(d.cat){ chosenCat=d.cat; document.querySelectorAll("#cats .chip").forEach(c=>c.classList.toggle("on",c.dataset.cat===chosenCat)); return; }
   if(d.amtchip){ const a=$("#amt"); if(a){ const cur=parseAmt(a.value)||0; a.value=String(cur+parseAmt(d.amtchip)); a.focus(); } return; }
+  if(d.xfermode){ xferMode=d.xfermode; addSheet(); return; }
+  if(d.editcats){ openCatsSheet(d.editcats); return; }
+  if("catadd" in d){
+    const list=$("#catList"); if(!list) return;
+    const i=list.querySelectorAll("input").length;
+    const row=document.createElement("div"); row.className="row"; row.style.gap="8px";
+    row.innerHTML=`<input id="cat_${i}" value="" style="flex:1" placeholder="New category"><button type="button" class="chip" data-catdel="${i}">Remove</button>`;
+    list.appendChild(row); row.querySelector("input").focus(); return;
+  }
+  if(d.catdel!=null){
+    const row=e.target.closest(".row"); if(row) row.remove(); return;
+  }
   if("toggle" in d){ S.display=S.display==="INR"?"EUR":"INR"; save(); render(); return; }
   if("snapshot" in d){ const owner=homeOwner==="All family"?null:homeOwner,nw=netWorth(owner).total,m=today().slice(0,7); const old=S.history.find(x=>x.month===m&&(x.owner||null)===owner); if(old){old.value=nw;old.date=today();old.cur=S.display;old.fxRate=S.rate;}else S.history.push({month:m,date:today(),value:nw,cur:S.display,fxRate:S.rate,owner}); save(); render(); toast("Net worth snapshot saved"); return; }
   if("newlend" in d){newLendingSheet();return;}
@@ -1003,7 +1183,76 @@ document.addEventListener("click", async e=>{
 <button class="btn" type="submit">Update balance</button></form>
 <button class="btn alt" data-close>Cancel</button>`);return;}
   if("newacct" in d){ newAcctSheet(); return; }
-  if("newbank" in d){ openSheet(`<h2 style="margin-top:0">Friend / recipient bank account</h2><form id="fbank"><label>Person / recipient name</label><input id="bp" required placeholder="e.g. Shubham GG"><label>Account holder name</label><input id="bh" required><label>Bank name</label><input id="bb" required><label>Account number / IBAN</label><input id="ba" required autocomplete="off"><label>IFSC code (India)</label><input id="bi" autocapitalize="characters"><label>Branch name</label><input id="br"><label>Branch code</label><input id="bc"><label>Currency</label><select id="bcur"><option>INR</option><option>EUR</option></select><label>Nickname (optional)</label><input id="bn"><div class="security-note">These details are stored inside your encrypted vault. The account number is masked in lists, but is present in encrypted backup data.</div><button class="btn" type="submit">Save recipient account</button></form>`);return; }
+  if("newcontact" in d){
+    openSheet(`<h2 style="margin-top:0">Add person</h2>
+    <form id="fcontact"><label>Name</label><input id="cname" required placeholder="e.g. Shubham GG" list="cpeople"><datalist id="cpeople">${(S.people||[]).map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+    <label>Notes (optional)</label><input id="cnotes" placeholder="Optional">
+    <button class="btn" type="submit">Save person</button></form>`); return;
+  }
+  if(d.contact){
+    const c=contactById(d.contact); if(!c) return;
+    const methods=c.methods||[];
+    openSheet(`<h2 style="margin-top:0">${esc(c.name)}</h2>
+    <div class="muted">${esc(c.notes||"Friend / family contact")}</div>
+    <h2 style="font-size:15px;margin:16px 0 8px">Accounts & UPI</h2>
+    ${methods.map(m=>`<div class="card"><div class="row"><div><b>${m.kind==="upi"?"UPI":esc(m.bank||"Bank")}</b><div class="muted">${m.kind==="upi"?esc(m.upi||m.accountNumber||""):esc(m.holder||"")+" · "+esc(m.accountMasked||"")}${m.ifsc?" · "+esc(m.ifsc):""}</div></div>
+      <div style="display:flex;gap:6px"><button class="chip" data-copymethod="${c.id}::${m.id}">Copy</button><button class="chip" data-delmethod="${c.id}::${m.id}">Remove</button></div></div></div>`).join("")||`<div class="muted">No bank or UPI yet.</div>`}
+    <button class="btn" data-addmethod="${c.id}">Add bank / UPI</button>
+    <button class="btn alt" data-delcontact="${c.id}">Remove person</button>
+    <button class="btn alt" data-close>Close</button>`); return;
+  }
+  if(d.addmethod){
+    const c=contactById(d.addmethod); if(!c) return;
+    openSheet(`<h2 style="margin-top:0">Add method · ${esc(c.name)}</h2>
+    <form id="fmethod"><input type="hidden" id="midc" value="${c.id}">
+    <label>Type</label><select id="mkind"><option value="bank">Bank account</option><option value="upi">UPI ID</option></select>
+    <div id="mbankfields">
+      <label>Bank name</label><input id="mbank" placeholder="e.g. HDFC">
+      <label>Account holder</label><input id="mholder" placeholder="As on account">
+      <label>Account number / IBAN</label><input id="mnum" autocomplete="off">
+      <label>IFSC</label><input id="mifsc" autocapitalize="characters">
+      <label>Branch</label><input id="mbranch">
+    </div>
+    <div id="mupifields" style="display:none">
+      <label>UPI ID</label><input id="mupi" placeholder="name@oksbi">
+    </div>
+    <label>Currency</label><select id="mcur"><option>INR</option><option>EUR</option></select>
+    <button class="btn" type="submit">Save</button></form>`);
+    const sync=()=>{const k=$("#mkind")?.value; if($("#mbankfields"))$("#mbankfields").style.display=k==="bank"?"block":"none"; if($("#mupifields"))$("#mupifields").style.display=k==="upi"?"block":"none";};
+    const mk=$("#mkind"); if(mk){mk.onchange=sync;sync();}
+    return;
+  }
+  if(d.delmethod){
+    const [cid,mid]=String(d.delmethod).split("::");
+    const c=contactById(cid); if(c){ c.methods=(c.methods||[]).filter(m=>m.id!==mid); save(); }
+    closeSheet(); render(); return;
+  }
+  if(d.delcontact){
+    if(confirm("Remove this person and all their saved accounts/UPI?")){ S.contacts=(S.contacts||[]).filter(x=>x.id!==d.delcontact); save(); }
+    closeSheet(); render(); return;
+  }
+  if(d.copymethod){
+    const [cid,mid]=String(d.copymethod).split("::");
+    const c=contactById(cid); const m=c&&(c.methods||[]).find(x=>x.id===mid);
+    if(m){ const lines=m.kind==="upi"?[c.name,"UPI: "+(m.upi||m.accountNumber||"")]:[c.name,m.holder,m.bank,"A/c: "+(m.accountNumber||""),m.ifsc?"IFSC: "+m.ifsc:""].filter(Boolean);
+      (navigator.clipboard?navigator.clipboard.writeText(lines.join("\\n")):Promise.reject()).then(()=>toast("Copied")).catch(()=>toast("Copy failed")); }
+    return;
+  }
+  if("newdemat" in d){
+    openSheet(`<h2 style="margin-top:0">Demat account</h2>
+    <form id="fdemat">
+    <label>Nickname</label><input id="dn" required placeholder="e.g. Zerodha">
+    <label>Owner</label><input id="downer" list="owners" value="Me"><datalist id="owners">${S.people.map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+    <label>Broker / platform</label><input id="dbroker" placeholder="Zerodha, Groww, …">
+    <label>Demat / client ID (optional)</label><input id="ddematid" placeholder="Optional">
+    <label>Currency</label><select id="dcur"><option>INR</option><option>EUR</option></select>
+    <label>Total invested (cost)</label><input id="dinv" inputmode="decimal" placeholder="0">
+    <label>Current value</label><input id="dval" inputmode="decimal" placeholder="0">
+    <div class="muted">Use current value as the live standing. Update anytime from the account sheet.</div>
+    <button class="btn" type="submit">Save demat account</button></form>`); return;
+  }
+  if("newbank" in d){ moneySeg="contacts"; render(); openSheet(`<h2 style="margin-top:0">Add person first</h2><p class="muted">Contacts now live under a person registry. Add the person, then add bank or UPI methods on their card.</p><button class="btn" data-newcontact>Add person</button><button class="btn alt" data-close>Close</button>`); return; }
+
   if("releases" in d){
     openSheet(`<h2 style="margin-top:0">Release notes</h2>
     <div class="muted" style="margin-bottom:10px">Current version <b>v${esc(APP_VERSION)}</b></div>
@@ -1121,7 +1370,33 @@ document.addEventListener("click", async e=>{
   if(d.sipfail){ const x=S.sips.find(v=>v.id===d.sipfail); if(x){ const missDate=x.next||today(); x.history=x.history||[]; x.history.push({date:missDate,status:"missed",units:0,amount:x.amt}); x.next=addM(x.next,x.freq||1); log("sipfail",x.id); save(); } closeSheet(); render(); toast("Marked as missed / skipped"); return; }
   if(d.sipstop){ const x=S.sips.find(v=>v.id===d.sipstop); if(x){ x.status=(x.status==="stopped"?"active":"stopped"); log("sipstop",x.id); save(); closeSheet(); render(); toast(x.status==="stopped"?"SIP stopped":"SIP resumed"); } return; }
   if("newpol" in d){ fs("New insurance policy","fpol",[["pn","Policy / scheme name","text"],["pno","Policy number","text"],["pp","Provider / insurer","text"],["po","Owner","select",S.people.map(n=>[n,n])],["pstart","Commencement date","date"],["ps","Sum assured","num"],["bonus","Bonus (optional)","num"],["pa","Premium per payment","num"],["ppt","Premium paying term (years)","num"],["pt","Policy term (years)","num"],["mat","Maturity date","date"],["pc","Currency","select",[["INR","INR"],["EUR","EUR"]]],["pf","Paid every","select",[["1","Month"],["3","3 months"],["6","6 months"],["12","Year"]]],["pd","Next premium due","date"]],"Save policy"); return; }
-  if(d.pol){ const p=S.policies.find(v=>v.id===d.pol); if(!p) return; openSheet(`<h2 style="margin-top:0">${esc(p.name)}</h2><div class="muted">${esc(p.provider||"")} ${p.policyNo?"· Policy "+esc(p.policyNo):""}<br>Cover ${fmt(p.sum,p.cur)} · Bonus ${fmt(p.bonus||0,p.cur)}<br>Premium ${fmt(p.premium,p.cur)} every ${p.freq||1} month(s) · next due ${p.next}<br>${p.start?"Started "+esc(p.start)+" · ":""}${p.maturity?"Matures "+esc(p.maturity):""}<br>${p.ppt?"Premium term "+p.ppt+" years · ":""}${p.term?"Policy term "+p.term+" years":""}</div><form id="fpay"><input type="hidden" id="pid" value="${p.id}"><label>Paid from</label><select id="pacc">${accOpts().map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select><button class="btn" type="submit">Mark premium paid</button></form><button class="btn danger" data-delpol="${p.id}">Remove policy</button><button class="btn alt" data-close>Close</button>`); return; }
+  if(d.pol){ const p=S.policies.find(v=>v.id===d.pol); if(!p) return;
+    const active=policyPremiumActive(p);
+    openSheet(`<h2 style="margin-top:0">${esc(p.name)}</h2>
+    <div class="muted">${esc(p.provider||"")} ${p.policyNo?"· Policy "+esc(p.policyNo):""}<br>
+    Cover ${fmt(p.sum,p.cur)} · Bonus ${fmt(p.bonus||0,p.cur)}<br>
+    Premium ${fmt(p.premium,p.cur)} every ${p.freq||1} month(s) · next ${p.next}<br>
+    ${p.start?"Started "+esc(p.start)+" · ":""}${p.ppt?"PPT "+p.ppt+" years · ":""}${p.term?"Term "+p.term+" years · ":""}${p.maturity?"Matures "+esc(p.maturity):""}<br>
+    ${active?`<span class="in">Premium period active</span>`:`<span class="muted">Outside premium-paying term (no due reminders)</span>`}</div>
+    ${active?`<form id="fpay"><input type="hidden" id="pid" value="${p.id}"><label>Paid from</label><select id="pacc">${accOpts().map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select><button class="btn" type="submit">Mark premium paid</button></form>`:`<div class="muted" style="margin:10px 0">Premium not due after PPT / maturity.</div>`}
+    <form id="fpoledit"><input type="hidden" id="peid" value="${p.id}">
+    <h2 style="font-size:15px;margin:16px 0 8px">Edit policy</h2>
+    <label>Name</label><input id="pen" value="${esc(p.name||"")}">
+    <label>Policy number</label><input id="peno" value="${esc(p.policyNo||"")}">
+    <label>Provider</label><input id="peprov" value="${esc(p.provider||"")}">
+    <label>Owner</label><input id="peown" value="${esc(p.owner||"Me")}">
+    <label>Commencement</label><input type="date" id="pestart" value="${esc(p.start||"")}">
+    <label>Sum assured</label><input id="pesum" inputmode="decimal" value="${p.sum||""}">
+    <label>Bonus</label><input id="pebonus" inputmode="decimal" value="${p.bonus||""}">
+    <label>Premium</label><input id="peprem" inputmode="decimal" value="${p.premium||""}">
+    <label>PPT (years)</label><input id="peppt" inputmode="numeric" value="${p.ppt||""}">
+    <label>Policy term (years)</label><input id="peterm" inputmode="numeric" value="${p.term||""}">
+    <label>Maturity</label><input type="date" id="pemat" value="${esc(p.maturity||"")}">
+    <label>Next due</label><input type="date" id="penext" value="${esc(p.next||"")}">
+    <label>Frequency (months)</label><input id="pefreq" inputmode="numeric" value="${p.freq||1}">
+    <button class="btn alt" type="submit">Save policy changes</button></form>
+    <button class="btn danger" data-delpol="${p.id}">Remove policy</button>
+    <button class="btn alt" data-close>Close</button>`); return; }
   if(d.delpol){ S.policies=S.policies.filter(v=>v.id!==d.delpol); save(); closeSheet(); render(); return; }
   if("newpur" in d){ fs("New purchase","fpur",[["un","Item","text"],["ua","Amount","num"],["ud","Date","date"],["uc","Paid from","select",accOpts()],["uw","Warranty in months (0 for none)","num"]],"Save purchase"); return; }
   if(d.delpur){ S.purchases=S.purchases.filter(v=>v.id!==d.delpur); save(); render(); return; }
@@ -1210,17 +1485,40 @@ document.addEventListener("submit", e=>{
     const from=acct($("#from").value);
     let t;
     if(sheetType==="transfer"){
-      const to=acct($("#to").value);
-      if(!to||from.id===to.id){ alert("Choose two different accounts."); return; }
-      let recv=amt;
-      if(from.cur!==to.cur){ recv=parseAmt(($("#recv")||{}).value); if(recv<=0){ alert("Enter the amount received in "+to.cur+"."); return; } }
-      t={type:"transfer",date,note,recipientBankId:$("#recipientBank")?.value||"",recipientBank:(()=>{const b=S.bankContacts.find(x=>x.id===$("#recipientBank")?.value);return b?{person:b.person,bank:b.bank,accountMasked:b.accountMasked,ifsc:b.ifsc||"",branch:b.branch||"",branchCode:b.branchCode||""}:null;})(),postings:[{acct:from.id,amt:-amt,cur:from.cur},{acct:to.id,amt:recv,cur:to.cur}]};
+      if(xferMode==="external"){
+        const rid=$("#recipientBank")?.value||"";
+        const [cid,mid]=rid.split("::");
+        const c=contactById(cid); const m=c&&(c.methods||[]).find(x=>x.id===mid);
+        if(!c||!m){ alert("Select a recipient method, or switch to “Between my accounts”."); return; }
+        if(!from){ alert("Choose the account the money left."); return; }
+        const who=c.name;
+        const label=m.kind==="upi"?("UPI "+(m.upi||m.accountNumber||"")):(m.bank||"Bank")+" "+(m.accountMasked||"");
+        t={type:"expense",date,note:note||("To "+who+" · "+label),cat:"Sent externally",person:who,
+          recipientBankId:m.id, contactId:c.id,
+          recipientBank:{person:who,bank:m.bank||(m.kind==="upi"?"UPI":""),accountMasked:m.accountMasked||m.upi||"",ifsc:m.ifsc||"",branch:m.branch||"",branchCode:m.branchCode||"",upi:m.upi||""},
+          postings:[{acct:from.id,amt:-amt,cur:from.cur}]};
+      }else{
+        const to=acct($("#to").value);
+        if(!to||from.id===to.id){ alert("Choose two different accounts of yours."); return; }
+        let recv=amt;
+        if(from.cur!==to.cur){ recv=parseAmt(($("#recv")||{}).value); if(recv<=0){ alert("Enter the amount received in "+to.cur+"."); return; } }
+        t={type:"transfer",date,note,recipientBankId:"",recipientBank:null,postings:[{acct:from.id,amt:-amt,cur:from.cur},{acct:to.id,amt:recv,cur:to.cur}]};
+      }
     }else{
       const sign=sheetType==="income"?1:-1;
       t={type:sheetType,date,note,cat:chosenCat,postings:[{acct:from.id,amt:sign*amt,cur:from.cur}]};
       S.lastAcct=from.id;
     }
-    const saved=addTxn(t); closeSheet(); render();
+    const saved=addTxn(t);
+    if(sheetType==="expense" && $("#asPurchase")?.checked){
+      const item=($("#pitem")?.value||note||chosenCat||"Purchase").trim();
+      const months=Math.max(0, Math.round(parseAmt($("#pwarr")?.value||"0")));
+      let expiry="";
+      if(months>0){ const d=new Date((date||today())+"T12:00:00"); d.setMonth(d.getMonth()+months); expiry=d.toISOString().slice(0,10); }
+      S.purchases.push({id:uid(),item,amt,cur:from.cur,date:date||today(),expiry,acct:from.id,txnId:saved.id});
+      save();
+    }
+    closeSheet(); render();
     toast("Saved",()=>{ voidTxn(saved.id); render(); });
   }
   if(e.target.id==="f2"){
@@ -1346,6 +1644,21 @@ document.addEventListener("submit", e=>{
     }
     return;
   }
+  if(e.target.id==="fcats"){
+    const kind=$("#catKind").value;
+    const inputs=[...document.querySelectorAll("#catList input")];
+    const names=inputs.map(i=>i.value.trim()).filter(Boolean);
+    if(!names.length){ alert("Keep at least one category."); return; }
+    // unique preserve order
+    const seen=new Set(); const out=[];
+    for(const n of names){ const k=n.toLowerCase(); if(seen.has(k)) continue; seen.add(k); out.push(n); }
+    if(kind==="income") S.incomeCats=out; else S.expenseCats=out;
+    if(chosenCat && !out.includes(chosenCat)) chosenCat=out[0];
+    save(); closeSheet(); toast("Categories saved");
+    if(sheetType==="income"||sheetType==="expense") addSheet();
+    else render();
+    return;
+  }
   if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today(),status:"active",history:[]}); save(); closeSheet(); render(); toast("SIP saved"); }
   if(e.target.id==="fsal"){
     const person=($("#sp")?.value||"Me").trim();
@@ -1363,10 +1676,47 @@ document.addEventListener("submit", e=>{
     x.next=addM(x.next,x.freq||1); x.status=x.status||"active";
     save(); closeSheet(); render(); toast("SIP payment recorded"); }
   if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n) return; S.policies.push({id:uid(),name:n,policyNo:$("#pno").value.trim(),provider:$("#pp").value.trim(),owner:$("#po").value||"Me",start:$("#pstart").value||"",sum:parseAmt($("#ps").value),bonus:parseAmt($("#bonus").value),premium:parseAmt($("#pa").value),ppt:parseAmt($("#ppt").value),term:parseAmt($("#pt").value),maturity:$("#mat").value||"",cur:$("#pc").value,freq:+$("#pf").value,next:$("#pd").value||today()}); save(); closeSheet(); render(); }
+  if(e.target.id==="fpoledit"){
+    const p=S.policies.find(x=>x.id===$("#peid")?.value); if(!p) return;
+    p.name=($("#pen")?.value||p.name).trim(); p.policyNo=($("#peno")?.value||"").trim();
+    p.provider=($("#peprov")?.value||"").trim(); p.owner=($("#peown")?.value||"Me").trim();
+    p.start=$("#pestart")?.value||p.start||""; p.sum=parseAmt($("#pesum")?.value||p.sum);
+    p.bonus=parseAmt($("#pebonus")?.value||"0"); p.premium=parseAmt($("#peprem")?.value||p.premium);
+    p.ppt=Math.round(parseAmt($("#peppt")?.value||"0"))||p.ppt||0;
+    p.term=Math.round(parseAmt($("#peterm")?.value||"0"))||p.term||0;
+    p.maturity=$("#pemat")?.value||""; p.next=$("#penext")?.value||p.next;
+    p.freq=Math.max(1, Math.round(parseAmt($("#pefreq")?.value||"1"))||1);
+    save(); closeSheet(); render(); toast("Policy updated"); return;
+  }
   if(e.target.id==="fpay"){ const p=S.policies.find(v=>v.id===$("#pid").value), a=acct($("#pacc").value); if(!p||!a) return; if(a.cur!==p.cur){ alert("Pay from an account in "+p.cur+"."); return; } addTxn({type:"expense",date:today(),cat:"Insurance premium",note:p.name,postings:[{acct:a.id,amt:-p.premium,cur:a.cur}]}); p.next=addM(p.next,p.freq); save(); closeSheet(); render(); toast("Premium recorded"); }
   if(e.target.id==="fpur"){ const it=$("#un").value.trim(), am=parseAmt($("#ua").value), a=acct($("#uc").value), w=Math.round(parseAmt($("#uw").value)), dt=$("#ud").value||today(); if(!it||am<=0||!a) return; addTxn({type:"expense",date:dt,cat:"Shopping",note:it,postings:[{acct:a.id,amt:-am,cur:a.cur}]}); S.purchases.push({id:uid(),item:it,date:dt,amt:am,cur:a.cur,expiry:w>0?addM(dt,w):null}); save(); closeSheet(); render(); }
-  if(e.target.id==="fbank"){const number=$("#ba").value.trim().replace(/\s/g,"");const person=$("#bp").value.trim(),holder=$("#bh").value.trim(),bank=$("#bb").value.trim();if(!number||!person||!holder||!bank)return;const b={id:uid(),person,holder,bank,accountNumber:number,accountMasked:number.length>8?"••••"+number.slice(-4):"••••"+number.slice(-4),ifsc:$("#bi").value.trim().toUpperCase(),branch:$("#br").value.trim(),branchCode:$("#bc").value.trim(),cur:$("#bcur").value,nickname:$("#bn").value.trim()};S.bankContacts.push(b);if(!S.people.includes(person))S.people.push(person);log("recipient-bank",b.id);save();closeSheet();render();toast("Recipient account saved");return;}
-  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const newName=($("#anameEdit")?.value||"").trim(); if(!newName){alert("Enter an account nickname.");return;} a.name=newName; const newOwner=($("#aownerEdit")?.value||"").trim()||"Me"; a.owner=newOwner; if(!S.people.includes(newOwner))S.people.push(newOwner); const last4=($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expiry=($("#expiry")?.value||"").trim(); if(expiry&&!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){alert("Enter expiry as MM/YY.");return;} a.cardMeta={last4,network:($("#network")?.value||"").trim(),cardType:($("#cardType")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";const n=($("#aacctnoEdit")?.value||"").replace(/\s/g,"").trim();a.accountNumber=n;a.accountMasked=n?(n.length>4?"••••"+n.slice(-4):"••••"):"";} if(a.type==="card"){ if($("#abankEdit")) a.bank=($("#abankEdit").value||"").trim()||a.bank||""; a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value);} log("account-details",a.id);save(); } closeSheet(); render(); toast("Account details saved"); }
+  
+  if(e.target.id==="fcontact"){
+    const name=($("#cname")?.value||"").trim(); if(!name) return;
+    const c=ensureContactByName(name); c.notes=($("#cnotes")?.value||"").trim();
+    save(); closeSheet(); moneySeg="contacts"; render(); toast("Person saved"); return;
+  }
+  if(e.target.id==="fmethod"){
+    const c=contactById($("#midc")?.value); if(!c) return;
+    const kind=$("#mkind")?.value||"bank";
+    const num=(($("#mnum")?.value)||($("#mupi")?.value)||"").replace(/\s/g,"").trim();
+    const upi=($("#mupi")?.value||"").trim();
+    if(kind==="upi"&&!upi&&!num){ alert("Enter UPI ID"); return; }
+    if(kind==="bank"&&!num){ alert("Enter account number"); return; }
+    const m={id:uid(),kind,bank:kind==="upi"?"UPI":($("#mbank")?.value||"").trim(),holder:($("#mholder")?.value||"").trim(),accountNumber:kind==="upi"?upi:num,accountMasked:kind==="upi"?upi:(num.length>4?"••••"+num.slice(-4):num),ifsc:($("#mifsc")?.value||"").trim().toUpperCase(),branch:($("#mbranch")?.value||"").trim(),branchCode:"",upi:kind==="upi"?upi:"",cur:$("#mcur")?.value||"INR",nickname:""};
+    c.methods=c.methods||[]; c.methods.push(m);
+    S.bankContacts.push({id:m.id,person:c.name,holder:m.holder||c.name,bank:m.bank,accountNumber:m.accountNumber,accountMasked:m.accountMasked,ifsc:m.ifsc,branch:m.branch,branchCode:"",cur:m.cur,upi:m.upi,_migrated:true});
+    save(); closeSheet(); render(); toast(kind==="upi"?"UPI saved":"Bank account saved"); return;
+  }
+  if(e.target.id==="fdemat"){
+    const name=($("#dn")?.value||"").trim(); if(!name) return;
+    const inv=parseAmt($("#dinv")?.value||"0"), val=parseAmt($("#dval")?.value||"0");
+    const a={id:uid(),name,type:"demat",owner:($("#downer")?.value||"Me").trim()||"Me",cur:$("#dcur")?.value||"INR",opening:val,invested:inv,broker:($("#dbroker")?.value||"").trim(),dematId:($("#ddematid")?.value||"").trim(),archived:false,bank:"",branch:"",ifsc:"",branchCode:"",accountNumber:"",accountMasked:""};
+    if(!S.people.includes(a.owner)) S.people.push(a.owner);
+    S.accounts.push(a); log("demat",a.id); save(); closeSheet(); moneySeg="investments"; moneyHoldFilter="demat"; render(); toast("Demat account added"); return;
+  }
+if(e.target.id==="fbank"){const number=$("#ba").value.trim().replace(/\s/g,"");const person=$("#bp").value.trim(),holder=$("#bh").value.trim(),bank=$("#bb").value.trim();if(!number||!person||!holder||!bank)return;const b={id:uid(),person,holder,bank,accountNumber:number,accountMasked:number.length>8?"••••"+number.slice(-4):"••••"+number.slice(-4),ifsc:$("#bi").value.trim().toUpperCase(),branch:$("#br").value.trim(),branchCode:$("#bc").value.trim(),cur:$("#bcur").value,nickname:$("#bn").value.trim()};S.bankContacts.push(b);if(!S.people.includes(person))S.people.push(person);log("recipient-bank",b.id);save();closeSheet();render();toast("Recipient account saved");return;}
+  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const newName=($("#anameEdit")?.value||"").trim(); if(!newName){alert("Enter an account nickname.");return;} a.name=newName; const newOwner=($("#aownerEdit")?.value||"").trim()||"Me"; a.owner=newOwner; if(!S.people.includes(newOwner))S.people.push(newOwner); const last4=($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expiry=($("#expiry")?.value||"").trim(); if(expiry&&!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)){alert("Enter expiry as MM/YY.");return;} a.cardMeta={last4,network:($("#network")?.value||"").trim(),cardType:($("#cardType")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="demat"){ if($("#abrokerEdit")) a.broker=$("#abrokerEdit").value.trim(); if($("#adematEdit")) a.dematId=$("#adematEdit").value.trim(); if($("#ainvestedEdit")) a.invested=parseAmt($("#ainvestedEdit").value||"0"); } if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";const n=($("#aacctnoEdit")?.value||"").replace(/\s/g,"").trim();a.accountNumber=n;a.accountMasked=n?(n.length>4?"••••"+n.slice(-4):"••••"):"";} if(a.type==="card"){ if($("#abankEdit")) a.bank=($("#abankEdit").value||"").trim()||a.bank||""; a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value); if($("#alinked")) a.linkedBankId=$("#alinked").value||"";} log("account-details",a.id);save(); } closeSheet(); render(); toast("Account details saved"); }
   if(e.target.id==="fa2"){
     const name=$("#an").value.trim(); if(!name) return;
     let o=parseAmt($("#ao").value); const type=$("#at").value;
@@ -1396,6 +1746,7 @@ document.addEventListener("submit", e=>{
       a.limit=parseAmt($("#climit")?.value||"0");
       const day=v=>{const n=Math.round(parseAmt(v||"0")); return n>=1&&n<=31?n:0;};
       a.stmtDay=day($("#cstmt")?.value); a.dueDay=day($("#cdue")?.value);
+      a.linkedBankId=($("#clinked")?.value)||"";
     }
     S.accounts.push(a); if(!S.people.includes(a.owner))S.people.push(a.owner); log("account",a.id); save(); closeSheet(); render(); toast(type==="card"?"Credit card added":"Account added");
   }
