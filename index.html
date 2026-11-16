@@ -125,8 +125,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.7.2";
+const APP_VERSION = "1.8.0";
 const RELEASES = [
+  {v:"1.8.0", d:"2026-11-17", notes:"Policy pay always when premium owed; full contacts rebuild; family↔contacts move; Manage members in More; nav Home/Money/+/Plan/More."},
   {v:"1.7.2", d:"2026-11-17", notes:"Policy pay/overdue aligned with PPT; contacts reinstate from bankContacts; manage family members + net worth by person."},
   {v:"1.7.1", d:"2026-11-17", notes:"Policy premium pay stays available for the last due inside PPT even after that calendar date (late mark-paid)."},
   {v:"1.7.0", d:"2026-11-17", notes:"Person registry (multi bank/UPI); demat accounts; expense→warranty; policy PPT + edit; stocks first in holdings."},
@@ -271,25 +272,31 @@ function policyEffectiveNext(p){
   return next || end || "";
 }
 function policyPremiumActive(p){
-  // Payable when a premium is still owed inside the PPT window (including late payment after calendar due).
+  // Show pay whenever a premium amount exists and policy is not explicitly closed.
+  // PPT still drives *due reminders* and suggested payable date via policyEffectiveNext.
   if(!p) return false;
-  const end=policyPptEnd(p);
-  const eff=policyEffectiveNext(p);
-  if(!eff) return true; // no schedule info — allow mark paid
-  if(p.maturity && eff > p.maturity) return false;
-  if(end && eff > end) return false;
-  // Still payable if effective next is on/before end (even if overdue vs today)
+  if(p.status==="closed"||p.status==="stopped") return false;
+  if(!(Number(p.premium)>0)) return false;
   return true;
 }
 function policyFullyPaidTerm(p){
-  // Term finished and no outstanding due inside PPT
   const end=policyPptEnd(p);
   if(!end) return false;
   const next=(p.next||"").trim();
-  // User advanced next past end after paying final, or next empty after end
   if(next && next > end) return true;
   if(!next && today() > end) return true;
   return false;
+}
+function policyDueForReminder(p){
+  // Due-soon strip only if payable date is within PPT window (or no PPT set).
+  if(!p||p.status==="closed"||p.status==="stopped") return false;
+  if(!(Number(p.premium)>0)) return false;
+  const end=policyPptEnd(p);
+  const eff=policyEffectiveNext(p);
+  if(!eff) return false;
+  if(end && eff > end) return false;
+  if(p.maturity && eff > p.maturity) return false;
+  return true;
 }
 function nextDue(day){
   const t=today();
@@ -320,26 +327,51 @@ function ensureContactByName(name){
 }
 function migrateContactsFromBank(){
   if(!S.contacts) S.contacts=[];
-  // Re-link every legacy bankContacts row into the person registry (safe to run repeatedly).
-  for(const b of (S.bankContacts||[])){
-    const person=(b.person||b.holder||"Contact").trim(); if(!person) continue;
-    const c=ensureContactByName(person);
+  const addMethod=(person, meth)=>{
+    const c=ensureContactByName(person); if(!c) return;
     c.methods=c.methods||[];
-    const num=(b.accountNumber||b.upi||"").replace(/\s/g,"");
+    const num=(meth.accountNumber||meth.upi||"").replace(/\s/g,"");
     const exists=c.methods.some(m=>{
       const mn=(m.accountNumber||m.upi||"").replace(/\s/g,"");
-      return (num && mn && num===mn) || (b.id && m.id===b.id);
+      return (meth.id&&m.id===meth.id) || (num&&mn&&num===mn);
     });
-    if(!exists){
-      const kind=b.upi||(b.bank||"").toUpperCase()==="UPI"?"upi":"bank";
-      c.methods.push({id:b.id||uid(),kind,bank:b.bank||(kind==="upi"?"UPI":""),holder:b.holder||person,accountNumber:b.accountNumber||b.upi||"",accountMasked:b.accountMasked||(kind==="upi"?(b.upi||""):(b.accountNumber?("••••"+String(b.accountNumber).slice(-4)):"" )),ifsc:b.ifsc||"",branch:b.branch||"",branchCode:b.branchCode||"",upi:b.upi||"",cur:b.cur||"INR",nickname:b.nickname||""});
-    }
-    b._migrated=true;
+    if(!exists) c.methods.push(meth);
+  };
+  // Legacy recipient bank rows
+  for(const b of (S.bankContacts||[])){
+    const person=(b.person||b.holder||"").trim(); if(!person) continue;
+    const kind=b.upi||(b.bank||"").toUpperCase()==="UPI"?"upi":"bank";
+    addMethod(person,{id:b.id||uid(),kind,bank:b.bank||(kind==="upi"?"UPI":""),holder:b.holder||person,accountNumber:b.accountNumber||b.upi||"",accountMasked:b.accountMasked||"",ifsc:b.ifsc||"",branch:b.branch||"",branchCode:b.branchCode||"",upi:b.upi||"",cur:b.cur||"INR",nickname:b.nickname||""});
   }
-  // Also ensure lending counterparties appear as people (even without bank details yet)
+  // Owners on accounts/holdings who are not only "Me" — ensure contact shell exists (Family view people)
+  for(const a of (S.accounts||[])){
+    const o=(a.owner||"").trim();
+    if(o&&o!=="Me") ensureContactByName(o);
+  }
+  for(const h of (S.holdings||[])){
+    const o=(h.owner||"").trim();
+    if(o&&o!=="Me") ensureContactByName(o);
+  }
   for(const l of (S.lending||[])){
     if(l.person) ensureContactByName(l.person);
   }
+  // Deduplicate contacts by lowercase name (merge methods)
+  const by={};
+  for(const c of S.contacts){
+    const k=(c.name||"").trim().toLowerCase(); if(!k) continue;
+    if(!by[k]){ by[k]={...c, methods:(c.methods||[]).slice()}; }
+    else {
+      for(const m of (c.methods||[])){
+        const num=(m.accountNumber||m.upi||"").replace(/\s/g,"");
+        const exists=by[k].methods.some(x=>{
+          const xn=(x.accountNumber||x.upi||"").replace(/\s/g,"");
+          return (m.id&&x.id===m.id)||(num&&xn&&num===xn);
+        });
+        if(!exists) by[k].methods.push(m);
+      }
+    }
+  }
+  S.contacts=Object.values(by);
 }
 
 const fundLabel = h => { if(!h) return "Fund"; const bits=[h.name]; if(h.folio) bits.push("Folio "+h.folio); if(h.owner&&h.owner!=="Me") bits.push(h.owner); return bits.join(" · "); };
@@ -371,7 +403,7 @@ function unvoid(id){ const t=S.txns.find(x=>x.id===id); if(t){ t.status="posted"
 let S=null, CK=null, BIO=null, SALT=null, KDF_ITER=250000, chain=Promise.resolve();
 
 /* ---------- UI state ---------- */
-let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family", xferMode="self", moneySeg="accounts", moneyAcctFilter="all", moneyHoldFilter="all", planSeg="sips";
+let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family", xferMode="self", moneySeg="accounts", moneyAcctFilter="all", moneyHoldFilter="all", planSeg="sips", homeNwFilter="all";
 const $ = s => document.querySelector(s);
 
 
@@ -425,7 +457,7 @@ function processDueAutomations(){
 }
 
 function render(){
-  $("#nav").innerHTML = ["home:Home","activity:Activity","+:+","plan:Plan","accounts:Money","settings:More"].map(x=>{
+  $("#nav").innerHTML = ["home:Home","accounts:Money","+:+","plan:Plan","settings:More"].map(x=>{
     const [k,l]=x.split(":");
     return k==="+" ? `<button class="add" aria-label="Add transaction" data-add>+</button>` : `<button data-tab="${k}" class="${tab===k?"on":""}">${l}</button>`;
   }).join("");
@@ -444,7 +476,7 @@ function netWorth(owner){
   for(const v of Object.values(personPos(owner))){if(v>=0)assets+=v;else owed+=-v;}
   return {assets,owed,total:assets-owed};
 }
-function historyHtml(owner){const hs=(S.history||[]).filter(x=>owner?x.owner===owner:!x.owner).slice(-12).reverse();return `<h2>Net worth history</h2><div class="card">${hs.length?hs.map(x=>`<div class="row"><span>${esc(x.date)}</span><b class="num">${fmt(toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate),S.display)}</b></div>`).join(""):`<div class="muted">No saved snapshots yet for this view.</div>`}<button class="btn alt" data-snapshot>Save this month's snapshot</button></div>`;}
+function historyHtml(owner){const hs=(S.history||[]).filter(x=>owner?x.owner===owner:!x.owner).slice(-12).reverse();return `<h2>Net worth history</h2><div class="card">${hs.length?hs.map(x=>`<div class="row"><span>${esc(x.date)}</span><b class="num">${fmt(toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate),S.display)}</b></div>`).join(""):`<div class="muted">No saved snapshots yet for this view.</div>`}<button class="btn alt" data-snapshot>Save this month's snapshot</button></div><button class="btn alt" data-tab="activity">See all activity</button>`;}
 function investSummaryHtml(owner){
   let cost=0,val=0,n=0;
   for(const h of S.holdings){
@@ -529,9 +561,17 @@ function viewHome0(){
   for(const x of S.txns){ if(x.status==="posted"&&x.type==="refund"&&monthKey(x.date)===monthKey(today())&&(!owner||x.owner===owner)&&cats[x.cat]!=null) cats[x.cat]-=toDisplayAt(x.postings[0].amt,x.postings[0].cur,x.fxRate); }
   const top=Object.entries(cats).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]).slice(0,4),max=top.length?top[0][1]:1;
   const memberNw = homeOwner==="All family" ? owners.filter(o=>o!=="All family").map(o=>{ const nw=netWorth(o); return {o, total:nw.total, assets:nw.assets, owed:nw.owed}; }) : [];
-  return `<div class="home-filter"><label>Family view</label><select id="homeOwner">${owners.map(o=>`<option ${homeOwner===o?"selected":""}>${esc(o)}</option>`).join("")}</select>
-  <button type="button" class="chip" data-editpeople style="margin-left:8px">Manage members</button></div>
-  ${memberNw.length?`<div class="metric-grid">${memberNw.map(m=>`<div class="metric tap" data-setowner="${esc(m.o)}"><span>${esc(m.o)}</span><b class="num ${m.total<0?"out":""}">${fmt(m.total,S.display)}</b></div>`).join("")}</div>`:""}
+  const nwFilter = homeNwFilter||"all";
+  let memberShow = memberNw;
+  if(nwFilter==="with") memberShow = memberNw.filter(m=>Math.abs(m.total)>0.001);
+  if(nwFilter==="zero") memberShow = memberNw.filter(m=>Math.abs(m.total)<=0.001);
+  return `<div class="home-filter"><label>Family view</label><select id="homeOwner">${owners.map(o=>`<option ${homeOwner===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>
+  ${homeOwner==="All family"?`<div class="chips" style="margin:0 0 10px">
+    <button type="button" class="chip ${nwFilter==="all"?"on":""}" data-homenwf="all">All members</button>
+    <button type="button" class="chip ${nwFilter==="with"?"on":""}" data-homenwf="with">With net worth</button>
+    <button type="button" class="chip ${nwFilter==="zero"?"on":""}" data-homenwf="zero">Zero / empty</button>
+  </div>
+  ${memberShow.length?`<div class="metric-grid">${memberShow.map(m=>`<div class="metric tap" data-setowner="${esc(m.o)}"><span>${esc(m.o)}</span><b class="num ${m.total<0?"out":""}">${fmt(m.total,S.display)}</b></div>`).join("")}</div><p class="muted" style="margin:6px 0 0">Tap a person to filter Home. Manage members under More.</p>`:`<p class="muted">No members match this filter. Manage members under More → Family members.</p>`}`:""}
   <div class="hero"><div class="muted">${owner?esc(owner)+" · ":"Family net worth · "}${S.display}</div><div class="big num">${fmt(nw.total,S.display)}</div><div class="muted">Assets ${fmt(nw.assets,S.display)} · Liabilities ${fmt(nw.owed,S.display)}</div></div>
   <div class="metric-grid"><div class="metric"><span class="muted">Income this month</span><b class="in num">${fmt(t.inc,S.display)}</b></div><div class="metric"><span class="muted">Spending this month</span><b class="out num">${fmt(t.exp,S.display)}</b></div><div class="metric"><span class="muted">Net cash flow</span><b class="num">${fmt(t.inc-t.exp,S.display)}</b></div><div class="metric"><span class="muted">Accounts</span><b>${S.accounts.filter(a=>!a.archived&&(!owner||a.owner===owner)).length}</b></div></div>
   <div class="quick-grid"><button data-add data-quick="expense">＋ Expense</button><button data-add data-quick="income">＋ Income</button><button data-add data-quick="transfer">⇄ Transfer</button></div>
@@ -580,7 +620,8 @@ function viewAccounts(){
     const bits=[n?`${n} method${n>1?"s":""}`:"No methods yet"];
     if(banks) bits.push(banks+" bank");
     if(upis) bits.push(upis+" UPI");
-    return `<div class="card tap" data-contact="${c.id}"><div class="row"><div><b>${esc(c.name)}</b><div class="muted">${bits.join(" · ")}</div></div><span class="muted">Open</span></div></div>`;
+    const inFam=(S.people||[]).includes(c.name);
+    return `<div class="card tap" data-contact="${c.id}"><div class="row"><div><b>${esc(c.name)}</b><div class="muted">${bits.join(" · ")}${inFam?" · Family view":""}</div></div><span class="muted">Open</span></div></div>`;
   }).join("")||`<div class="empty"><div class="empty-title">No people yet</div><p>Register a friend once, then add multiple accounts or UPI IDs.</p></div>`}
   <button class="btn" data-newcontact>Add person</button>`;
   }
@@ -652,6 +693,15 @@ function viewSettings(){
   <div class="row"><span>Auto-post due SIPs on unlock</span><button class="chip ${S.autoSip!==false?"on":""}" data-togglesip>${S.autoSip!==false?"On":"Off"}</button></div>
   <div class="row"><span>Auto-post due salaries on unlock</span><button class="chip ${S.autoSalary!==false?"on":""}" data-togglesal>${S.autoSalary!==false?"On":"Off"}</button></div>
   <div class="muted" style="margin-top:8px">Runs only when you open/unlock the app. SIP units use the fund’s current price when set; otherwise cost is recorded with 0 units until you update price.</div></div>
+  <div class="card"><b>Family members</b>
+  <div class="muted">Names used in Family view and as account owners. Moving someone to Contacts only changes visibility — data is kept.</div>
+  <button class="btn alt" data-editpeople style="margin-top:8px">Manage family members</button></div>
+  <div class="card"><b>Activity</b>
+  <div class="muted">Full transaction list (also reachable from Home history).</div>
+  <button class="btn alt" data-tab="activity" style="margin-top:8px">Open activity</button></div>
+  <div class="card"><b>Plan</b>
+  <div class="muted">SIPs, salaries, lending and cover remain on the Plan tab.</div>
+  <button class="btn alt" data-tab="plan" style="margin-top:8px">Open plan</button></div>
   <div class="card"><b>Categories</b>
   <div class="muted">Customise labels used for income and expenses (including cash).</div>
   <button class="btn alt" data-editcats="expense" style="margin-top:8px">Edit expense categories</button>
@@ -947,7 +997,7 @@ function dueHtml(){
     }
   }
   for(const p of S.policies){
-    if(!policyPremiumActive(p)) continue;
+    if(!policyDueForReminder(p)) continue;
     const due=policyEffectiveNext(p)||p.next;
     if(!due) continue;
     const d=daysTo(due);
@@ -1197,21 +1247,44 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if("close" in d){ if(el.classList.contains("sheet-bg") && e.target!==el) return; closeSheet(); return; }
   if(d.tab){ tab=d.tab; render(); window.scrollTo(0,0); return; }
   if("editpeople" in d){
     openSheet(`<h2 style="margin-top:0">Family members</h2>
-    <p class="muted">These names appear in Family view and as account/holding owners. Renaming updates the label list; existing accounts keep their owner field until you edit those accounts.</p>
-    ${(S.people||[]).map(n=>`<div class="row" style="gap:8px;margin:8px 0"><input class="person-name" data-personold="${esc(n)}" value="${esc(n)}" style="flex:1"><button type="button" class="chip" data-delperson="${esc(n)}">Remove</button></div>`).join("")||`<div class="muted">No members yet.</div>`}
+    <p class="muted">Family view names. <b>Move to Contacts</b> hides them from Family view but keeps accounts and history. Rename updates owner labels on accounts/holdings.</p>
+    ${(S.people||[]).map(n=>`<div class="card" style="margin:8px 0"><div class="row" style="gap:8px"><input class="person-name" data-personold="${esc(n)}" value="${esc(n)}" style="flex:1"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+        ${n!=="Me"?`<button type="button" class="chip" data-movetocontacts="${esc(n)}">Move to Contacts</button><button type="button" class="chip" data-delperson="${esc(n)}">Remove from list</button>`:`<span class="muted">Primary profile</span>`}
+      </div></div>`).join("")||`<div class="muted">No members yet.</div>`}
     <button type="button" class="btn alt" data-addperson>Add member</button>
     <button type="button" class="btn" data-savepeople>Save names</button>
     <button type="button" class="btn alt" data-close>Close</button>`);
     return;
   }
   if(d.setowner){ homeOwner=d.setowner; render(); return; }
+  if(d.movetocontacts){
+    const name=d.movetocontacts;
+    if(name==="Me"){ alert("Me stays in Family view."); return; }
+    if(!confirm("Move “"+name+"” to Contacts? They leave Family view; accounts and history stay.")) return;
+    ensureContactByName(name);
+    S.people=(S.people||[]).filter(x=>x!==name);
+    if(homeOwner===name) homeOwner="All family";
+    save(); toast(name+" moved to Contacts");
+    // reopen manage sheet
+    closeSheet(); render();
+    setTimeout(()=>document.querySelector("[data-editpeople]")?.dispatchEvent(new Event("click",{bubbles:true})), 50);
+    return;
+  }
+  if(d.movetofamily){
+    const name=d.movetofamily;
+    if(!confirm("Add “"+name+"” to Family view? Contact details stay under Contacts.")) return;
+    ensureContactByName(name);
+    if(!S.people.includes(name)) S.people.push(name);
+    save(); toast(name+" added to Family view"); closeSheet(); render(); return;
+  }
   if(d.delperson){
     const name=d.delperson;
     if(["Me"].includes(name)){ alert("Keep at least the Me profile."); return; }
@@ -1260,6 +1333,7 @@ document.addEventListener("click", async e=>{
   if(d.planseg){ planSeg=d.planseg; render(); window.scrollTo(0,0); return; }
   if(d.moneyacctf){ moneyAcctFilter=d.moneyacctf; render(); return; }
   if(d.moneyholdf){ moneyHoldFilter=d.moneyholdf; render(); return; }
+  if(d.homenwf){ homeNwFilter=d.homenwf; render(); return; }
   if("add" in d){ if(el.dataset.quick){sheetType=el.dataset.quick;chosenCat=null;} addSheet(); return; }
   if(d.type){ sheetType=d.type; addSheet(); return; }
   if(d.cat){ chosenCat=d.cat; document.querySelectorAll("#cats .chip").forEach(c=>c.classList.toggle("on",c.dataset.cat===chosenCat)); return; }
@@ -1305,6 +1379,7 @@ document.addEventListener("click", async e=>{
     ${methods.map(m=>`<div class="card"><div class="row"><div><b>${m.kind==="upi"?"UPI":esc(m.bank||"Bank")}</b><div class="muted">${m.kind==="upi"?esc(m.upi||m.accountNumber||""):esc(m.holder||"")+" · "+esc(m.accountMasked||"")}${m.ifsc?" · "+esc(m.ifsc):""}</div></div>
       <div style="display:flex;gap:6px"><button class="chip" data-copymethod="${c.id}::${m.id}">Copy</button><button class="chip" data-delmethod="${c.id}::${m.id}">Remove</button></div></div></div>`).join("")||`<div class="muted">No bank or UPI yet.</div>`}
     <button class="btn" data-addmethod="${c.id}">Add bank / UPI</button>
+    ${!(S.people||[]).includes(c.name)?`<button class="btn alt" data-movetofamily="${esc(c.name)}">Move to Family view</button>`:`<div class="muted" style="margin-top:8px">Also in Family view</div>`}
     <button class="btn alt" data-delcontact="${c.id}">Remove person</button>
     <button class="btn alt" data-close>Close</button>`); return;
   }
