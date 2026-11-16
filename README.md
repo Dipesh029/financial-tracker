@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.2.3
+**Current version:** 2.2.4
 
 ---
 
@@ -120,6 +120,11 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.2.4 — 2026-11-17
+- App-wide form validation: fixed **New purchase** save (`fpur` handler was missing).
+- Salary “mark received” includes `salaryId` for safer dedupe.
+- Added FUNCTIONAL_VALIDATION_REPORT.md.
 
 ### 2.2.3 — 2026-11-17
 - **Fix:** Contact name & notes save (`fcontact` / `fcontactedit` handlers).

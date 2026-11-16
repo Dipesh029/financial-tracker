@@ -240,8 +240,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.2.3";
+const APP_VERSION = "2.2.4";
 const RELEASES = [
+  {v:"2.2.4", d:"2026-11-17", notes:"App-wide validation: fixed New purchase save (fpur); salary mark-received idempotency; validation report."},
   {v:"2.2.3", d:"2026-11-17", notes:"Fixed contact name/notes save and new contact save; demat form save; multiline notes."},
   {v:"2.2.2", d:"2026-11-17", notes:"Fixed saving contact UPI/bank methods; UPI display name; copy UPI ID only."},
   {v:"2.2.1", d:"2026-11-17", notes:"Salary schedules: edit/update amount & account, weekly/biweekly, pause/delete, revision history preserved."},
@@ -2108,7 +2109,7 @@ if(d.delmethod){
     const x=S.salaries.find(v=>v.id===d.salaryrecv); if(!x) return;
     const a=acct(x.acct); if(!a) return;
     const payDate=x.next||today();
-    addTxn({type:"income",date:payDate,note:x.label||"Salary",cat:"Salary",person:x.person||"",owner:x.person||a.owner||"Me",postings:[{acct:x.acct,amt:x.amt,cur:x.cur}]});
+    addTxn({type:"income",date:payDate,note:x.label||"Salary",cat:"Salary",person:x.person||"",owner:x.person||a.owner||"Me",salaryId:x.id,postings:[{acct:x.acct,amt:x.amt,cur:x.cur}]});
     x.history=x.history||[]; x.history.push({date:payDate,status:"received",amount:x.amt,auto:false});
     x.next=advanceSalaryNext(x, payDate); save(); closeSheet(); render(); toast("Salary recorded"); return;
   }
@@ -2469,7 +2470,7 @@ document.addEventListener("submit", e=>{
     else render();
     return;
   }
-  if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today(),status:"active",history:[]}); save(); closeSheet(); render(); toast("SIP saved"); }
+  if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||!(m>0)){ alert("Choose a fund and enter a positive amount."); return; } if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today(),status:"active",history:[]}); save(); closeSheet(); render(); toast("SIP saved"); }
   
   
   if(e.target.id==="fcontact"){
@@ -2638,7 +2639,26 @@ document.addEventListener("submit", e=>{
     x.history=x.history||[]; x.history.push({date:payDate,status:"paid",units:u,amount:x.amt});
     x.next=addM(x.next,x.freq||1); x.status=x.status||"active";
     save(); closeSheet(); render(); toast("SIP payment recorded"); }
-  if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n) return; S.policies.push({id:uid(),name:n,policyNo:$("#pno").value.trim(),provider:$("#pp").value.trim(),owner:$("#po").value||"Me",start:$("#pstart").value||"",sum:parseAmt($("#ps").value),bonus:parseAmt($("#bonus").value),premium:parseAmt($("#pa").value),ppt:parseAmt($("#ppt").value),term:parseAmt($("#pt").value),maturity:$("#mat").value||"",cur:$("#pc").value,freq:+$("#pf").value,next:$("#pd").value||today()}); save(); closeSheet(); render(); }
+  if(e.target.id==="fpur"){
+    const item=($("#un")?.value||"").trim();
+    const amt=parseAmt($("#ua")?.value);
+    const date=$("#ud")?.value||today();
+    const a=acct($("#uc")?.value);
+    const months=parseAmt($("#uw")?.value)||0;
+    if(!item){ alert("Enter an item name."); return; }
+    if(!(amt>0)){ alert("Enter a positive amount."); return; }
+    if(!a){ alert("Choose the account you paid from."); return; }
+    let expiry="";
+    if(months>0){
+      // expiry = purchase date + months
+      expiry=addM(date, Math.round(months));
+    }
+    const txn=addTxn({type:"expense",date,cat:"Shopping",note:item+(months?(" · warranty "+months+" mo"):""),postings:[{acct:a.id,amt:-amt,cur:a.cur}]});
+    S.purchases=S.purchases||[];
+    S.purchases.push({id:uid(),item,amt,cur:a.cur,date,expiry,acct:a.id,txnId:txn.id,warrantyMonths:months});
+    save(); closeSheet(); render(); toast("Purchase saved"); return;
+  }
+  if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n){ alert("Enter a policy name."); return; } S.policies.push({id:uid(),name:n,policyNo:$("#pno").value.trim(),provider:$("#pp").value.trim(),owner:$("#po").value||"Me",start:$("#pstart").value||"",sum:parseAmt($("#ps").value),bonus:parseAmt($("#bonus").value),premium:parseAmt($("#pa").value),ppt:parseAmt($("#ppt").value),term:parseAmt($("#pt").value),maturity:$("#mat").value||"",cur:$("#pc").value,freq:+$("#pf").value,next:$("#pd").value||today()}); save(); closeSheet(); render(); }
   if(e.target.id==="fpoledit"){
     const p=S.policies.find(x=>x.id===$("#peid")?.value); if(!p) return;
     p.name=($("#pen")?.value||p.name).trim(); p.policyNo=($("#peno")?.value||"").trim();
