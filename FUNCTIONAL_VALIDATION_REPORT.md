@@ -174,3 +174,16 @@ Prior fixed issues (already in 2.2.x): contact notes, add person, UPI save, dema
 | Date edit | Still available on same form |
 | Unit checks | increase / decrease with repayments / reject below repaid → PASS |
 | Status | **FIXED** |
+
+
+## Update 2.3.0 — Lending UI redesign (2026-11-17)
+
+| Area | Change |
+|------|--------|
+| Dashboard | Outstanding hero + total lent / repaid / you owe / active count |
+| Cards | Name hierarchy, original vs outstanding, progress bar, status pill |
+| Detail | Summary, payment info, repayment history, edit amount/date, repay action |
+| Forms | Existing sectioned add form retained |
+| Logic | No calculation changes; same `lendingPosition` / edit handlers |
+| Regression | flendedit amount+date, lendrec repayment entry preserved |
+| Status | **PASS** (syntax); visual smoke on device recommended |
