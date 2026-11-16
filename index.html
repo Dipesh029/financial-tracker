@@ -44,6 +44,8 @@ h2{font-size:15px;font-weight:650;margin:20px 0 8px;letter-spacing:-.01em}
 .seg{display:flex;gap:4px;background:var(--bg);border-radius:12px;padding:4px;border:1px solid var(--line)}
 .seg button{flex:1;border:0;background:transparent;color:var(--muted);padding:10px 2px;font-size:12px;border-radius:9px;font:inherit;font-weight:650;transition:background .15s var(--ease),color .15s var(--ease)}
 .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+body.locked #nav,body.locked nav{display:none!important;pointer-events:none!important;height:0!important;overflow:hidden!important;border:0!important;padding:0!important}
+body.locked #app{padding-bottom:24px}
 nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);
   display:flex;justify-content:space-around;align-items:center;z-index:5;
   padding:6px 6px calc(8px + env(safe-area-inset-bottom,0px));
@@ -125,8 +127,10 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.8.1";
+const APP_VERSION = "1.8.3";
 const RELEASES = [
+  {v:"1.8.3", d:"2026-11-17", notes:"Lock screen hides nav; unlock errors surface real cause; migrate contacts on unlock; auth required before any app UI."},
+  {v:"1.8.2", d:"2026-11-17", notes:"Contacts restore from bankContacts; contacts not auto-Family; lend recipient account; name suggestions."},
   {v:"1.8.1", d:"2026-11-17", notes:"Premium pay advances next due correctly (no false overdue); policy payment history; updated in-app user guide."},
   {v:"1.8.0", d:"2026-11-17", notes:"Policy pay always when premium owed; full contacts rebuild; family↔contacts move; Manage members in More; nav Home/Money/+/Plan/More."},
   {v:"1.7.2", d:"2026-11-17", notes:"Policy pay/overdue aligned with PPT; contacts reinstate from bankContacts; manage family members + net worth by person."},
@@ -248,6 +252,7 @@ function migrate(){
   for(const x of S.sips){ x.status=x.status||"active"; x.history=x.history||[]; }
   for(const x of S.salaries){ x.status=x.status||"active"; x.history=x.history||[]; }
   for(const p of S.policies){ p.payments=p.payments||[]; }
+  try{ migrateContactsFromBank(); }catch(e){ console.warn("contact migrate", e); }
   if(S.autoSip==null) S.autoSip=true;
   if(S.autoSalary==null) S.autoSalary=true;
   if(!Array.isArray(S.expenseCats)||!S.expenseCats.length) S.expenseCats=EXPENSE_CATS.slice();
@@ -340,51 +345,53 @@ function contactById(id){ return (S.contacts||[]).find(c=>c.id===id); }
 function ensureContactByName(name){
   name=(name||"").trim(); if(!name) return null;
   let c=(S.contacts||[]).find(x=>x.name.toLowerCase()===name.toLowerCase());
-  if(!c){ c={id:uid(),name,notes:"",methods:[]}; S.contacts.push(c); if(!S.people.includes(name)) S.people.push(name); }
+  if(!c){ c={id:uid(),name,notes:"",methods:[]}; S.contacts.push(c); }
   return c;
+}
+function allPersonNames(){
+  const set=new Set();
+  for(const n of (S.people||[])) if(n&&String(n).trim()) set.add(String(n).trim());
+  for(const c of (S.contacts||[])) if(c.name&&c.name.trim()) set.add(c.name.trim());
+  for(const b of (S.bankContacts||[])){ if(b.person&&b.person.trim()) set.add(b.person.trim()); if(b.holder&&b.holder.trim()) set.add(b.holder.trim()); }
+  for(const l of (S.lending||[])) if(l.person&&l.person.trim()) set.add(l.person.trim());
+  return [...set].sort((a,b)=>a.localeCompare(b));
 }
 function migrateContactsFromBank(){
   if(!S.contacts) S.contacts=[];
+  if(!S.bankContacts) S.bankContacts=[];
   const addMethod=(person, meth)=>{
     const c=ensureContactByName(person); if(!c) return;
     c.methods=c.methods||[];
     const num=(meth.accountNumber||meth.upi||"").replace(/\s/g,"");
     const exists=c.methods.some(m=>{
       const mn=(m.accountNumber||m.upi||"").replace(/\s/g,"");
-      return (meth.id&&m.id===meth.id) || (num&&mn&&num===mn);
+      return (meth.id&&m.id===meth.id) || (num&&mn&&num===mn) || (meth.upi&&m.upi&&meth.upi===m.upi);
     });
     if(!exists) c.methods.push(meth);
   };
-  // Legacy recipient bank rows
-  for(const b of (S.bankContacts||[])){
+  for(const b of S.bankContacts){
     const person=(b.person||b.holder||"").trim(); if(!person) continue;
     const kind=b.upi||(b.bank||"").toUpperCase()==="UPI"?"upi":"bank";
     addMethod(person,{id:b.id||uid(),kind,bank:b.bank||(kind==="upi"?"UPI":""),holder:b.holder||person,accountNumber:b.accountNumber||b.upi||"",accountMasked:b.accountMasked||"",ifsc:b.ifsc||"",branch:b.branch||"",branchCode:b.branchCode||"",upi:b.upi||"",cur:b.cur||"INR",nickname:b.nickname||""});
   }
-  // Owners on accounts/holdings who are not only "Me" — ensure contact shell exists (Family view people)
-  for(const a of (S.accounts||[])){
-    const o=(a.owner||"").trim();
-    if(o&&o!=="Me") ensureContactByName(o);
+  for(const l of (S.lending||[])) if(l.person) ensureContactByName(l.person);
+  for(const c of S.contacts){
+    for(const m of (c.methods||[])){
+      if(!m.id) m.id=uid();
+      const hit=S.bankContacts.find(b=>b.id===m.id || (((b.accountNumber||b.upi||"")&&(b.accountNumber||b.upi)===(m.accountNumber||m.upi))&&((b.person||"").toLowerCase()===(c.name||"").toLowerCase())));
+      if(!hit){
+        S.bankContacts.push({id:m.id,person:c.name,holder:m.holder||c.name,bank:m.bank||"",accountNumber:m.accountNumber||"",accountMasked:m.accountMasked||"",ifsc:m.ifsc||"",branch:m.branch||"",branchCode:m.branchCode||"",cur:m.cur||"INR",upi:m.upi||"",_migrated:true});
+      }else{ hit.person=hit.person||c.name; hit._migrated=true; }
+    }
   }
-  for(const h of (S.holdings||[])){
-    const o=(h.owner||"").trim();
-    if(o&&o!=="Me") ensureContactByName(o);
-  }
-  for(const l of (S.lending||[])){
-    if(l.person) ensureContactByName(l.person);
-  }
-  // Deduplicate contacts by lowercase name (merge methods)
   const by={};
   for(const c of S.contacts){
     const k=(c.name||"").trim().toLowerCase(); if(!k) continue;
-    if(!by[k]){ by[k]={...c, methods:(c.methods||[]).slice()}; }
+    if(!by[k]) by[k]={...c, methods:(c.methods||[]).slice()};
     else {
       for(const m of (c.methods||[])){
         const num=(m.accountNumber||m.upi||"").replace(/\s/g,"");
-        const exists=by[k].methods.some(x=>{
-          const xn=(x.accountNumber||x.upi||"").replace(/\s/g,"");
-          return (m.id&&x.id===m.id)||(num&&xn&&num===xn);
-        });
+        const exists=by[k].methods.some(x=>{ const xn=(x.accountNumber||x.upi||"").replace(/\s/g,""); return (m.id&&x.id===m.id)||(num&&xn&&num===xn); });
         if(!exists) by[k].methods.push(m);
       }
     }
@@ -475,12 +482,24 @@ function processDueAutomations(){
 }
 
 function render(){
+  if(!S || !CK){
+    document.body.classList.add("locked");
+    $("#nav").innerHTML = "";
+    boot();
+    return;
+  }
+  document.body.classList.remove("locked");
   $("#nav").innerHTML = ["home:Home","accounts:Money","+:+","plan:Plan","settings:More"].map(x=>{
     const [k,l]=x.split(":");
-    return k==="+" ? `<button class="add" aria-label="Add transaction" data-add>+</button>` : `<button data-tab="${k}" class="${tab===k?"on":""}">${l}</button>`;
+    return k==="+" ? `<button class="add" aria-label="Add transaction" data-add>${l}</button>` : `<button data-tab="${k}" class="${tab===k?"on":""}">${l}</button>`;
   }).join("");
   const v = {home:viewHome,plan:viewPlan, activity:viewActivity, accounts:viewAccounts, settings:viewSettings}[tab];
-  $("#app").innerHTML = v();
+  try{
+    $("#app").innerHTML = v();
+  }catch(err){
+    console.error(err);
+    $("#app").innerHTML = `<div class="empty"><div class="empty-title">Screen error</div><p class="muted">${esc(String(err.message||err))}</p><button class="btn" data-tab="home">Go home</button></div>`;
+  }
 }
 
 function personNetWorth(person){
@@ -630,7 +649,7 @@ function viewAccounts(){
   if(seg==="contacts"){
     const list=S.contacts||[];
     return segBar+`<h2 style="margin-top:4px">People registry</h2>
-  <p class="muted">One person, many bank accounts or UPI IDs. Same names work for lending and external transfers. Not balances — reference only.</p>
+  <p class="muted">One person, many bank accounts or UPI IDs. Older friend accounts are restored from saved data when you unlock. Same names work for lending and external transfers. Not balances — reference only.</p>
   ${list.map(c=>{
     const n=(c.methods||[]).length;
     const banks=(c.methods||[]).filter(m=>m.kind!=="upi").length;
@@ -945,16 +964,35 @@ function lendingPosition(l){
 }
 function newLendingSheet(){
   const accounts=accOpts();
+  const names=allPersonNames();
   openSheet(`<h2 style="margin-top:0">New friends & family lending record</h2><form id="flend">
-  <label>Person</label><input id="lpname" list="lpeople" required placeholder="Same names as Contacts"><datalist id="lpeople">${[...new Set([...(S.people||[]),...(S.contacts||[]).map(c=>c.name)])].map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+  <label>Person</label><input id="lpname" list="lpeople" required placeholder="Contact or family name"><datalist id="lpeople">${names.map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
   <label>Direction</label><select id="ldir"><option value="lent">I lent money (they owe me)</option><option value="borrowed">I borrowed money (I owe them)</option></select>
   <label>Principal amount</label><input id="lprincipal" inputmode="decimal" required>
-  <label>Currency</label><select id="lcur"><option>EUR</option><option>INR</option></select>
+  <label>Currency</label><select id="lcur"><option>INR</option><option>EUR</option></select>
   <label>Annual simple interest rate (%) — optional</label><input id="lrate" inputmode="decimal" value="0">
-  <label>Start date</label><input id="lstart" type="date" value="${today()}">
-  <label>Cash account</label><select id="laccount">${accounts.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>
+  <label>Start date</label><input type="date" id="lstart" value="${today()}">
+  <label>My account (from / to)</label><select id="laccount" required>${accounts.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>
+  <label>Their account / UPI (optional)</label>
+  <select id="lrecv"><option value="">— Not specified —</option>
+  ${(S.contacts||[]).flatMap(c=>(c.methods||[]).map(m=>`<option value="${c.id}::${m.id}">${esc(c.name)} · ${m.kind==="upi"?"UPI "+esc(m.upi||m.accountNumber||""):esc(m.bank||"Bank")+" "+esc(m.accountMasked||"")}</option>`)).join("")}
+  </select>
+  <div class="muted">Recipient method is optional. Add bank/UPI under Money → Contacts first if needed.</div>
   <button class="btn" type="submit">Save lending record</button></form>`);
+  // Prefer matching methods when person name changes
+  const nameEl=$("#lpname"), recv=$("#lrecv");
+  if(nameEl&&recv){
+    nameEl.addEventListener("change",()=>{
+      const n=(nameEl.value||"").trim().toLowerCase();
+      for(const opt of recv.options){
+        if(!opt.value) continue;
+        const c=contactById(opt.value.split("::")[0]);
+        if(c&&c.name.toLowerCase()===n){ recv.value=opt.value; break; }
+      }
+    });
+  }
 }
+
 function lendingPaymentSheet(id){
   const l=S.lending.find(x=>x.id===id); if(!l)return;
   const p=lendingPosition(l);
@@ -984,7 +1022,11 @@ function viewPlan(){
   }
   if(seg==="lending"){
     return segBar+`<h2 style="margin-top:4px">Friends & family lending</h2>
-  ${S.lending.map(l=>{const p=lendingPosition(l);return `<div class="card"><div class="row"><div><b>${esc(l.person)}</b><div class="muted">${l.direction==="lent"?"They owe you":"You owe them"} · ${fmt(l.principal,l.cur)} · ${l.rate||0}% simple interest</div><div class="muted">Outstanding ${fmt(p.principal,l.cur)} · est. interest ${fmt(p.interest,l.cur)}</div></div><button class="chip" data-lendrec="${l.id}">Record</button></div></div>`}).join("")||`<div class="empty"><div class="empty-title">No lending records</div><p>Track money lent or borrowed with optional simple interest.</p></div>`}
+  ${S.lending.map(l=>{const p=lendingPosition(l);const mine=acct(l.account);const st=p.principal<=0.0001?"Repaid":(p.principal<l.principal-0.0001?"Partial":"Outstanding");const recv=l.recipientMethod? (l.recipientMethod.kind==="upi"?"UPI "+(l.recipientMethod.upi||""):((l.recipientMethod.bank||"Bank")+" "+(l.recipientMethod.accountMasked||""))) : "";
+    return `<div class="card"><div class="row"><div><b>${esc(l.person)}</b><div class="muted">${l.direction==="lent"?"You lent":"You borrowed"} · ${fmt(l.principal,l.cur)} · ${l.start||""}${l.rate?` · ${l.rate}%`:""}</div>
+    <div class="muted">Your account: ${esc(mine?mine.name:"—")}${recv?` · Their account: ${esc(recv)}`:""}</div>
+    <div class="muted">${st} principal ${fmt(p.principal,l.cur)}${p.interest?` · est. interest ${fmt(p.interest,l.cur)}`:""}</div></div>
+    <button class="chip" data-lendrec="${l.id}">Record</button></div></div>`;}).join("")||`<div class="empty"><div class="empty-title">No lending records</div><p>Track money lent or borrowed with optional simple interest.</p></div>`}
   <button class="btn" data-newlend>Add lending record</button>`;
   }
   if(seg==="cover"){
@@ -1208,9 +1250,28 @@ async function enableBiometric(){
   BIO={...bio,iv:b64(iv),wrapped:b64(wrapped)};CK=await deriveKey(pass,SALT,KDF_ITER,false);save();render();toast("Fingerprint unlock enabled");
 }
 async function unlockBiometric(){
-  const env=JSON.parse(store.get());if(!env?.bio)throw new Error("No biometric key is configured.");
-  const bio=env.bio,prf=await biometricPRF(bio),wrap=await biometricWrapKey(prf),raw=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(bio.iv),additionalData:new TextEncoder().encode("myfinance-biometric-v1")},wrap,unb64(bio.wrapped));
-  CK=await crypto.subtle.importKey("raw",raw,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);SALT=unb64(env.salt);KDF_ITER=env.iterations||250000;BIO=bio;S=await unseal(env,CK);migrate();processDueAutomations();save();render();
+  const rawEnv=store.get();
+  if(!rawEnv) throw new Error("No vault found on this device.");
+  const env=JSON.parse(rawEnv);
+  if(!env?.bio) throw new Error("No biometric key is configured.");
+  const bio=env.bio;
+  let prf, wrap, raw;
+  try{
+    prf=await biometricPRF(bio);
+    wrap=await biometricWrapKey(prf);
+    raw=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(bio.iv),additionalData:new TextEncoder().encode("myfinance-biometric-v1")},wrap,unb64(bio.wrapped));
+  }catch(e){
+    throw new Error("Fingerprint cancelled or not recognised. Try passphrase unlock.");
+  }
+  CK=await crypto.subtle.importKey("raw",raw,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+  SALT=unb64(env.salt); KDF_ITER=env.iterations||250000; BIO=bio;
+  try{ S=await unseal(env,CK); }
+  catch(e){ S=null; CK=null; throw new Error("Vault would not decrypt with biometric key. Use passphrase, then re-enable fingerprint in More."); }
+  try{ migrate(); }catch(e){ console.error(e); }
+  try{ processDueAutomations(); }catch(e){ console.warn(e); }
+  try{ save(); }catch(e){ console.warn(e); }
+  document.body.classList.remove("locked");
+  render();
 }
 /* ---------- integrity check ---------- */
 function runCheck(){
@@ -1282,6 +1343,10 @@ document.addEventListener("click", async e=>{
   const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
+  if(!S || !CK){
+    const allowed = ("bioUnlock" in d) || ("releases" in d) || ("readme" in d);
+    if(!allowed) return;
+  }
   if("close" in d){ if(el.classList.contains("sheet-bg") && e.target!==el) return; closeSheet(); return; }
   if(d.tab){ tab=d.tab; render(); window.scrollTo(0,0); return; }
   if("editpeople" in d){
@@ -1398,7 +1463,7 @@ document.addEventListener("click", async e=>{
   if("newacct" in d){ newAcctSheet(); return; }
   if("newcontact" in d){
     openSheet(`<h2 style="margin-top:0">Add person</h2>
-    <form id="fcontact"><label>Name</label><input id="cname" required placeholder="e.g. Shubham GG" list="cpeople"><datalist id="cpeople">${(S.people||[]).map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+    <form id="fcontact"><label>Name</label><input id="cname" required placeholder="Type to see suggestions" list="cpeople"><datalist id="cpeople">${allPersonNames().map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
     <label>Notes (optional)</label><input id="cnotes" placeholder="Optional">
     <button class="btn" type="submit">Save person</button></form>`); return;
   }
@@ -1442,8 +1507,11 @@ document.addEventListener("click", async e=>{
     closeSheet(); render(); return;
   }
   if(d.delcontact){
-    if(confirm("Remove this person and all their saved accounts/UPI?")){ S.contacts=(S.contacts||[]).filter(x=>x.id!==d.delcontact); save(); }
-    closeSheet(); render(); return;
+    const c=contactById(d.delcontact);
+    if(!c){ closeSheet(); return; }
+    if(!confirm("Remove “"+c.name+"” from Contacts? Saved bank/UPI rows remain available for restore on unlock. Transactions are not deleted.")) return;
+    S.contacts=(S.contacts||[]).filter(x=>x.id!==d.delcontact);
+    save(); closeSheet(); render(); toast("Removed from Contacts"); return;
   }
   if(d.copymethod){
     const [cid,mid]=String(d.copymethod).split("::");
@@ -1656,7 +1724,15 @@ document.addEventListener("click", async e=>{
   if("changePass" in d){passphraseSheet();return;}
   if("bioEnable" in d){enableBiometric().catch(e=>alert("Could not enable fingerprint unlock: "+(e.message||e)));return;}
   if("bioDisable" in d){if(confirm("Disable fingerprint unlock? Your passphrase will still work.")){BIO=null;save();render();toast("Fingerprint unlock disabled");}return;}
-  if("bioUnlock" in d){unlockBiometric().catch(e=>{const el=$("#pe");if(el)el.textContent="Fingerprint unlock failed. Use your passphrase. "+(e.message||"");});return;}
+  if("bioUnlock" in d){
+    unlockBiometric().catch(e=>{
+      S=null; CK=null; document.body.classList.add("locked");
+      const msg="Fingerprint unlock failed. "+((e&&e.message)||"Use your passphrase.");
+      boot();
+      setTimeout(()=>{ const pe=$("#pe"); if(pe) pe.textContent=msg; }, 30);
+    });
+    return;
+  }
   if("backupFolder" in d){await chooseBackupFolder();return;}
   if("backupForget" in d){await forgetBackupFolder();return;}
   if("export" in d){ exportJSON(); return; }
@@ -1778,13 +1854,24 @@ document.addEventListener("submit", e=>{
   }
   if(e.target.id==="flend"){
     const person=$("#lpname").value.trim(), principal=parseAmt($("#lprincipal").value), cur=$("#lcur").value, a=acct($("#laccount").value), dir=$("#ldir").value, rate=parseAmt($("#lrate").value), start=$("#lstart").value||today();
-    if(!person||principal<=0||!a){alert("Enter a person, positive amount and account.");return;}
-    if(a.cur!==cur){alert("Choose a cash account in "+cur+".");return;}
+    if(!person||principal<=0||!a){alert("Enter a person, positive amount and your account.");return;}
+    if(a.cur!==cur){alert("Choose an account in "+cur+".");return;}
     if(rate<0){alert("Interest rate cannot be negative.");return;}
-    const l={id:uid(),person,direction:dir,principal,rate,cur,start,account:a.id};
-    S.lending.push(l); if(!S.people.includes(person))S.people.push(person);
-    addTxn({type:dir==="lent"?"lend":"borrow",date:start,person,loanId:l.id,pd:dir==="lent"?principal:-principal,postings:[{acct:a.id,amt:dir==="lent"?-principal:principal,cur}]});
-    save();closeSheet();render();toast("Lending record saved");return;
+    ensureContactByName(person);
+    let recipientMethod=null, recipientMethodId="";
+    const rv=($("#lrecv")?.value||"");
+    if(rv){
+      const [cid,mid]=rv.split("::");
+      const c=contactById(cid); const m=c&&(c.methods||[]).find(x=>x.id===mid);
+      if(m){
+        recipientMethodId=m.id;
+        recipientMethod={person:c.name,kind:m.kind,bank:m.bank||"",accountMasked:m.accountMasked||"",upi:m.upi||"",ifsc:m.ifsc||""};
+      }
+    }
+    const l={id:uid(),person,direction:dir,principal,rate,cur,start,account:a.id,recipientMethodId,recipientMethod};
+    S.lending.push(l);
+    addTxn({type:dir==="lent"?"lend":"borrow",date:start,person,note:recipientMethod?(recipientMethod.kind==="upi"?"UPI "+(recipientMethod.upi||""):(recipientMethod.bank||"")+" "+(recipientMethod.accountMasked||"")):"",lendingId:l.id,postings:[{acct:a.id,amt:dir==="lent"?-principal:principal,cur}]});
+    save(); closeSheet(); render(); toast("Lending record saved"); return;
   }
   if(e.target.id==="flr"){
     const l=S.lending.find(x=>x.id===$("#lrid").value), amount=parseAmt($("#lramt").value), a=acct($("#lracct").value), date=$("#lrdate").value||today(), note=$("#lrnote").value.trim(), kind=$("#lrtype").value;
@@ -1987,6 +2074,8 @@ document.addEventListener("submit", e=>{
 });
 
 function boot(){
+  S=null; CK=null;
+  document.body.classList.add("locked");
   let env=null, legacy=null;
   try{ const d=JSON.parse(store.get()); if(d&&d.enc) env=d; else if(d&&d.v===1) legacy=d; }catch(e){}
   BIO=env?.bio||null;KDF_ITER=env?.iterations||250000;
@@ -2000,15 +2089,46 @@ function boot(){
   <div class="security-note" style="margin-top:18px">Encryption: AES-256-GCM. Passphrase key derivation: PBKDF2-HMAC-SHA-256. Never share your passphrase. If you lose it and have no working biometric unlock, encrypted data cannot be recovered.</div>
   </div>`;
   $("#pf").onsubmit=async e=>{
-    e.preventDefault();const p=$("#pp").value,er=m=>{$("#pe").textContent=m;};
+    e.preventDefault();
+    const p=$("#pp").value, er=m=>{$("#pe").textContent=m;};
+    const btn=e.target.querySelector('button[type="submit"]');
+    if(btn){ btn.disabled=true; btn.textContent="Unlocking…"; }
     try{
-      if(env){SALT=unb64(env.salt);const k=await deriveKey(p,SALT,KDF_ITER);S=await unseal(env,k);CK=k;BIO=env.bio||null;
-        if(KDF_ITER<600000){const ns=crypto.getRandomValues(new Uint8Array(16)),nk=await deriveKey(p,ns,600000);SALT=ns;CK=nk;KDF_ITER=600000;BIO=null;store.set(await seal(S));}
+      if(!p) return er("Enter your passphrase.");
+      if(env){
+        SALT=unb64(env.salt);
+        const k=await deriveKey(p,SALT,KDF_ITER);
+        try{
+          S=await unseal(env,k);
+        }catch(decErr){
+          S=null; CK=null;
+          return er("Wrong passphrase (or vault data is damaged). Fingerprint unlock may still work if enabled.");
+        }
+        CK=k; BIO=env.bio||null;
+        if(KDF_ITER<600000){
+          try{
+            const ns=crypto.getRandomValues(new Uint8Array(16)),nk=await deriveKey(p,ns,600000);
+            SALT=ns; CK=nk; KDF_ITER=600000; BIO=null;
+            store.set(await seal(S));
+          }catch(upErr){ console.warn("kdf upgrade failed", upErr); }
+        }
       }else{
-        if(p.length<12)return er("Use at least 12 characters. A unique multi-word passphrase is best.");if(p!==$("#pp2").value)return er("The two passphrases differ.");SALT=crypto.getRandomValues(new Uint8Array(16));KDF_ITER=600000;CK=await deriveKey(p,SALT,KDF_ITER);S=legacy||blank();BIO=null;
+        if(p.length<12) return er("Use at least 12 characters. A unique multi-word passphrase is best.");
+        if(p!==$("#pp2").value) return er("The two passphrases differ.");
+        SALT=crypto.getRandomValues(new Uint8Array(16)); KDF_ITER=600000;
+        CK=await deriveKey(p,SALT,KDF_ITER); S=legacy||blank(); BIO=null;
       }
-      migrate(); processDueAutomations(); save(); render();
-    }catch(x){S=null;CK=null;er("Could not unlock. Check your passphrase or use fingerprint unlock.");}
+      try{ migrate(); }catch(mErr){ console.error(mErr); /* still allow in with partial migrate */ }
+      try{ processDueAutomations(); }catch(aErr){ console.warn(aErr); }
+      try{ save(); }catch(sErr){ console.warn(sErr); }
+      document.body.classList.remove("locked");
+      render();
+    }catch(x){
+      S=null; CK=null; document.body.classList.add("locked");
+      er("Could not unlock: "+(x&&x.message?x.message:"unknown error"));
+    }finally{
+      if(btn){ btn.disabled=false; btn.textContent=env?"Unlock with passphrase":"Create secure vault"; }
+    }
   };
 }
 
