@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.0.0
+**Current version:** 2.1.0
 
 ---
 
