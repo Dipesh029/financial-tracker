@@ -239,8 +239,9 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.2.1";
+const APP_VERSION = "2.2.2";
 const RELEASES = [
+  {v:"2.2.2", d:"2026-11-17", notes:"Fixed saving contact UPI/bank methods; UPI display name; copy UPI ID only."},
   {v:"2.2.1", d:"2026-11-17", notes:"Salary schedules: edit/update amount & account, weekly/biweekly, pause/delete, revision history preserved."},
   {v:"2.2.0", d:"2026-11-17", notes:"Home net-worth consolidated; full privacy mask; contact method cards cleaned; Save Details wording."},
   {v:"2.1.1", d:"2026-11-17", notes:"Fixed fmtHide not defined (Home crash after unlock)."},
@@ -605,7 +606,8 @@ function formatContactMethodCopy(c,m){
   if(!c||!m) return "";
   const nl="\n";
   if(m.kind==="upi"){
-    return ["Name: "+c.name, "UPI ID: "+(m.upi||m.accountNumber||""), m.cur?("Currency: "+m.cur):""].filter(Boolean).join(nl);
+    // Clipboard: UPI address only (name stays in the contact card UI)
+    return String(m.upi||m.accountNumber||"").trim();
   }
   return [
     "Name: "+c.name,
@@ -1844,10 +1846,14 @@ document.addEventListener("click", async e=>{
     <div class="muted">${esc(c.notes||"Friend / family contact")}</div>
     <button class="btn alt" data-editcontact="${c.id}" style="margin-top:8px">Edit name & notes</button>
     <h2 style="font-size:15px;margin:16px 0 8px">Accounts & UPI</h2>
-    ${methods.map(m=>`<div class="card tap method-card" data-editmethod="${c.id}::${m.id}">
-      <div class="row"><div><b>${m.kind==="upi"?"UPI":esc(m.bank||"Bank")}</b>
-        <div class="muted">${m.kind==="upi"?esc(m.upi||m.accountNumber||""):esc(m.holder||"")+" · "+esc(m.accountMasked||m.accountNumber||"")}${m.ifsc?" · IFSC "+esc(m.ifsc):""}</div>
-      </div><span class="muted">Edit ›</span></div></div>`).join("")||`<div class="muted">No bank or UPI yet.</div>`}
+    ${methods.map(m=>{
+      const title=m.kind==="upi"?esc(m.nickname||m.label||"UPI"):esc(m.nickname||m.bank||"Bank");
+      const sub=m.kind==="upi"?("UPI ID: "+esc(m.upi||m.accountNumber||"")):(esc(m.holder||"")+" · "+esc(m.accountMasked||m.accountNumber||"")+(m.ifsc?" · IFSC "+esc(m.ifsc):""));
+      const note=m.notes?`<div class="muted">${esc(m.notes)}</div>`:"";
+      return `<div class="card tap method-card" data-editmethod="${c.id}::${m.id}">
+        <div class="row"><div><b>${title}</b><div class="muted">${sub}</div>${note}</div><span class="muted">Edit ›</span></div>
+      </div>`;
+    }).join("")||`<div class="muted">No bank or UPI yet.</div>`}
     <button class="btn" data-addmethod="${c.id}">Add bank / UPI</button>
     ${!(S.people||[]).includes(c.name)?`<button class="btn alt" data-movetofamily="${esc(c.name)}">Move to Family view</button>`:`<div class="muted" style="margin-top:8px">Also in Family view</div>`}
     <button class="btn alt" data-delcontact="${c.id}">Remove from Contacts</button>
@@ -1866,9 +1872,10 @@ document.addEventListener("click", async e=>{
     const [cid,mid]=String(d.editmethod).split("::");
     const c=contactById(cid); const m=c&&(c.methods||[]).find(x=>x.id===mid); if(!c||!m) return;
     openSheet(`<h2 style="margin-top:0">Edit ${m.kind==="upi"?"UPI":"bank"} · ${esc(c.name)}</h2>
-    <form id="fmethodedit"><input type="hidden" id="meidc" value="${c.id}"><input type="hidden" id="meidm" value="${m.id}">
+    <form id="fmethodedit" autocomplete="off"><input type="hidden" id="meidc" value="${c.id}"><input type="hidden" id="meidm" value="${m.id}">
     <label>Type</label><select id="mekind"><option value="bank" ${m.kind!=="upi"?"selected":""}>Bank account</option><option value="upi" ${m.kind==="upi"?"selected":""}>UPI ID</option></select>
     <div id="mebankfields">
+      <label>Nickname (optional)</label><input id="menick" value="${esc(m.nickname||"")}" placeholder="e.g. Salary account">
       <label>Bank name</label><input id="mebank" value="${esc(m.bank||"")}">
       <label>Account holder</label><input id="meholder" value="${esc(m.holder||"")}">
       <label>Account number / IBAN</label><input id="menum" value="${esc(m.accountNumber||"")}" autocomplete="off">
@@ -1876,25 +1883,28 @@ document.addEventListener("click", async e=>{
       <label>Branch</label><input id="mebranch" value="${esc(m.branch||"")}">
     </div>
     <div id="meupifields" style="display:none">
-      <label>UPI ID</label><input id="meupi" value="${esc(m.upi||(m.kind==="upi"?m.accountNumber:"" )||"")}">
+      <label>UPI name</label><input id="meupiname" value="${esc(m.nickname||m.label||"")}" placeholder="e.g. Personal UPI, PhonePe" required>
+      <label>UPI ID</label><input id="meupi" value="${esc(m.upi||(m.kind==="upi"?m.accountNumber:"")||"")}" placeholder="name@oksbi" required>
+      <label>Description (optional)</label><input id="meupinotes" value="${esc(m.notes||"")}" placeholder="Optional note">
     </div>
     <label>Currency</label><select id="mecur"><option ${m.cur==="INR"?"selected":""}>INR</option><option ${m.cur==="EUR"?"selected":""}>EUR</option></select>
     <button class="btn" type="submit">Save Details</button></form>
-    <div class="row" style="margin-top:12px;gap:8px">
-      <button class="btn alt" data-copymethod="${c.id}::${m.id}">Copy details</button>
-      <button class="btn alt" data-delmethod="${c.id}::${m.id}" style="color:var(--out)">Delete</button>
+    <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn alt" data-copymethod="${c.id}::${m.id}">Copy</button>
+      <button type="button" class="btn alt" data-delmethod="${c.id}::${m.id}" style="color:var(--out)">Delete</button>
     </div>
     <button class="btn alt" data-close>Cancel</button>`);
     const sync=()=>{const k=$("#mekind")?.value; if($("#mebankfields"))$("#mebankfields").style.display=k==="bank"?"block":"none"; if($("#meupifields"))$("#meupifields").style.display=k==="upi"?"block":"none";};
-    const mk=$("#mekind"); if(mk){mk.onchange=sync;sync();}
+    const mk=$("#mekind"); if(mk){ mk.onchange=sync; sync(); }
     return;
   }
   if(d.addmethod){
     const c=contactById(d.addmethod); if(!c) return;
-    openSheet(`<h2 style="margin-top:0">Add method · ${esc(c.name)}</h2>
-    <form id="fmethod"><input type="hidden" id="midc" value="${c.id}">
+    openSheet(`<h2 style="margin-top:0">Add bank / UPI · ${esc(c.name)}</h2>
+    <form id="fmethod" autocomplete="off"><input type="hidden" id="midc" value="${c.id}">
     <label>Type</label><select id="mkind"><option value="bank">Bank account</option><option value="upi">UPI ID</option></select>
     <div id="mbankfields">
+      <label>Nickname (optional)</label><input id="mnick" placeholder="e.g. Salary account">
       <label>Bank name</label><input id="mbank" placeholder="e.g. HDFC">
       <label>Account holder</label><input id="mholder" placeholder="As on account">
       <label>Account number / IBAN</label><input id="mnum" autocomplete="off">
@@ -1902,17 +1912,23 @@ document.addEventListener("click", async e=>{
       <label>Branch</label><input id="mbranch">
     </div>
     <div id="mupifields" style="display:none">
+      <label>UPI name</label><input id="mupiname" placeholder="e.g. Personal UPI, PhonePe">
       <label>UPI ID</label><input id="mupi" placeholder="name@oksbi">
+      <label>Description (optional)</label><input id="mupinotes" placeholder="Optional note">
     </div>
     <label>Currency</label><select id="mcur"><option>INR</option><option>EUR</option></select>
-    <button class="btn" type="submit">Save</button></form>`);
+    <button class="btn" type="submit">Save Details</button></form>
+    <button class="btn alt" data-close>Cancel</button>`);
     const sync=()=>{const k=$("#mkind")?.value; if($("#mbankfields"))$("#mbankfields").style.display=k==="bank"?"block":"none"; if($("#mupifields"))$("#mupifields").style.display=k==="upi"?"block":"none";};
-    const mk=$("#mkind"); if(mk){mk.onchange=sync;sync();}
+    const mk=$("#mkind"); if(mk){ mk.onchange=sync; sync(); }
     return;
   }
-  if(d.delmethod){
+if(d.delmethod){
     const [cid,mid]=String(d.delmethod).split("::");
-    const c=contactById(cid); if(c){ c.methods=(c.methods||[]).filter(m=>m.id!==mid); save(); }
+    const c=contactById(cid); const m=c&&(c.methods||[]).find(x=>x.id===mid);
+    if(!c||!m) return;
+    if(!confirm("Delete this "+(m.kind==="upi"?"UPI":"bank")+" record?")) return;
+    c.methods=(c.methods||[]).filter(x=>x.id!==mid); save();
     closeSheet(); render(); return;
   }
   if(d.delcontact){
@@ -2452,6 +2468,69 @@ document.addEventListener("submit", e=>{
     return;
   }
   if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||m<=0) return; if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today(),status:"active",history:[]}); save(); closeSheet(); render(); toast("SIP saved"); }
+  
+  if(e.target.id==="fmethod"){
+    const c=contactById($("#midc")?.value); if(!c){ alert("Contact not found."); return; }
+    const kind=$("#mkind")?.value||"bank";
+    const cur=$("#mcur")?.value||"INR";
+    c.methods=c.methods||[];
+    if(kind==="upi"){
+      const upiName=($("#mupiname")?.value||"").trim();
+      const upi=($("#mupi")?.value||"").trim().toLowerCase();
+      const notes=($("#mupinotes")?.value||"").trim();
+      if(!upiName){ alert("Enter a UPI name (e.g. Personal UPI)."); return; }
+      if(!upi || !upi.includes("@")){ alert("Enter a valid UPI ID like name@oksbi."); return; }
+      const dup=c.methods.find(m=>m.kind==="upi"&&(m.upi||m.accountNumber||"").toLowerCase()===upi);
+      if(dup && !confirm("This UPI ID is already saved for this person. Add another entry anyway?")) return;
+      const meth={id:uid(),kind:"upi",nickname:upiName,label:upiName,upi,accountNumber:upi,accountMasked:upi,bank:"UPI",holder:c.name,notes,cur};
+      c.methods.push(meth);
+      if(!S.bankContacts) S.bankContacts=[];
+      S.bankContacts.push({id:meth.id,person:c.name,holder:c.name,bank:"UPI",accountNumber:upi,accountMasked:upi,upi,cur,nickname:upiName,_migrated:true});
+    }else{
+      const num=(($("#mnum")?.value)||"").replace(/\s/g,"").trim();
+      if(!num){ alert("Enter an account number."); return; }
+      const bank=($("#mbank")?.value||"").trim();
+      const holder=($("#mholder")?.value||"").trim()||c.name;
+      const ifsc=($("#mifsc")?.value||"").trim().toUpperCase();
+      const branch=($("#mbranch")?.value||"").trim();
+      const nick=($("#mnick")?.value||"").trim();
+      const meth={id:uid(),kind:"bank",nickname:nick,bank,holder,accountNumber:num,accountMasked:num.length>4?"••••"+num.slice(-4):num,ifsc,branch,cur,upi:""};
+      c.methods.push(meth);
+      if(!S.bankContacts) S.bankContacts=[];
+      S.bankContacts.push({id:meth.id,person:c.name,holder,bank,accountNumber:num,accountMasked:meth.accountMasked,ifsc,branch,cur,_migrated:true});
+    }
+    save(); closeSheet(); render(); toast("Saved");
+    setTimeout(()=>{ const el=document.querySelector('[data-contact="'+c.id+'"]'); if(el) el.click(); }, 40);
+    return;
+  }
+  if(e.target.id==="fmethodedit"){
+    const c=contactById($("#meidc")?.value); const mid=$("#meidm")?.value;
+    const m=c&&(c.methods||[]).find(x=>x.id===mid); if(!c||!m){ alert("Record not found."); return; }
+    const kind=$("#mekind")?.value||m.kind||"bank";
+    const cur=$("#mecur")?.value||m.cur||"INR";
+    if(kind==="upi"){
+      const upiName=($("#meupiname")?.value||"").trim();
+      const upi=($("#meupi")?.value||"").trim().toLowerCase();
+      const notes=($("#meupinotes")?.value||"").trim();
+      if(!upiName){ alert("Enter a UPI name."); return; }
+      if(!upi || !upi.includes("@")){ alert("Enter a valid UPI ID like name@oksbi."); return; }
+      m.kind="upi"; m.nickname=upiName; m.label=upiName; m.upi=upi; m.accountNumber=upi; m.accountMasked=upi; m.bank="UPI"; m.notes=notes; m.cur=cur; m.ifsc=""; m.branch="";
+    }else{
+      const num=(($("#menum")?.value)||"").replace(/\s/g,"").trim();
+      if(!num){ alert("Enter an account number."); return; }
+      m.kind="bank"; m.nickname=($("#menick")?.value||"").trim(); m.bank=($("#mebank")?.value||"").trim();
+      m.holder=($("#meholder")?.value||"").trim()||c.name; m.accountNumber=num;
+      m.accountMasked=num.length>4?"••••"+num.slice(-4):num; m.ifsc=($("#meifsc")?.value||"").trim().toUpperCase();
+      m.branch=($("#mebranch")?.value||"").trim(); m.upi=""; m.notes=m.notes||""; m.cur=cur;
+    }
+    let b=(S.bankContacts||[]).find(x=>x.id===m.id);
+    if(!b){ b={id:m.id}; (S.bankContacts=S.bankContacts||[]).push(b); }
+    Object.assign(b,{person:c.name,holder:m.holder||c.name,bank:m.bank,accountNumber:m.accountNumber,accountMasked:m.accountMasked,ifsc:m.ifsc||"",branch:m.branch||"",upi:m.upi||"",cur:m.cur,nickname:m.nickname||""});
+    save(); closeSheet(); render(); toast("Details saved");
+    setTimeout(()=>{ const el=document.querySelector('[data-contact="'+c.id+'"]'); if(el) el.click(); }, 40);
+    return;
+  }
+
   if(e.target.id==="fsal"){
     const person=($("#sp")?.value||"Me").trim();
     const label=($("#sl")?.value||"Salary").trim()||"Salary";

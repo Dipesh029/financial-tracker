@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.1.0
+**Current version:** 2.2.2
 
 ---
 
@@ -117,3 +117,19 @@ If the UI looks old, the service worker is still serving a cached shell — clea
 | 1.0.0 | Core encrypted vault, accounts, transfers, stocks/MF |
 
 Tap the small **v…** control on unlock or Home for in-app release notes.
+
+
+## Changelog
+
+### 2.2.2 — 2026-11-17
+- **Fix:** Contact UPI/bank methods now save correctly (form submit handlers were missing).
+- **Feature:** UPI name (display label) + optional description; UPI ID validation (`name@provider`).
+- Copy on UPI methods copies the UPI ID only.
+- Edit/delete with confirmation; multiple UPI IDs per contact.
+
+### 2.2.1 — 2026-11-17
+- Salary schedule edit/update, weekly/biweekly, pause/delete, revision history without altering past payments.
+
+### 2.2.0 — 2026-11-17
+- Home net-worth consolidated; full privacy mask on Home; cleaner contact method cards.
+
