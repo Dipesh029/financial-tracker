@@ -127,8 +127,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "1.8.4";
+const APP_VERSION = "1.8.5";
 const RELEASES = [
+  {v:"1.8.5", d:"2026-11-17", notes:"Edit contacts and methods; fixed copy text; lending picks contact methods by person."},
   {v:"1.8.4", d:"2026-11-17", notes:"Restored missing viewSettings (unlock regression)."},
   {v:"1.8.3", d:"2026-11-17", notes:"Lock screen hides nav; unlock errors surface real cause; migrate contacts on unlock; auth required before any app UI."},
   {v:"1.8.2", d:"2026-11-17", notes:"Contacts restore from bankContacts; contacts not auto-Family; lend recipient account; name suggestions."},
@@ -431,9 +432,43 @@ let S=null, CK=null, BIO=null, SALT=null, KDF_ITER=250000, chain=Promise.resolve
 /* ---------- UI state ---------- */
 let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family", xferMode="self", moneySeg="accounts", moneyAcctFilter="all", moneyHoldFilter="all", planSeg="sips", homeNwFilter="all";
 const $ = s => document.querySelector(s);
+function copyToClipboard(text){
+  const t=String(text||"").trim();
+  if(!t){ toast("Nothing to copy"); return; }
+  const done=()=>toast("Copied");
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(done).catch(()=>{
+      const ta=document.createElement("textarea"); ta.value=t; ta.style.position="fixed"; ta.style.left="-9999px";
+      document.body.appendChild(ta); ta.select();
+      try{ document.execCommand("copy"); done(); }catch(e){ alert(t); }
+      document.body.removeChild(ta);
+    });
+  }else{
+    const ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); done(); }catch(e){ alert(t); }
+    document.body.removeChild(ta);
+  }
+}
+function formatContactMethodCopy(c,m){
+  if(!c||!m) return "";
+  const nl="\n";
+  if(m.kind==="upi"){
+    return ["Name: "+c.name, "UPI ID: "+(m.upi||m.accountNumber||""), m.cur?("Currency: "+m.cur):""].filter(Boolean).join(nl);
+  }
+  return [
+    "Name: "+c.name,
+    m.holder?("Account holder: "+m.holder):"",
+    m.bank?("Bank: "+m.bank):"",
+    m.accountNumber?("Account number: "+m.accountNumber):"",
+    m.ifsc?("IFSC: "+m.ifsc):"",
+    m.branch?("Branch: "+m.branch):"",
+    m.branchCode?("Branch code: "+m.branchCode):"",
+    m.upi?("UPI: "+m.upi):"",
+    m.cur?("Currency: "+m.cur):"",
+    m.nickname?("Nickname: "+m.nickname):""
+  ].filter(Boolean).join(nl);
+}
 
-
-/* Auto-apply due SIPs (and salaries) when the vault is open. SIPs post a buy + bank debit; units estimated from current price when set. */
 function processDueAutomations(){
   if(!S) return {sips:0, salaries:0};
   let sips=0, salaries=0;
@@ -1036,14 +1071,21 @@ function newLendingSheet(){
   // Prefer matching methods when person name changes
   const nameEl=$("#lpname"), recv=$("#lrecv");
   if(nameEl&&recv){
-    nameEl.addEventListener("change",()=>{
+    const filterRecv=()=>{
       const n=(nameEl.value||"").trim().toLowerCase();
-      for(const opt of recv.options){
-        if(!opt.value) continue;
+      let first="";
+      for(const opt of [...recv.options]){
+        if(!opt.value){ opt.hidden=false; continue; }
         const c=contactById(opt.value.split("::")[0]);
-        if(c&&c.name.toLowerCase()===n){ recv.value=opt.value; break; }
+        const match=!n || (c&&c.name.toLowerCase()===n);
+        opt.hidden=!match;
+        if(match&&!first) first=opt.value;
       }
-    });
+      if(n&&first) recv.value=first;
+      else if(n) recv.value="";
+    };
+    nameEl.addEventListener("change", filterRecv);
+    nameEl.addEventListener("input", filterRecv);
   }
 }
 
@@ -1394,7 +1436,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lendrec],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -1526,13 +1568,50 @@ document.addEventListener("click", async e=>{
     const methods=c.methods||[];
     openSheet(`<h2 style="margin-top:0">${esc(c.name)}</h2>
     <div class="muted">${esc(c.notes||"Friend / family contact")}</div>
+    <button class="btn alt" data-editcontact="${c.id}" style="margin-top:8px">Edit name & notes</button>
     <h2 style="font-size:15px;margin:16px 0 8px">Accounts & UPI</h2>
-    ${methods.map(m=>`<div class="card"><div class="row"><div><b>${m.kind==="upi"?"UPI":esc(m.bank||"Bank")}</b><div class="muted">${m.kind==="upi"?esc(m.upi||m.accountNumber||""):esc(m.holder||"")+" · "+esc(m.accountMasked||"")}${m.ifsc?" · "+esc(m.ifsc):""}</div></div>
-      <div style="display:flex;gap:6px"><button class="chip" data-copymethod="${c.id}::${m.id}">Copy</button><button class="chip" data-delmethod="${c.id}::${m.id}">Remove</button></div></div></div>`).join("")||`<div class="muted">No bank or UPI yet.</div>`}
+    ${methods.map(m=>`<div class="card"><div class="row"><div><b>${m.kind==="upi"?"UPI":esc(m.bank||"Bank")}</b><div class="muted">${m.kind==="upi"?esc(m.upi||m.accountNumber||""):esc(m.holder||"")+" · "+esc(m.accountMasked||m.accountNumber||"")}${m.ifsc?" · IFSC "+esc(m.ifsc):""}</div></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="chip" data-copymethod="${c.id}::${m.id}">Copy</button>
+        <button class="chip" data-editmethod="${c.id}::${m.id}">Edit</button>
+        <button class="chip" data-delmethod="${c.id}::${m.id}">Remove</button>
+      </div></div></div>`).join("")||`<div class="muted">No bank or UPI yet.</div>`}
     <button class="btn" data-addmethod="${c.id}">Add bank / UPI</button>
     ${!(S.people||[]).includes(c.name)?`<button class="btn alt" data-movetofamily="${esc(c.name)}">Move to Family view</button>`:`<div class="muted" style="margin-top:8px">Also in Family view</div>`}
-    <button class="btn alt" data-delcontact="${c.id}">Remove person</button>
+    <button class="btn alt" data-delcontact="${c.id}">Remove from Contacts</button>
     <button class="btn alt" data-close>Close</button>`); return;
+  }
+  if(d.editcontact){
+    const c=contactById(d.editcontact); if(!c) return;
+    openSheet(`<h2 style="margin-top:0">Edit contact</h2>
+    <form id="fcontactedit"><input type="hidden" id="ceid" value="${c.id}">
+    <label>Name</label><input id="cename" value="${esc(c.name||"")}" required list="cpeople"><datalist id="cpeople">${allPersonNames().map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+    <label>Notes</label><input id="cenotes" value="${esc(c.notes||"")}" placeholder="Optional">
+    <button class="btn" type="submit">Save</button></form>
+    <button class="btn alt" data-close>Cancel</button>`); return;
+  }
+  if(d.editmethod){
+    const [cid,mid]=String(d.editmethod).split("::");
+    const c=contactById(cid); const m=c&&(c.methods||[]).find(x=>x.id===mid); if(!c||!m) return;
+    openSheet(`<h2 style="margin-top:0">Edit ${m.kind==="upi"?"UPI":"bank"} · ${esc(c.name)}</h2>
+    <form id="fmethodedit"><input type="hidden" id="meidc" value="${c.id}"><input type="hidden" id="meidm" value="${m.id}">
+    <label>Type</label><select id="mekind"><option value="bank" ${m.kind!=="upi"?"selected":""}>Bank account</option><option value="upi" ${m.kind==="upi"?"selected":""}>UPI ID</option></select>
+    <div id="mebankfields">
+      <label>Bank name</label><input id="mebank" value="${esc(m.bank||"")}">
+      <label>Account holder</label><input id="meholder" value="${esc(m.holder||"")}">
+      <label>Account number / IBAN</label><input id="menum" value="${esc(m.accountNumber||"")}" autocomplete="off">
+      <label>IFSC</label><input id="meifsc" value="${esc(m.ifsc||"")}" autocapitalize="characters">
+      <label>Branch</label><input id="mebranch" value="${esc(m.branch||"")}">
+    </div>
+    <div id="meupifields" style="display:none">
+      <label>UPI ID</label><input id="meupi" value="${esc(m.upi||(m.kind==="upi"?m.accountNumber:"" )||"")}">
+    </div>
+    <label>Currency</label><select id="mecur"><option ${m.cur==="INR"?"selected":""}>INR</option><option ${m.cur==="EUR"?"selected":""}>EUR</option></select>
+    <button class="btn" type="submit">Save method</button></form>
+    <button class="btn alt" data-close>Cancel</button>`);
+    const sync=()=>{const k=$("#mekind")?.value; if($("#mebankfields"))$("#mebankfields").style.display=k==="bank"?"block":"none"; if($("#meupifields"))$("#meupifields").style.display=k==="upi"?"block":"none";};
+    const mk=$("#mekind"); if(mk){mk.onchange=sync;sync();}
+    return;
   }
   if(d.addmethod){
     const c=contactById(d.addmethod); if(!c) return;
@@ -1569,9 +1648,9 @@ document.addEventListener("click", async e=>{
   }
   if(d.copymethod){
     const [cid,mid]=String(d.copymethod).split("::");
-    const c=contactById(cid); const m=c&&(c.methods||[]).find(x=>x.id===mid);
-    if(m){ const lines=m.kind==="upi"?[c.name,"UPI: "+(m.upi||m.accountNumber||"")]:[c.name,m.holder,m.bank,"A/c: "+(m.accountNumber||""),m.ifsc?"IFSC: "+m.ifsc:""].filter(Boolean);
-      (navigator.clipboard?navigator.clipboard.writeText(lines.join("\\n")):Promise.reject()).then(()=>toast("Copied")).catch(()=>toast("Copy failed")); }
+    const c=contactById(cid); const meth=c&&(c.methods||[]).find(x=>x.id===mid);
+    if(!meth){ toast("Nothing to copy"); return; }
+    copyToClipboard(formatContactMethodCopy(c, meth));
     return;
   }
   if("newdemat" in d){
