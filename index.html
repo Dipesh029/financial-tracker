@@ -314,6 +314,7 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .btn-row .btn{width:auto;flex:1 1 0;margin-top:0}
 .amt-preview{text-align:center;min-height:1.2em;font-size:13px;margin-top:2px}
 .more-kicker{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:18px 0 0}
+#persistBanner{position:fixed;left:0;right:0;top:0;z-index:40;background:#7f1d1d;color:#fff;padding:10px 14px;font-size:13px;line-height:1.35;text-align:center}
 </style>
 </head>
 <body>
@@ -325,8 +326,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.6.1";
+const APP_VERSION = "2.7.0";
 const RELEASES = [
+  {v:"2.7.0", d:"2026-11-18", notes:"Storage failures are no longer reported as saved. Amounts reject bad input. Schedules, lending day-count, premiums, net worth, and restore rollback are aligned."},
   {v:"2.6.1", d:"2026-11-18", notes:"Fix the broken Plan tabs, wide-screen navigation, checkboxes, and crowded home tiles."},
   {v:"2.6.0", d:"2026-11-18", notes:"Amount parsing, backup-folder forget, save errors, SIP/salary schedules, rename, net-worth tiles, card pay, lock, and restore checks."},
   {v:"2.5.10", d:"2026-11-18", notes:"acctSheet gates card UI by type; production regression tests."},
@@ -393,9 +395,60 @@ const RELEASES = [
 const EXPENSE_CATS = ["Groceries","Rent / housing","Utilities","Transport","Dining out","Shopping","Health","Insurance premium","Travel","Subscriptions","Education","Taxes","Bank fees","Gifts","Other"];
 const INCOME_CATS = ["Salary","Interest","Rental income","Business","Gift received","Other income"];
 const mem = {};
+let persistProblem = "";
+let persistToasted = false;
+function showPersistProblem(msg){
+  persistProblem = msg;
+  try{
+    let n = document.getElementById("persistBanner");
+    if(!n){
+      n = document.createElement("div");
+      n.id = "persistBanner";
+      n.setAttribute("role", "alert");
+      document.body.appendChild(n);
+    }
+    n.textContent = msg;
+  }catch(e){}
+  if(!persistToasted){
+    persistToasted = true;
+    try{ toast(msg); }catch(e){}
+  }
+}
+function clearPersistProblem(){
+  persistProblem = "";
+  persistToasted = false;
+  try{ const n=document.getElementById("persistBanner"); if(n) n.remove(); }catch(e){}
+}
 const store = {
-  get(){ try{ return localStorage.getItem(KEY); }catch(e){ return mem[KEY] || null; } },
-  set(v){ try{ localStorage.setItem(KEY, v); }catch(e){ mem[KEY] = v; } }
+  get(){
+    try{
+      const v = localStorage.getItem(KEY);
+      if(v != null) return v;
+    }catch(e){}
+    return Object.prototype.hasOwnProperty.call(mem, KEY) ? mem[KEY] : null;
+  },
+  // Throws unless the envelope is readable back from localStorage.
+  // A memory copy is kept so the open session is not discarded, but that is not success.
+  set(v){
+    let cause = null;
+    try{
+      localStorage.setItem(KEY, v);
+      const back = localStorage.getItem(KEY);
+      if(back === v){
+        delete mem[KEY];
+        return {ok:true, persistent:true};
+      }
+      cause = new Error("Storage did not return the saved vault");
+    }catch(e){
+      cause = e;
+    }
+    mem[KEY] = v;
+    const quota = cause && (cause.name === "QuotaExceededError" || /quota/i.test(String(cause.message || "")));
+    const err = new Error(quota ? "Phone storage is full" : "Vault was not written to phone storage");
+    err.name = quota ? "QuotaExceededError" : "StoragePersistError";
+    err.cause = cause;
+    throw err;
+  }
 };
 
 /* Optional encrypted-backup destination. The vault data remains in existing encrypted storage. */
@@ -488,23 +541,30 @@ async function unseal(env, key){
   return JSON.parse(new TextDecoder().decode(ct));
 }
 function save(){
-  if(!CK||!S) return Promise.resolve(false);
+  if(!CK || !S) return Promise.resolve(false);
   const snap=S, key=CK, salt=SALT, iter=KDF_ITER, bio=BIO;
-  chain=chain.then(async()=>{
-    try{
-      store.set(await seal(snap, key, salt, iter, bio));
-      return true;
-    }catch(err){
-      console.warn("save failed", err);
-      const full=err&&(err.name==="QuotaExceededError"||/quota/i.test(String(err.message||"")));
-      const msg=full
-        ? "Could not save — storage for this app is full. Export a backup, then remove old records."
-        : "Could not save. Your latest change may not be stored on this phone yet.";
-      try{ toast(msg); }catch(e){}
-      throw err;
-    }
-  }).catch(err=>{ console.warn("save chain", err); return false; });
-  return chain;
+  const job = chain.then(async ()=>{
+    store.set(await seal(snap, key, salt, iter, bio));
+    clearPersistProblem();
+    return true;
+  }).catch(err=>{
+    console.warn("save failed", err);
+    const full = err && (err.name==="QuotaExceededError" || /quota|full/i.test(String(err.message||"")));
+    const msg = full
+      ? "Not saved — storage on this phone is full. Export a backup. This change is only in the current session."
+      : "Not saved on this phone. This change is only in the current session until storage works.";
+    showPersistProblem(msg);
+    return false;
+  });
+  chain = job.then(v => v === true, () => false);
+  return job;
+}
+function toastSaved(msg, undo){
+  const pending = chain;
+  return pending.then(ok=>{
+    if(ok === true && msg) toast(msg, undo);
+    return ok === true;
+  });
 }
 function migrate(){
   for(const k of ["accounts","holdings","sips","salaries","policies","purchases","snaps","history","lending","bankContacts","contacts","people","txns","audit"]) S[k]=S[k]||[];
@@ -562,102 +622,82 @@ function policyScheduleDates(p){
 }
 function policyPremiumsPaidToDate(p){
   const premium=Number(p.premium)||0;
-  const freq=Math.max(1, Number(p.freq)||1);
-  const schedule=policyScheduleDates(p);
-  const expectedCount=schedule.length;
-  const expectedTotal=expectedCount*premium;
-  const paidThrough=(p.paidThrough||"").trim();
-  const recorded=(p.payments||[]).filter(x=>x&&x.date).slice().sort((a,b)=>a.date.localeCompare(b.date));
-  // Each schedule date can be covered once: by paidThrough OR by one recorded payment
-  const covered=new Map(); // date -> {source, amount}
-  if(paidThrough){
-    for(const d of schedule){
-      if(d<=paidThrough) covered.set(d,{source:"historical",amount:premium});
-    }
+  const pack=coverPremiumSlots(p);
+  const covered=pack.covered;
+  let total=0, histCount=0, recCount=0;
+  for(const v of covered.values()){
+    total+=Number(v.amount)||0;
+    if(v.source==="historical") histCount++;
+    else recCount++;
   }
-  let recordedSum=0, recordedMatched=0, recordedUnmatched=0;
-  for(const pay of recorded){
-    const amt=Number(pay.amount)||premium;
-    recordedSum+=amt;
-    // Match to latest uncovered schedule date on or before payment date
-    let matched=null;
-    for(const d of schedule){
-      if(covered.has(d) && covered.get(d).source==="recorded") continue;
-      if(covered.has(d) && covered.get(d).source==="historical"){
-        // already assumed historical — skip matching recorded on same slot
-        if(d<=pay.date) continue;
-      }
-      if(d<=pay.date) matched=d;
-      else break;
-    }
-    // Prefer uncovered dates only
-    matched=null;
-    for(const d of schedule){
-      if(covered.has(d)) continue;
-      if(d<=pay.date) matched=d;
-      else break;
-    }
-    if(matched){
-      covered.set(matched,{source:"recorded",amount:amt});
-      recordedMatched++;
-    } else {
-      recordedUnmatched++;
-      // Payment beyond schedule or duplicate — still count amount in recordedSum but not as extra instalment
-    }
-  }
-  const histCount=[...covered.values()].filter(v=>v.source==="historical").length;
-  const recCount=[...covered.values()].filter(v=>v.source==="recorded").length;
   const paidCount=covered.size;
-  // Amount: sum of covered amounts; historical at standard premium, recorded at actual
-  let total=0;
-  for(const v of covered.values()) total+=v.amount;
-  // If only recorded and some unmatched extras, add unmatched amounts once
-  // (already in recordedSum; total uses covered amounts only — good)
-  const remainingCount=Math.max(0, expectedCount-paidCount);
+  const expectedCount=pack.schedule.length;
   return {
     total: Math.round(total*100)/100,
     count: paidCount,
     source: histCount && recCount ? "mixed" : histCount ? "historical" : recCount ? "recorded" : "none",
-    histCount, histAmount: histCount*premium,
-    recordedCount: recorded.length,
-    recordedSum: Math.round(recordedSum*100)/100,
-    expected: expectedTotal,
+    histCount, histAmount: Math.round(histCount*premium*100)/100,
+    recordedCount: (p.payments||[]).filter(x=>x&&x.date).length,
+    recordedSum: Math.round(pack.recordedSum*100)/100,
+    unmatched: pack.unmatched.length,
+    expected: expectedCount*premium,
     expectedCount,
-    remaining: remainingCount*premium,
-    remainingCount,
-    paidThrough: paidThrough||""
+    remaining: Math.max(0, expectedCount-paidCount)*premium,
+    remainingCount: Math.max(0, expectedCount-paidCount),
+    paidThrough: (p.paidThrough||"").trim()
   };
 }
+function coverPremiumSlots(p){
+  const schedule=policyScheduleDates(p);
+  const covered=new Map();
+  const premium=Number(p&&p.premium)||0;
+  const paidThrough=(p&&p.paidThrough||"").trim();
+  if(paidThrough){
+    for(const d of schedule) if(d<=paidThrough) covered.set(d,{source:"historical", amount:premium});
+  }
+  const recorded=(p&&p.payments||[]).filter(x=>x&&x.date).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.id||"").localeCompare(String(b.id||"")));
+  let recordedSum=0;
+  const unmatched=[];
+  for(const pay of recorded){
+    const amt=Number(pay.amount);
+    const amount=isFinite(amt)?amt:premium;
+    recordedSum+=amount;
+    if(paidThrough && pay.date<=paidThrough){
+      let slot=null;
+      for(const d of schedule){
+        if(d<=pay.date && covered.get(d)?.source==="historical") slot=d;
+      }
+      const cur=slot&&covered.get(slot);
+      if(cur && !cur.pay) covered.set(slot, {source:"historical", amount, pay});
+      else unmatched.push(pay);
+      continue;
+    }
+    let matched=null;
+    for(const d of schedule){
+      if(covered.has(d)) continue;
+      if(d<=pay.date){ matched=d; break; }
+    }
+    if(!matched){
+      for(const d of schedule){ if(!covered.has(d)){ matched=d; break; } }
+    }
+    if(matched) covered.set(matched, {source:"recorded", amount, pay});
+    else unmatched.push(pay);
+  }
+  return {schedule, covered, recordedSum, unmatched};
+}
 function policyNextUnpaidDue(p){
-  // Consistent next unpaid instalment from schedule + paidThrough + payments + finalPremiumPaid
   if(!p) return "";
   if(p.finalPremiumPaid) return "";
   if(!policyPremiumActive(p)) return "";
-  const schedule=policyScheduleDates(p);
-  if(!schedule.length){
+  const pack=coverPremiumSlots(p);
+  if(!pack.schedule.length){
     const n=(p.next||"").trim();
+    const end=policyPptEnd(p);
+    if(n && end && n>end) return "";
     return n||"";
   }
-  const paidThrough=(p.paidThrough||"").trim();
-  const paidDates=new Set();
-  if(paidThrough){
-    for(const d of schedule) if(d<=paidThrough) paidDates.add(d);
-  }
-  for(const pay of (p.payments||[])){
-    if(!pay||!pay.date) continue;
-    // mark latest unpaid schedule date on or before payment
-    let matched=null;
-    for(const d of schedule){
-      if(paidDates.has(d)) continue;
-      if(d<=pay.date) matched=d;
-      else break;
-    }
-    if(matched) paidDates.add(matched);
-  }
-  for(const d of schedule){
-    if(!paidDates.has(d)) return d;
-  }
-  return ""; // all scheduled premiums paid
+  for(const d of pack.schedule) if(!pack.covered.has(d)) return d;
+  return "";
 }
 function policyHasOpenPremium(p){
   if(!policyPremiumActive(p)) return false;
@@ -730,28 +770,84 @@ const fmtHide = (n,cur) => { if(!(S&&S.hideBalances)) return fmt(n,cur); return 
 const toDisplay = (n,cur) => cur===S.display ? n : (cur==="EUR" ? n*S.rate : n/S.rate);
 const toDisplayAt = (n,cur,rate) => cur===S.display ? n : (cur==="EUR" ? n*(rate||S.rate) : n/(rate||S.rate));
 /*PARSE_AMT_START*/
-function parseAmt(v){
-  if(v==null) return 0;
-  let s=String(v).trim();
-  if(!s) return 0;
-  const neg=/^-/.test(s) || /^\(.*\)$/.test(s);
+function inspectAmt(v){
+  if(v==null) return {ok:true, empty:true, value:0, decimals:0};
+  let s=String(v).trim().replace(/\u00a0/g," ");
+  if(!s) return {ok:true, empty:true, value:0, decimals:0};
+  let neg=false;
+  if(/^\(.*\)$/.test(s)){ neg=true; s=s.slice(1,-1).trim(); }
   s=s.replace(/[₹€$\s]/g,"");
+  if(s.startsWith("-")){ neg=true; s=s.slice(1); }
+  if(s.startsWith("+")) s=s.slice(1);
+  if(!s) return {ok:false, error:"Enter a number."};
+  if(/[^0-9.,]/.test(s)) return {ok:false, error:"Use digits with commas or one decimal separator."};
+  if((s.match(/\./g)||[]).length>1) return {ok:false, error:"Too many decimal points."};
   const lastComma=s.lastIndexOf(","), lastDot=s.lastIndexOf(".");
+  let decSep=null, grpSep=null;
   if(lastComma>=0 && lastDot>=0){
-    if(lastComma>lastDot) s=s.replace(/\./g,"").replace(",",".");
-    else s=s.replace(/,/g,"");
+    if(lastComma>lastDot){ decSep=","; grpSep="."; }
+    else { decSep="."; grpSep=","; }
   }else if(lastComma>=0){
     const parts=s.split(",");
     const tail=parts[parts.length-1];
-    const head=parts.slice(0,-1).join("");
-    if(parts.length>2 || tail.length===3 || (tail.length===2 && tail==="00")) s=parts.join("");
-    else if(parts.length===2 && tail.length<=2 && head.length<=3) s=head+"."+tail;
-    else s=parts.join("");
+    if(parts.length===2 && tail.length>=1 && tail.length<=2 && !/^0+$/.test(tail)) decSep=",";
+    else grpSep=",";
+  }else if(lastDot>=0) decSep=".";
+  let intPart=s, frac="";
+  if(decSep){
+    const i=s.lastIndexOf(decSep);
+    intPart=s.slice(0,i);
+    frac=s.slice(i+1);
+    if(!frac || /[^0-9]/.test(frac)) return {ok:false, error:"Incomplete decimal."};
+    if(grpSep){
+      const groups=intPart.split(grpSep);
+      if(groups.some(g=>!g)) return {ok:false, error:"Misplaced separator."};
+      if(groups.length>1){
+        const last=groups[groups.length-1], first=groups[0], middles=groups.slice(1,-1);
+        const western=last.length===3 && middles.every(p=>p.length===3) && first.length>=1 && first.length<=3;
+        const indian=last.length===3 && middles.every(p=>p.length===2) && first.length>=1 && first.length<=2;
+        if(!(western || indian)) return {ok:false, error:"Number separators are not a valid amount."};
+      }
+      intPart=groups.join("");
+    }else intPart=intPart.replace(/[.,]/g,"");
+  }else if(grpSep){
+    const parts=s.split(grpSep);
+    if(parts.some(p=>!p)) return {ok:false, error:"Misplaced separator."};
+    if(parts.length>1){
+      const last=parts[parts.length-1], first=parts[0], middles=parts.slice(1,-1);
+      const western=last.length===3 && middles.every(p=>p.length===3) && first.length>=1 && first.length<=3;
+      const indian=last.length===3 && middles.every(p=>p.length===2) && first.length>=1 && first.length<=2;
+      const legacyHundreds=parts.length===2 && last==="00";
+      if(!(western || indian || legacyHundreds)) return {ok:false, error:"Number separators are not a valid amount."};
+    }
+    intPart=parts.join("");
   }
-  s=s.replace(/[^0-9.]/g,"");
-  const n=parseFloat(s);
-  if(!isFinite(n)) return 0;
-  return neg?-Math.abs(n):n;
+  if(intPart!=="" && !/^\d+$/.test(intPart)) return {ok:false, error:"Not a valid amount."};
+  if(frac && !/^\d+$/.test(frac)) return {ok:false, error:"Not a valid amount."};
+  if(frac.length>6) return {ok:false, error:"Too many decimal places."};
+  const n=Number((intPart||"0")+"."+(frac||"0"));
+  if(!isFinite(n)) return {ok:false, error:"Not a valid amount."};
+  return {ok:true, empty:false, value:neg?-Math.abs(n):n, decimals:frac.length};
+}
+function parseAmt(v){
+  const r=inspectAmt(v);
+  if(!r.ok) return null;
+  return r.value;
+}
+function readAmt(v, opts){
+  opts=opts||{};
+  const r=inspectAmt(v);
+  if(!r.ok) return r;
+  const max=opts.maxDecimals!=null?opts.maxDecimals:2;
+  if(r.decimals>max) return {ok:false, error:"Use at most "+max+" decimal places."};
+  if(!opts.allowNegative && r.value<0) return {ok:false, error:"Enter a positive amount."};
+  if(opts.required && (r.empty || (opts.positive && !(r.value>0)))) return {ok:false, error:r.empty?"Enter an amount.":"Enter an amount greater than zero."};
+  return {ok:true, value:r.value, empty:!!r.empty};
+}
+function rejectAmt(raw, opts){
+  const r=readAmt(raw, opts||{required:true, maxDecimals:2, positive:true});
+  if(!r.ok){ try{ alert(r.error); }catch(e){} return null; }
+  return r.value;
 }
 /*PARSE_AMT_END*/
 const acct = id => S.accounts.find(a=>a.id===id);
@@ -965,12 +1061,13 @@ function formatContactMethodCopy(c,m){
 }
 
 function processDueAutomations(){
-  if(!S) return {sips:0, salaries:0, skipped:0};
+  if(!S) return {sips:0, salaries:0, skipped:0, sipBacklog:0, salaryBacklog:0};
   let sips=0, salaries=0, skipped=0;
-  const MAX_EACH=6;
+  const MAX_EACH=36;
+  const runs=x=>(x.status||"active")==="active";
   if(S.autoSip!==false){
     for(const x of S.sips){
-      if((x.status||"active")==="stopped") continue;
+      if(!runs(x)) continue;
       let guard=0;
       while(x.next && daysTo(x.next)<=0 && guard++<MAX_EACH){
         const a=acct(x.acct);
@@ -1001,28 +1098,31 @@ function processDueAutomations(){
   }
   if(S.autoSalary!==false){
     for(const x of (S.salaries||[])){
-      if((x.status||"active")==="stopped") continue;
+      if(!runs(x)) continue;
       let guard=0;
       while(x.next && daysTo(x.next)<=0 && guard++<MAX_EACH){
-        const a=acct(x.acct);
         const payDate=x.next;
+        const terms=salaryTermsAt(x, payDate);
+        const a=acct(terms.acct);
         if(!a||a.archived){
           skipped++;
           x.history=x.history||[];
-          x.history.push({date:payDate,status:"missed",amount:x.amt,auto:true,note:"Account unavailable"});
+          x.history.push({date:payDate,status:"missed",amount:terms.amt,auto:true,note:"Account unavailable"});
           x.next=advanceSalaryNext(x, payDate);
           continue;
         }
         const n=S.txns.length;
-        addTxn({type:"income",date:payDate,note:x.label||"Salary (auto)",cat:"Salary",person:x.person||"",owner:x.person||a.owner||"Me",salaryId:x.id,postings:[{acct:x.acct,amt:x.amt,cur:x.cur}]},{skipSave:true});
+        addTxn({type:"income",date:payDate,note:x.label||"Salary (auto)",cat:"Salary",person:x.person||"",owner:x.person||a.owner||"Me",salaryId:x.id,postings:[{acct:a.id,amt:terms.amt,cur:x.cur||a.cur}]},{skipSave:true});
         if(S.txns.length===n){ x.next=advanceSalaryNext(x, payDate); continue; }
-        x.history=x.history||[]; x.history.push({date:payDate,status:"received",amount:x.amt,auto:true});
+        x.history=x.history||[]; x.history.push({date:payDate,status:"received",amount:terms.amt,auto:true});
         x.next=advanceSalaryNext(x, payDate); salaries++;
       }
     }
   }
+  const still=(list)=> (list||[]).filter(x=>runs(x) && x.next && daysTo(x.next)<=0).length;
+  const sipBacklog=still(S.sips), salaryBacklog=still(S.salaries);
   if(sips||salaries||skipped) save();
-  return {sips, salaries, skipped};
+  return {sips, salaries, skipped, sipBacklog, salaryBacklog};
 }
 
 function render(){
@@ -1202,9 +1302,27 @@ function wealthBreakdown(owner){
     assets, liabilities, total:assets-liabilities
   };
 }
-function personalAssetsValue(owner){
-  // Personal-use assets are not included in net worth (preference removed in 2.5.0).
-  return 0;
+function valuationNotes(owner){
+  let missing=0, undated=0, old=0;
+  const cutoff=addDays(today(), -45);
+  for(const h of (S.holdings||[])){
+    if(owner && (h.owner||"Me")!==owner) continue;
+    const pos=holdPos(h);
+    if(!(pos.u>0)) continue;
+    if(!(Number(h.price)>0)) missing++;
+    else if(!h.priceAsOf) undated++;
+    else if(h.priceAsOf<cutoff) old++;
+  }
+  return {missing, undated, old};
+}
+function valuationNoteHtml(owner){
+  const n=valuationNotes(owner);
+  if(!n.missing && !n.undated && !n.old) return "";
+  const bits=[];
+  if(n.missing) bits.push(n.missing+" holding"+(n.missing===1?"":"s")+" with no price (counted as zero)");
+  if(n.old) bits.push(n.old+" price"+(n.old===1?"":"s")+" older than 45 days");
+  if(n.undated) bits.push(n.undated+" price"+(n.undated===1?"":"s")+" with no recorded date");
+  return `<p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Valuation check: ${bits.join(" · ")}. Insurance cover is not part of actual net worth.</p>`;
 }
 
 function netWorthBreakdown(owner){
@@ -1247,7 +1365,8 @@ function investSummaryHtml(owner){
   <div class="row"><span>Current value</span><b class="num">${fmtHide(val,S.display)}</b></div>
   <div class="row"><span>Unrealized P/L</span><b class="num ${pl<0?"out":"in"}">${fmtHide(pl,S.display)} · ${pct}%</b></div>
   <div class="bar" style="margin-top:10px"><i style="width:${bar}%"></i></div>
-  <div class="muted" style="margin-top:6px">Bar shows current value vs cost. Prices are manual unless updated from a portfolio import.</div>
+  <div class="muted" style="margin-top:6px">Bar shows current value vs cost. Prices are whatever you last typed or imported — they are not a live market feed.</div>
+  ${valuationNoteHtml(owner)}
   </div>`;
 }
 function portfolioGrowthHtml(){
@@ -1444,7 +1563,8 @@ function viewHome0(){
   ${pills.length?`<div class="wealth-grid nw-breakdown">
     ${pills.map(([label,val,cls])=>`<div class="wealth-pill"><span>${label}</span><b class="num ${cls}">${fmtHide(val,S.display)}</b></div>`).join("")}
   </div>
-  <p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Shown tiles match actual net worth. Demat cash is uninvested cash, not your stocks. Insurance cover stays out of this total.</p>`:""}
+  <p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Shown tiles match actual net worth. Demat cash is uninvested cash, not your stocks. Insurance cover stays out of this total.</p>
+  ${valuationNoteHtml(owner)}`:""}
 
   <div class="card">
     <div class="row"><span>Income this month</span><b class="num in">${fmtHide(t.inc,S.display)}</b></div>
@@ -1838,6 +1958,8 @@ function toastAutomations(auto){
   if(auto.sips) bits.push(auto.sips+" SIP(s) posted");
   if(auto.salaries) bits.push(auto.salaries+" salary posted");
   if(auto.skipped) bits.push(auto.skipped+" schedule(s) skipped — set a fund price or restore the account");
+  if(auto.sipBacklog) bits.push(auto.sipBacklog+" SIP date(s) still overdue");
+  if(auto.salaryBacklog) bits.push(auto.salaryBacklog+" salary date(s) still overdue — open Plan");
   if(bits.length) setTimeout(()=>toast(bits.join(" · ")), 450);
 }
 function backupTooLarge(text){ return String(text||"").length>6000000; }
@@ -1858,11 +1980,11 @@ function refreshAmtPreview(){
   if(!prev||!input) return;
   const raw=String(input.value||"").trim();
   if(!raw){ prev.textContent=""; return; }
-  const n=parseAmt(raw);
+  const r=readAmt(raw,{required:true,maxDecimals:2,positive:true});
+  if(!r.ok){ prev.textContent=r.error; return; }
   const a=acct($("#from")&&$("#from").value);
   const cur=(a&&a.cur)||S.display;
-  if(n<0) prev.textContent="Interpreted as "+fmt(n, cur)+". Negative amounts are not saved.";
-  else prev.textContent="Will record "+fmt(n, cur);
+  prev.textContent="Will record "+fmt(r.value, cur);
 }
 function toast(msg, undo){
   const el=document.createElement("div"); el.className="toast"; el.innerHTML=`<span>${esc(msg)}</span>${undo?`<button>Undo</button>`:""}`;
@@ -2207,6 +2329,7 @@ function doHolds(){
       added++;
     } else {
       H.price=p.it.prev;
+      H.priceAsOf=date;
       if(!H.isin && p.it.isin) H.isin=p.it.isin;
       if(p.it.sec) H.sector=p.it.sec;
       if(p.it.exch && !H.exchange) H.exchange=p.it.exch;
@@ -2229,7 +2352,7 @@ function doHolds(){
   save();
   closeSheet();
   render();
-  toast(added+" new, "+changed+" changed, "+price+" prices"+(skippedAmbiguous?", "+skippedAmbiguous+" ambiguous skipped":""));
+  toastSaved(added+" new, "+changed+" changed, "+price+" prices"+(skippedAmbiguous?", "+skippedAmbiguous+" ambiguous skipped":""));
 }
 
 const acctTypeLabel=a=>({bank:"Bank",cash:"Cash",card:"Card",demat:"Demat"}[a.type]||a.type||"Account");
@@ -2237,15 +2360,38 @@ const accOpts=()=>S.accounts.filter(a=>!a.archived).map(a=>[a.id,`${a.name} · $
 const expenseCats=()=> (S.expenseCats&&S.expenseCats.length?S.expenseCats:EXPENSE_CATS);
 const incomeCats=()=> (S.incomeCats&&S.incomeCats.length?S.incomeCats:INCOME_CATS);
 
-function addM(t,n){const[y,m,d]=t.split("-").map(Number);const x=new Date(y,m-1+n,1);const last=new Date(x.getFullYear(),x.getMonth()+1,0).getDate();x.setDate(Math.min(d,last));return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");}
-function addDays(t,n){const[y,m,d]=t.split("-").map(Number);const x=new Date(y,m-1,d+n);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");}
+function addM(t,n){const[y,m,d]=t.split("-").map(Number);const x=new Date(Date.UTC(y,m-1+n,1));const last=new Date(Date.UTC(x.getUTCFullYear(),x.getUTCMonth()+1,0)).getUTCDate();const day=Math.min(d,last);const z=new Date(Date.UTC(x.getUTCFullYear(),x.getUTCMonth(),day));return z.getUTCFullYear()+"-"+String(z.getUTCMonth()+1).padStart(2,"0")+"-"+String(z.getUTCDate()).padStart(2,"0");}
+function addDays(t,n){const[y,m,d]=t.split("-").map(Number);const x=new Date(Date.UTC(y,m-1,d+n));return x.getUTCFullYear()+"-"+String(x.getUTCMonth()+1).padStart(2,"0")+"-"+String(x.getUTCDate()).padStart(2,"0");}
+function calendarDays(a,b){
+  if(!a||!b) return 0;
+  const p=s=>{ const [y,m,d]=String(s).slice(0,10).split("-").map(Number); return Date.UTC(y,(m||1)-1,d||1); };
+  return Math.round((p(b)-p(a))/864e5);
+}
+function salaryTermsAt(x, payDate){
+  const revs=(x.revisions||[]).filter(r=>r&&r.prev).slice().sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
+  let state=revs.length
+    ? {amt:revs[0].prev.amt, freq:revs[0].prev.freq, freqUnit:revs[0].prev.freqUnit, acct:revs[0].prev.acct}
+    : {amt:x.amt, freq:x.freq, freqUnit:x.freqUnit, acct:x.acct};
+  for(let i=0;i<revs.length;i++){
+    if(String(payDate) < String(revs[i].date||"")) break;
+    if(i+1<revs.length){
+      const p=revs[i+1].prev;
+      state={amt:p.amt, freq:p.freq, freqUnit:p.freqUnit, acct:p.acct};
+    }else state={amt:x.amt, freq:x.freq, freqUnit:x.freqUnit, acct:x.acct};
+  }
+  return {
+    amt:Number(state.amt)||0,
+    freq:Math.max(1, Number(state.freq)||1),
+    freqUnit:state.freqUnit||"month",
+    acct:state.acct||x.acct
+  };
+}
 function advanceSalaryNext(x, fromDate){
   const base=(fromDate||x.next||today());
-  const unit=x.freqUnit||"month";
-  const f=Math.max(1, Number(x.freq)||1);
-  if(unit==="week") return addDays(base, 7*f);
-  if(unit==="day") return addDays(base, f);
-  return addM(base, f);
+  const t=salaryTermsAt(x, base);
+  if(t.freqUnit==="week") return addDays(base, 7*t.freq);
+  if(t.freqUnit==="day") return addDays(base, t.freq);
+  return addM(base, t.freq);
 }
 function salaryStatusLabel(x){
   const st=x.status||"active";
@@ -2257,7 +2403,7 @@ function salaryStatusLabel(x){
   return "Active";
 }
 
-const daysTo=t=>Math.round((new Date(t+"T00:00")-new Date(today()+"T00:00"))/864e5);
+const daysTo=t=>calendarDays(today(), t);
 function newPolicySheet(){
   const people=S.people.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
   openSheet(`<h2 style="margin-top:0">New policy</h2>
@@ -2297,32 +2443,28 @@ function lendingPosition(l){
   const start=l.start||today();
   // Principal repayments chronological
   const prinTxns=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&t.principalReduction)
-    .map(t=>({date:t.date||start, amt:Number(t.principalReduction)||0}))
-    .sort((a,b)=>a.date.localeCompare(b.date)||a.amt-b.amt);
+    .map(t=>({date:t.date||start, amt:Number(t.principalReduction)||0, created:t.created||""}))
+    .sort((a,b)=>a.date.localeCompare(b.date)||String(a.created).localeCompare(String(b.created)));
   for(const t of prinTxns){ if(t.date<start) t.date=start; }
   let principalLeft=principalOrig;
   let principalRepaid=0;
   let cursor=start;
   let accrued=0;
-  const dayMs=864e5;
-  const daysBetween=(a,b)=>{
-    const d0=new Date(a+"T00:00"), d1=new Date(b+"T00:00");
-    return Math.max(0, Math.floor((d1-d0)/dayMs));
-  };
-  // Accrue on outstanding principal for each interval between events
+  let interestFromOverpay=0;
   for(const ev of prinTxns){
     if(principalLeft>0.0000001 && rate>0){
-      const d=daysBetween(cursor, ev.date);
+      const d=Math.max(0, calendarDays(cursor, ev.date));
       accrued+=principalLeft*rate/100*d/365.25;
     }
-    const pay=Math.min(principalLeft, Math.max(0, ev.amt));
+    const raw=Math.max(0, ev.amt);
+    const pay=Math.min(principalLeft, raw);
+    interestFromOverpay+=Math.max(0, raw-pay);
     principalLeft-=pay;
     principalRepaid+=pay;
     cursor=ev.date>cursor?ev.date:cursor;
   }
-  // After last repayment: only continue if principal still outstanding
   if(principalLeft>0.0000001 && rate>0){
-    const d=daysBetween(cursor, today());
+    const d=Math.max(0, calendarDays(cursor, today()));
     accrued+=principalLeft*rate/100*d/365.25;
   }
   // If principal fully repaid, cursor is last repayment date — no further accrual (above branch skipped)
@@ -2333,10 +2475,10 @@ function lendingPosition(l){
   // Manual adjustments: positive = more interest owed; negative = waiver/round-down
   const adjustments=l.interestAdjustments||[];
   const interestAdj=adjustments.reduce((v,a)=>v+(Number(a.amount)||0),0);
-  const interestLeft=Math.max(0, accrued+interestAdj-interestPaid);
+  const interestLeft=Math.max(0, accrued+interestAdj-interestPaid-interestFromOverpay);
   const totalOutstanding=principalLeft+interestLeft;
   const totalPayable=principalOrig+Math.max(0, accrued+interestAdj);
-  const totalPaid=principalRepaid+interestPaid;
+  const totalPaid=principalRepaid+interestPaid+interestFromOverpay;
   const pctPrincipal=principalOrig>0?Math.min(100, Math.round(principalRepaid/principalOrig*100)):100;
   const pctTotal=totalPayable>0?Math.min(100, Math.round(totalPaid/totalPayable*100)):(totalOutstanding<=0?100:0);
   let status="Unpaid";
@@ -2344,7 +2486,7 @@ function lendingPosition(l){
   else if(principalLeft<=0.0001 && interestLeft>0.0001) status="Principal Repaid · Interest Pending";
   else if(principalRepaid>0.0001 || interestPaid>0.0001 || interestAdj) status="Partially Repaid";
   else status="Unpaid";
-  const days=daysBetween(start, today());
+  const days=Math.max(0, calendarDays(start, today()));
   return {
     principal: principalLeft,
     principalOrig, principalLeft, principalRepaid,
@@ -2578,7 +2720,7 @@ function viewPlan(){
     <div class="big num in">${fmtHide(monthly,S.display)}</div>
     <div class="mod-metrics">
       <div class="mod-metric"><span>Active schedules</span><b>${active}</b></div>
-      <div class="mod-metric"><span>Total schedules</span><b>${S.salaries.length}</b></div>
+      <div class="mod-metric"><span>Still overdue</span><b>${S.salaries.filter(x=>(x.status||"active")==="active"&&x.next&&daysTo(x.next)<=0).length}</b></div>
     </div>
   </div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 8px">
@@ -2706,7 +2848,7 @@ function viewPlan(){
     <div class="big num">${fmtHide(sipMonthly,S.display)}</div>
     <div class="mod-metrics">
       <div class="mod-metric"><span>Active SIPs</span><b>${sipActive}</b></div>
-      <div class="mod-metric"><span>All SIPs</span><b>${S.sips.length}</b></div>
+      <div class="mod-metric"><span>Still overdue</span><b>${S.sips.filter(x=>(x.status||"active")==="active"&&x.next&&daysTo(x.next)<=0).length}</b></div>
     </div>
   </div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 8px">
@@ -2910,7 +3052,7 @@ async function enableBiometric(){
   const salt=crypto.getRandomValues(new Uint8Array(32)),bio={credentialId:cred.id,rpId,salt:b64(salt)};
   const prf=await biometricPRF(bio),wrap=await biometricWrapKey(prf),raw=await crypto.subtle.exportKey("raw",rawKey),iv=crypto.getRandomValues(new Uint8Array(12));
   const wrapped=await crypto.subtle.encrypt({name:"AES-GCM",iv,additionalData:new TextEncoder().encode("myfinance-biometric-v1")},wrap,raw);
-  BIO={...bio,iv:b64(iv),wrapped:b64(wrapped)};CK=await deriveKey(pass,SALT,KDF_ITER,false);save();render();toast("Fingerprint unlock enabled");
+  BIO={...bio,iv:b64(iv),wrapped:b64(wrapped)};CK=await deriveKey(pass,SALT,KDF_ITER,false);save();render();toastSaved("Fingerprint unlock enabled");
 }
 async function unlockBiometric(){
   const rawEnv=store.get();
@@ -3045,7 +3187,7 @@ document.addEventListener("click", async e=>{
     ensureContactByName(name);
     S.people=(S.people||[]).filter(x=>x!==name);
     if(homeOwner===name) homeOwner="All family";
-    save(); toast(name+" moved to Contacts");
+    save(); toastSaved(name+" moved to Contacts");
     // reopen manage sheet
     closeSheet(); render();
     setTimeout(()=>document.querySelector("[data-editpeople]")?.dispatchEvent(new Event("click",{bubbles:true})), 50);
@@ -3056,7 +3198,7 @@ document.addEventListener("click", async e=>{
     if(!confirm("Add “"+name+"” to Family view? Contact details stay under Contacts.")) return;
     ensureContactByName(name);
     if(!S.people.includes(name)) S.people.push(name);
-    save(); toast(name+" added to Family view"); closeSheet(); render(); return;
+    save(); toastSaved(name+" added to Family view"); closeSheet(); render(); return;
   }
   if(d.delperson){
     const name=d.delperson;
@@ -3094,7 +3236,7 @@ document.addEventListener("click", async e=>{
       if(old && old!==v) renamePerson(old, v);
     }
     if(!next.includes("Me")) next.unshift("Me");
-    S.people=next; save(); closeSheet(); render(); toast("Family members updated"); return;
+    S.people=next; save(); closeSheet(); render(); toastSaved("Family members updated"); return;
   }
 
   if(d.moneyseg){ moneySeg=d.moneyseg; render(); window.scrollTo(0,0); return; }
@@ -3121,7 +3263,7 @@ document.addEventListener("click", async e=>{
     const row=e.target.closest(".row"); if(row) row.remove(); return;
   }
   if("toggle" in d){ S.display=S.display==="INR"?"EUR":"INR"; save(); render(); return; }
-  if("snapshot" in d){ const owner=homeOwner==="All family"?null:homeOwner,nw=netWorth(owner).total,m=today().slice(0,7); const old=S.history.find(x=>x.month===m&&(x.owner||null)===owner); if(old){old.value=nw;old.date=today();old.cur=S.display;old.fxRate=S.rate;}else S.history.push({month:m,date:today(),value:nw,cur:S.display,fxRate:S.rate,owner}); save(); render(); toast("Net worth snapshot saved"); return; }
+  if("snapshot" in d){ const owner=homeOwner==="All family"?null:homeOwner,nw=netWorth(owner).total,m=today().slice(0,7); const old=S.history.find(x=>x.month===m&&(x.owner||null)===owner); if(old){old.value=nw;old.date=today();old.cur=S.display;old.fxRate=S.rate;}else S.history.push({month:m,date:today(),value:nw,cur:S.display,fxRate:S.rate,owner}); save(); render(); toastSaved("Net worth snapshot saved"); return; }
   if("newlend" in d){newLendingSheet();return;}
   if(d.lend){ lendingDetailSheet(d.lend); return; }
   if(d.lendadj){ lendingAdjustSheet(d.lendadj); return; }
@@ -3241,7 +3383,7 @@ if(d.delmethod){
     const nm=String(c.name||"").toLowerCase();
     S.contacts=(S.contacts||[]).filter(x=>x.id!==d.delcontact);
     S.bankContacts=(S.bankContacts||[]).filter(b=>String(b.person||b.holder||"").toLowerCase()!==nm);
-    save(); closeSheet(); render(); toast("Removed from Contacts"); return;
+    save(); closeSheet(); render(); toastSaved("Removed from Contacts"); return;
   }
   if(d.copymethod){
     const [cid,mid]=String(d.copymethod).split("::");
@@ -3356,7 +3498,7 @@ if(d.delmethod){
     return;
   }
   if("nwprefreset" in d){
-    S.nwPrefs=defaultNwPrefs(); save(); render(); toast("Net worth defaults restored"); return;
+    S.nwPrefs=defaultNwPrefs(); save(); render(); toastSaved("Net worth defaults restored"); return;
   }
   if("dismissonboard" in d){ S.onboardingDone=true; save(); render(); return; }
   if("togglesal" in d){ S.autoSalary=S.autoSalary===false; save(); render(); return; }
@@ -3441,20 +3583,21 @@ if(d.delmethod){
     if(!x) return;
     if(!confirm("Remove this salary schedule? Past payment transactions stay in Activity.")) return;
     S.salaries=S.salaries.filter(v=>v.id!==x.id);
-    save(); closeSheet(); render(); toast("Schedule removed"); return;
+    save(); closeSheet(); render(); toastSaved("Schedule removed"); return;
   }
   if(d.salaryrecv){
     const x=S.salaries.find(v=>v.id===d.salaryrecv); if(!x) return;
-    const a=acct(x.acct); if(!a) return;
     const payDate=x.next||today();
+    const terms=salaryTermsAt(x, payDate);
+    const a=acct(terms.acct); if(!a){ alert("The salary account is missing. Edit the schedule and choose an account."); return; }
     const before=S.txns.length;
-    addTxn({type:"income",date:payDate,note:x.label||"Salary",cat:"Salary",person:x.person||"",owner:x.person||a.owner||"Me",salaryId:x.id,postings:[{acct:x.acct,amt:x.amt,cur:x.cur}]});
+    addTxn({type:"income",date:payDate,note:x.label||"Salary",cat:"Salary",person:x.person||"",owner:x.person||a.owner||"Me",salaryId:x.id,postings:[{acct:a.id,amt:terms.amt,cur:x.cur||a.cur}]});
     if(S.txns.length===before){
       if((x.next||"")===payDate) x.next=advanceSalaryNext(x, payDate);
-      save(); closeSheet(); render(); toast("Already recorded for "+payDate+". Next date moved ahead."); return;
+      save(); closeSheet(); render(); toastSaved("Already recorded for "+payDate+". Next date moved ahead."); return;
     }
-    x.history=x.history||[]; x.history.push({date:payDate,status:"received",amount:x.amt,auto:false});
-    x.next=advanceSalaryNext(x, payDate); save(); closeSheet(); render(); toast("Salary recorded"); return;
+    x.history=x.history||[]; x.history.push({date:payDate,status:"received",amount:terms.amt,auto:false});
+    x.next=advanceSalaryNext(x, payDate); save(); closeSheet(); render(); toastSaved("Salary recorded"); return;
   }
   if(d.salarystop){
     const x=S.salaries.find(v=>v.id===d.salarystop); if(x){ x.status=x.status==="stopped"?"active":"stopped"; save(); } closeSheet(); render(); return;
@@ -3481,8 +3624,8 @@ if(d.delmethod){
     <button class="btn alt" data-sipstop="${esc(x.id)}">${(x.status||"active")==="stopped"?"Resume SIP":"Stop SIP"}</button>
     ${histHtml}
     <button class="btn alt" data-close style="margin-top:10px">Close</button>`); return; }
-  if(d.sipfail){ const x=S.sips.find(v=>v.id===d.sipfail); if(x){ const missDate=x.next||today(); x.history=x.history||[]; x.history.push({date:missDate,status:"missed",units:0,amount:x.amt}); x.next=addM(x.next,x.freq||1); log("sipfail",x.id); save(); } closeSheet(); render(); toast("Marked as missed / skipped"); return; }
-  if(d.sipstop){ const x=S.sips.find(v=>v.id===d.sipstop); if(x){ x.status=(x.status==="stopped"?"active":"stopped"); log("sipstop",x.id); save(); closeSheet(); render(); toast(x.status==="stopped"?"SIP stopped":"SIP resumed"); } return; }
+  if(d.sipfail){ const x=S.sips.find(v=>v.id===d.sipfail); if(x){ const missDate=x.next||today(); x.history=x.history||[]; x.history.push({date:missDate,status:"missed",units:0,amount:x.amt}); x.next=addM(x.next,x.freq||1); log("sipfail",x.id); save(); toastSaved("Marked as missed / skipped"); } closeSheet(); render(); return; }
+  if(d.sipstop){ const x=S.sips.find(v=>v.id===d.sipstop); if(x){ x.status=(x.status==="stopped"?"active":"stopped"); log("sipstop",x.id); save(); closeSheet(); render(); toastSaved(x.status==="stopped"?"SIP stopped":"SIP resumed"); } return; }
   if("newpol" in d){ newPolicySheet(); return; }
   if(d.pol){
     const p=S.policies.find(v=>v.id===d.pol); if(!p) return;
@@ -3499,7 +3642,7 @@ if(d.delmethod){
       :('<div class="muted" style="margin:10px 0">Premium-paying term is complete (no outstanding due inside PPT). You can still edit dates below if needed.</div>');
     const paidInfo=policyPremiumsPaidToDate(p);
     const paidLine=(p.paidThrough?"Paid through "+p.paidThrough+" · ":"")+(paidInfo.count
-      ?("Premiums paid to date: <b>"+fmt(paidInfo.total,p.cur)+"</b> · "+paidInfo.count+" instalment(s)"+(paidInfo.source==="historical"?" (historical paid-through)":paidInfo.source==="mixed"?" (historical + recorded)":paidInfo.source==="recorded"?" (recorded)":paidInfo.source==="schedule"?" (from schedule)":"")+(paidInfo.remaining!=null?" · remaining ~"+fmt(paidInfo.remaining,p.cur):""))
+      ?("Premiums paid to date: <b>"+fmt(paidInfo.total,p.cur)+"</b> · "+paidInfo.count+" instalment(s)"+(paidInfo.source==="historical"?" (historical paid-through)":paidInfo.source==="mixed"?" (historical + recorded)":paidInfo.source==="recorded"?" (recorded)":"")+(paidInfo.remainingCount?" · "+paidInfo.remainingCount+" remaining":"")+(paidInfo.unmatched?" · "+paidInfo.unmatched+" recorded payment(s) not applied (already counted or past the term)":""))
       :("No premiums counted yet."));
     openSheet('<h2 style="margin-top:0">'+esc(p.name)+'</h2>'+
       '<div class="form-section"><div class="form-section-title">Policy</div>'+
@@ -3584,12 +3727,12 @@ if(d.delmethod){
     const a=acct(d.archive);
     if(!a) return;
     if(!confirm("Archive “"+a.name+"”? It leaves balances and pickers. Transactions stay.")) return;
-    a.archived=true; log("archive",a.id); save(); closeSheet(); render(); toast("Account archived"); return;
+    a.archived=true; log("archive",a.id); save(); closeSheet(); render(); toastSaved("Account archived"); return;
   }
   if(d.edit){txnEditSheet(d.edit);return;}
   if("changePass" in d){passphraseSheet();return;}
   if("bioEnable" in d){enableBiometric().catch(e=>alert("Could not enable fingerprint unlock: "+(e.message||e)));return;}
-  if("bioDisable" in d){if(confirm("Disable fingerprint unlock? Your passphrase will still work.")){BIO=null;save();render();toast("Fingerprint unlock disabled");}return;}
+  if("bioDisable" in d){if(confirm("Disable fingerprint unlock? Your passphrase will still work.")){BIO=null;save();render();toastSaved("Fingerprint unlock disabled");}return;}
   if("bioUnlock" in d){
     unlockBiometric().catch(e=>{
       S=null; CK=null; document.body.classList.add("locked");
@@ -3629,6 +3772,55 @@ if(d.delmethod){
   }
 });
 
+async function openBackupPayload(raw, password){
+  if(backupTooLarge(raw)) return {ok:false, error:"That backup is too large."};
+  let parsed;
+  try{ parsed=JSON.parse(raw); }
+  catch(e){ return {ok:false, error:"That file is not a My Finance backup."}; }
+  if(parsed && parsed.enc){
+    if(!password) return {ok:false, needsPassword:true, error:"Enter the backup passphrase."};
+    try{
+      const salt=unb64(parsed.salt);
+      const iter=parsed.iterations||250000;
+      const key=await deriveKey(password, salt, iter, false);
+      const data=await unseal(parsed, key);
+      return {ok:true, data, key, salt, iter, bio:parsed.bio||null, password, encrypted:true};
+    }catch(e){
+      return {ok:false, error:"Wrong passphrase, or the backup is damaged."};
+    }
+  }
+  return {ok:true, data:parsed, encrypted:false};
+}
+function vaultShapeOk(d){
+  return !!(d && [1,2].includes(d.v) && Array.isArray(d.accounts) && Array.isArray(d.txns) && !vaultHasUnsafeId(d));
+}
+async function commitRestore(decoded){
+  const prev={S, CK, SALT, KDF_ITER, BIO, notice:unlockNotice};
+  try{
+    S=decoded.data;
+    if(decoded.encrypted && decoded.key){
+      CK=decoded.key; SALT=decoded.salt; KDF_ITER=decoded.iter; BIO=decoded.bio||null;
+      if(KDF_ITER<600000){
+        const hadBio=!!decoded.bio;
+        SALT=crypto.getRandomValues(new Uint8Array(16));
+        KDF_ITER=600000;
+        CK=await deriveKey(decoded.password, SALT, KDF_ITER, false);
+        BIO=null;
+        unlockNotice=hadBio
+          ? "Backup restored and re-encrypted. Fingerprint unlock was turned off — enable it again under More."
+          : "Backup restored and re-encrypted with a stronger key.";
+      }
+    }
+    migrate();
+    const ok=await save();
+    if(!ok) throw new Error("The restored vault could not be stored on this phone.");
+    return {ok:true};
+  }catch(err){
+    S=prev.S; CK=prev.CK; SALT=prev.SALT; KDF_ITER=prev.KDF_ITER; BIO=prev.BIO;
+    unlockNotice=prev.notice||"";
+    return {ok:false, error:(err&&err.message)||"Restore failed."};
+  }
+}
 document.addEventListener("change", e=>{
   if(e.target.id==="fa"){ filterAcct=e.target.value; actLimit=40; render(); }
   if(e.target.id==="ft"){ filterType=e.target.value; actLimit=40; render(); }
@@ -3636,48 +3828,34 @@ document.addEventListener("change", e=>{
   if(e.target.id==="hf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>holdParse(rd.result); rd.readAsText(fl); return; }
   if(e.target.id==="csvf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>importCSV(String(rd.result)); rd.readAsText(fl); e.target.value=""; return; }
   if(e.target.id==="themePref"){ applyTheme(e.target.value); return; }
-  if(e.target.id==="rate"){ const r=parseAmt(e.target.value); if(r>0){ S.rate=r; save(); toast("Rate saved"); } }
+  if(e.target.id==="rate"){ const r=readAmt(e.target.value,{required:true,positive:true,maxDecimals:6}); if(!r.ok){ alert(r.error); return; } S.rate=r.value; save(); toastSaved("Rate saved"); }
   if(e.target.id==="from"||e.target.id==="to") updateRecv();
   if(e.target.id==="file"){
     const f=e.target.files[0]; if(!f) return;
     const rd=new FileReader();
     rd.onload=async()=>{ try{
         const raw=String(rd.result||"");
-        if(backupTooLarge(raw)) throw new Error("too big");
-        let d=JSON.parse(raw);
-        let importedKey=null, importedSalt=null, importedIter=KDF_ITER, importedBio=null, importedPassword="";
-        if(d&&d.enc){
-          const pw=await askPassphrase("Backup passphrase","Enter the passphrase that encrypted this file.");
-          if(!pw) return;
-          importedPassword=pw; importedSalt=unb64(d.salt); importedIter=d.iterations||250000;
-          importedKey=await deriveKey(pw,importedSalt,importedIter,false);
-          const env=d; d=await unseal(env,importedKey); importedBio=env.bio||null;
+        let probe=null;
+        try{ probe=JSON.parse(raw); }catch(e){ throw new Error("bad"); }
+        let password="";
+        if(probe&&probe.enc){
+          password=await askPassphrase("Backup passphrase","Enter the passphrase that encrypted this file. A wrong passphrase does not change your vault.");
+          if(!password) return;
         }else{
           const pw=await askPassphrase("Confirm restore","This file is not an encrypted backup. Enter your current passphrase to replace the data on this phone.");
           if(!pw) return;
-          const k=await deriveKey(pw,SALT,KDF_ITER,false);
-          await unseal(JSON.parse(store.get()), k);
+          await unseal(JSON.parse(store.get()), await deriveKey(pw, SALT, KDF_ITER, false));
         }
-        if(!d||![1,2].includes(d.v)||!Array.isArray(d.accounts)||!Array.isArray(d.txns)) throw new Error("bad");
-        if(vaultHasUnsafeId(d)) throw new Error("unsafe");
-        if(confirm(`Replace current data with this backup (${d.accounts.length} accounts, ${d.txns.length} transactions)?`)){
-          S=d;
-          if(importedKey){
-            CK=importedKey;SALT=importedSalt;KDF_ITER=importedIter;BIO=importedBio;
-            if(KDF_ITER<600000){
-              const hadBio=!!importedBio;
-              SALT=crypto.getRandomValues(new Uint8Array(16));KDF_ITER=600000;
-              CK=await deriveKey(importedPassword,SALT,KDF_ITER,false);BIO=null;
-              unlockNotice=hadBio
-                ? "Backup restored and re-encrypted. Fingerprint unlock was turned off — enable it again under More."
-                : "Backup restored and re-encrypted with a stronger key.";
-            }
-          }
-          migrate(); save(); render();
-          toast(unlockNotice||"Backup restored");
-          unlockNotice="";
-        }
-      }catch(err){ alert("Could not open that file. Check the passphrase, and that it is a My Finance backup under 6 MB."); } };
+        const decoded=await openBackupPayload(raw, password);
+        if(!decoded.ok){ alert(decoded.error||"Could not open that file."); return; }
+        if(!vaultShapeOk(decoded.data)){ alert("That file is not a usable My Finance vault. Nothing was changed."); return; }
+        if(!confirm(`Replace current data with this backup (${decoded.data.accounts.length} accounts, ${decoded.data.txns.length} transactions)?`)) return;
+        const result=await commitRestore(decoded);
+        if(!result.ok){ alert("Restore was not applied. Your existing vault is unchanged. "+result.error); render(); return; }
+        render();
+        toastSaved(unlockNotice||"Backup restored");
+        unlockNotice="";
+      }catch(err){ alert("Could not open that file. Check the passphrase, and that it is a My Finance backup under 6 MB. Nothing was changed."); } };
     rd.readAsText(f); e.target.value="";
   }
 });
@@ -3698,12 +3876,12 @@ document.addEventListener("submit", e=>{
   setTimeout(unlockSubmit, 1500);
   if(e.target.id==="fedit"){
     const t=S.txns.find(x=>x.id===$("#editId").value);if(!t||t.status!=="posted")return;
-    const a=acct($("#edFrom").value),amt=parseAmt($("#edAmt").value),date=$("#edDate").value||today(),note=$("#edNote").value.trim();if(!a||amt<=0){alert("Choose a valid account and positive amount.");return;}
+    const a=acct($("#edFrom").value),amt=rejectAmt($("#edAmt").value,{required:true,positive:true,maxDecimals:2}),date=$("#edDate").value||today(),note=$("#edNote").value.trim();if(amt==null)return;if(!a){alert("Choose a valid account.");return;}
     if(t.type==="transfer"){
-      const to=acct($("#edTo").value);if(!to||to.id===a.id){alert("Choose two different accounts.");return;}let recv=amt;if(a.cur!==to.cur){recv=parseAmt($("#edRecv").value);if(recv<=0){alert("Enter the amount received in the destination currency.");return;}}
+      const to=acct($("#edTo").value);if(!to||to.id===a.id){alert("Choose two different accounts.");return;}let recv=amt;if(a.cur!==to.cur){recv=(()=>{const rr=readAmt($("#edRecv").value,{required:true,positive:true,maxDecimals:2}); if(!rr.ok){ alert(rr.error); return null;} return rr.value;})(); if(recv==null) return;}
       t.postings=[{acct:a.id,amt:-amt,cur:a.cur},{acct:to.id,amt:recv,cur:to.cur}];
     }else{if(t.postings[0]?.cur!==a.cur)t.fxRate=S.rate;t.postings=[{acct:a.id,amt:t.type==="income"?amt:-amt,cur:a.cur}];t.cat=$("#edCat").value.trim();}
-    t.date=date;t.note=note;if(!t.fxRate)t.fxRate=S.rate;t.owner=a.owner||"Me";log("edit",t.id);save();closeSheet();render();toast("Transaction updated");return;
+    t.date=date;t.note=note;if(!t.fxRate)t.fxRate=S.rate;t.owner=a.owner||"Me";log("edit",t.id);save();closeSheet();render();toastSaved("Transaction updated");return;
   }
   if(e.target.id==="faskpass"){
     const v=$("#askPass").value;
@@ -3718,8 +3896,10 @@ document.addEventListener("submit", e=>{
       try{
         const k=await deriveKey(p,SALT,KDF_ITER,false);
         await unseal(JSON.parse(store.get()), k);
+        const prevS=S, prevBio=BIO;
         S=blank(); BIO=null;
-        await save();
+        const ok=await save();
+        if(!ok){ S=prevS; BIO=prevBio; alert("Nothing was erased. The phone could not store the change."); return; }
         try{ await backupHandleForget(); }catch(e){}
         closeSheet(); render(); toast("All data erased");
       }catch(err){
@@ -3729,11 +3909,32 @@ document.addEventListener("submit", e=>{
     return;
   }
   if(e.target.id==="fpass"){
-    (async()=>{try{const old=$("#oldPass").value,n1=$("#newPass").value,n2=$("#newPass2").value;if(n1.length<12)throw new Error("Use at least 12 characters for the new passphrase.");if(n1!==n2)throw new Error("The new passphrases do not match.");const oldKey=await deriveKey(old,SALT,KDF_ITER,false);await unseal(JSON.parse(store.get()),oldKey);const nextSalt=crypto.getRandomValues(new Uint8Array(16)),nextKey=await deriveKey(n1,nextSalt,KDF_ITER,false);await chain;SALT=nextSalt;CK=nextKey;BIO=null;const env=await seal(S);store.set(env);chain=Promise.resolve();toast("Passphrase changed. Fingerprint unlock was disabled; enable it again if desired.");closeSheet();render();}catch(err){alert("Passphrase not changed: "+(err.message||"verification failed"));}})();return;
+    (async()=>{
+      const prevSalt=SALT, prevKey=CK, prevIter=KDF_ITER, prevBio=BIO;
+      try{
+        const old=$("#oldPass").value, n1=$("#newPass").value, n2=$("#newPass2").value;
+        if(n1.length<12) throw new Error("Use at least 12 characters for the new passphrase.");
+        if(n1!==n2) throw new Error("The new passphrases do not match.");
+        const oldKey=await deriveKey(old,SALT,KDF_ITER,false);
+        await unseal(JSON.parse(store.get()), oldKey);
+        const nextSalt=crypto.getRandomValues(new Uint8Array(16));
+        const nextKey=await deriveKey(n1,nextSalt,600000,false);
+        await chain;
+        SALT=nextSalt; CK=nextKey; KDF_ITER=600000; BIO=null;
+        store.set(await seal(S));
+        chain=Promise.resolve(true);
+        clearPersistProblem();
+        toast("Passphrase changed. Fingerprint unlock was disabled; enable it again if desired.");
+        closeSheet(); render();
+      }catch(err){
+        SALT=prevSalt; CK=prevKey; KDF_ITER=prevIter; BIO=prevBio;
+        alert("Passphrase not changed. The saved vault is unchanged. "+(err&&err.message?err.message:"verification failed"));
+      }
+    })();return;
   }
   if(e.target.id==="f"){
-    const amt=parseAmt($("#amt").value);
-    if(amt<=0){ $("#amt").focus(); return; }
+    const amt=rejectAmt($("#amt").value,{required:true,positive:true,maxDecimals:2});
+    if(amt==null) return;
     const date=$("#date").value||today(), note=$("#note").value.trim();
     const from=acct($("#from").value);
     let t;
@@ -3754,7 +3955,7 @@ document.addEventListener("submit", e=>{
         const to=acct($("#to").value);
         if(!to||from.id===to.id){ alert("Choose two different accounts of yours."); return; }
         let recv=amt;
-        if(from.cur!==to.cur){ recv=parseAmt(($("#recv")||{}).value); if(recv<=0){ alert("Enter the amount received in "+to.cur+"."); return; } }
+        if(from.cur!==to.cur){ recv=rejectAmt(($("#recv")||{}).value,{required:true,positive:true,maxDecimals:2}); if(recv==null) return; }
         t={type:"transfer",date,note,recipientBankId:"",recipientBank:null,postings:[{acct:from.id,amt:-amt,cur:from.cur},{acct:to.id,amt:recv,cur:to.cur}]};
       }
     }else{
@@ -3772,32 +3973,33 @@ document.addEventListener("submit", e=>{
       save();
     }
     closeSheet(); render();
-    toast("Saved",()=>{ voidTxn(saved.id); render(); });
+    toastSaved("Saved",()=>{ voidTxn(saved.id); render(); });
   }
   if(e.target.id==="f2"){
-    const amt=parseAmt($("#amt").value); if(amt<=0){ $("#amt").focus(); return; }
+    const amt=rejectAmt($("#amt").value,{required:true,positive:true,maxDecimals:2}); if(amt==null) return;
     const a=acct($("#from").value), date=$("#date").value||today(), note=$("#note").value.trim(); let t;
     if(sheetType==="invest"){
-      const h=S.holdings.find(x=>x.id===$("#ih").value), u=parseAmt($("#iu").value), buy=$("#ia").value==="buy";
-      if(!h||u<=0){ alert("Enter the number of units."); return; }
+      const h=S.holdings.find(x=>x.id===$("#ih").value), u=rejectAmt($("#iu").value,{required:true,positive:true,maxDecimals:6}), buy=$("#ia").value==="buy";
+      if(!h||u==null) return;
       if(a.cur!==h.cur){ alert("Use an account in "+h.cur+" for this holding."); return; }
       if(!buy && u>holdPos(h).u+1e-9){ alert("You hold only "+holdPos(h).u+" units."); return; }
       t={type:buy?"buy":"sell",date,note,hold:h.id,units:u,cost:amt,postings:[{acct:a.id,amt:buy?-amt:amt,cur:a.cur}]};
-      if(buy&&!h.price) h.price=Math.round(amt/u*10000)/10000;
+      if(buy&&!h.price){ h.price=Math.round(amt/u*10000)/10000; h.priceAsOf=date; }
     }else{
       const k=$("#la").value, person=$("#lp").value.trim(); if(!person){ $("#lp").focus(); return; }
       const m={lend:[-1,1,"lend"],lendback:[1,-1,"lendback"],borrow:[1,-1,"borrow"],repay:[-1,1,"repay"]};
       if(m[k]) t={type:m[k][2],date,note,person,pd:m[k][1]*amt,postings:[{acct:a.id,amt:m[k][0]*amt,cur:a.cur}]};
       else t={type:k==="intin"?"income":"expense",cat:"Interest",date,note,person,postings:[{acct:a.id,amt:(k==="intin"?1:-1)*amt,cur:a.cur}]};
     }
-    S.lastAcct=a.id; const sv=addTxn(t); closeSheet(); render(); toast("Saved",()=>{ voidTxn(sv.id); render(); });
+    S.lastAcct=a.id; const sv=addTxn(t); closeSheet(); render(); toastSaved("Saved",()=>{ voidTxn(sv.id); render(); });
   }
   if(e.target.id==="frecon"){
-    const a=acct($("#raid").value), actual=parseAmt($("#ractual").value), date=$("#rdate").value||today(), note=$("#rnote").value.trim();
-    if(!a)return; const diff=Math.round((actual-balance(a))*100)/100;
+    const a=acct($("#raid").value), actualR=readAmt($("#ractual").value,{required:true,allowNegative:true,maxDecimals:2}), date=$("#rdate").value||today(), note=$("#rnote").value.trim();
+    if(!actualR.ok){ alert(actualR.error); return; }
+    if(!a)return; const diff=Math.round((actualR.value-balance(a))*100)/100;
     if(Math.abs(diff)<0.005){closeSheet();toast("Already reconciled");return;}
     addTxn({type:"adjustment",date,cat:"Balance adjustment",note,postings:[{acct:a.id,amt:diff,cur:a.cur}]});
-    closeSheet();render();toast("Balance updated");return;
+    closeSheet();render();toastSaved("Balance updated");return;
   }
   if(e.target.id==="fladj"){
     const l=S.lending.find(x=>x.id===$("#la_id")?.value); if(!l){ alert("Record not found."); return; }
@@ -3825,7 +4027,7 @@ document.addEventListener("submit", e=>{
     if(!confirm("Adjustment: "+(delta>=0?"+":"")+fmt(delta,l.cur)+" interest.\nOutstanding interest will be about "+fmt(newLeft,l.cur)+".\nSave?")) return;
     l.interestAdjustments=l.interestAdjustments||[];
     l.interestAdjustments.push({id:uid(), date, amount:delta, note:note||(typ==="set"?"Agreed outstanding interest":typ), created:new Date().toISOString()});
-    save(); closeSheet(); render(); toast("Interest adjustment saved");
+    save(); closeSheet(); render(); toastSaved("Interest adjustment saved");
     setTimeout(()=>lendingDetailSheet(l.id), 40);
     return;
   }
@@ -3872,13 +4074,16 @@ document.addEventListener("submit", e=>{
       }
     }
     save(); closeSheet(); render();
-    toast(amountChanged&&dateChanged?"Amount & date updated":amountChanged?"Amount updated":dateChanged?"Lending date updated":"Saved");
+    toastSaved(amountChanged&&dateChanged?"Amount & date updated":amountChanged?"Amount updated":dateChanged?"Lending date updated":"Saved");
     setTimeout(()=>lendingDetailSheet(l.id), 40);
     return;
   }
   if(e.target.id==="flend"){
-    const person=$("#lpname").value.trim(), principal=parseAmt($("#lprincipal").value), cur=$("#lcur").value, a=acct($("#laccount").value), dir=$("#ldir").value, rate=parseAmt($("#lrate").value), start=$("#lstart").value||today();
-    if(!person||principal<=0||!a){alert("Enter a person, positive amount and your account.");return;}
+    const person=$("#lpname").value.trim(), principal=rejectAmt($("#lprincipal").value,{required:true,positive:true,maxDecimals:2}), cur=$("#lcur").value, a=acct($("#laccount").value), dir=$("#ldir").value, rateR=readAmt($("#lrate").value,{maxDecimals:4,allowNegative:false}), start=$("#lstart").value||today();
+    if(principal==null) return;
+    if(!rateR.ok){ alert(rateR.error); return; }
+    const rate=rateR.value;
+    if(!person||!a){alert("Enter a person and your account.");return;}
     if(a.cur!==cur){alert("Choose an account in "+cur+".");return;}
     if(rate<0){alert("Interest rate cannot be negative.");return;}
     ensureContactByName(person);
@@ -3896,15 +4101,16 @@ document.addEventListener("submit", e=>{
     const l={id:uid(),person,direction:dir,principal,rate,cur,start,account:a.id,recipientMethodId,recipientMethod,note,created:new Date().toISOString()};
     S.lending.push(l);
     addTxn({type:dir==="lent"?"lend":"borrow",date:start,person,note:note||(recipientMethod?(recipientMethod.kind==="upi"?"UPI "+(recipientMethod.upi||""):(recipientMethod.bank||"")+" "+(recipientMethod.accountMasked||"")):""),lendingId:l.id,loanId:l.id,postings:[{acct:a.id,amt:dir==="lent"?-principal:principal,cur}]});
-    save(); closeSheet(); render(); toast("Lending record saved"); return;
+    save(); closeSheet(); render(); toastSaved("Lending record saved"); return;
   }
   if(e.target.id==="flr"){
-    const l=S.lending.find(x=>x.id===$("#lrid").value), amount=parseAmt($("#lramt").value), a=acct($("#lracct").value), date=$("#lrdate").value||today(), note=$("#lrnote").value.trim(), kind=$("#lrtype").value;
-    if(!l||amount<=0||!a){alert("Enter a positive amount and account.");return;}
+    const l=S.lending.find(x=>x.id===$("#lrid").value), amount=rejectAmt($("#lramt").value,{required:true,positive:true,maxDecimals:2}), a=acct($("#lracct").value), date=$("#lrdate").value||today(), note=$("#lrnote").value.trim(), kind=$("#lrtype").value;
+    if(amount==null) return;
+    if(!l||!a){alert("Choose the lending record and an account.");return;}
     if(a.cur!==l.cur){alert("Choose an account in "+l.cur+".");return;}
     const p=lendingPosition(l);
-    if(kind==="principal"&&amount>p.principalLeft+0.005){alert("Amount exceeds principal left ("+fmt(p.principalLeft,l.cur)+").");return;}
-    if(kind==="interest"&&amount>p.interestLeft+0.005){alert("Amount exceeds interest outstanding ("+fmt(p.interestLeft,l.cur)+").");return;}
+    if(kind==="principal"&&amount>p.principalLeft+0.005){alert("Amount is more than principal left ("+fmt(p.principalLeft,l.cur)+"). Record the extra as an interest payment, or enter a smaller amount.");return;}
+    if(kind==="interest"&&amount>p.interestLeft+0.005){alert("Amount is more than interest outstanding ("+fmt(p.interestLeft,l.cur)+"). Enter the outstanding interest, or add a waiver if you are forgiving it.");return;}
     if(kind==="principal"){
       const incoming=l.direction==="lent", typ=incoming?"lendback":"repay";
       addTxn({type:typ,date,person:l.person,loanId:l.id,pd:incoming?-amount:amount,principalReduction:amount,postings:[{acct:a.id,amt:incoming?amount:-amount,cur:l.cur}],note});
@@ -3912,7 +4118,7 @@ document.addEventListener("submit", e=>{
       const incoming=l.direction==="lent", typ=incoming?"income":"expense";
       addTxn({type:typ,date,person:l.person,loanId:l.id,interestSettlement:true,cat:"Interest",postings:[{acct:a.id,amt:incoming?amount:-amount,cur:l.cur}],note});
     }
-    save();closeSheet();render();toast("Lending transaction saved");return;
+    save();closeSheet();render();toastSaved("Lending transaction saved");return;
   }
   if(e.target.id==="fh"){
     const name=$("#hn").value.trim(); if(!name) return;
@@ -3928,7 +4134,7 @@ document.addEventListener("submit", e=>{
     const hdate=($("#hdate")?.value)||today();
     if(hist){
       if(units<=0||cost<=0){ alert("For a historical holding enter units owned and total invested amount."); return; }
-      if(price>0) h.price=price;
+      if(price>0){ h.price=price; h.priceAsOf=hdate; }
     }
     S.holdings.push(h);
     if(!S.people.includes(h.owner)) S.people.push(h.owner);
@@ -3937,26 +4143,30 @@ document.addEventListener("submit", e=>{
       addTxn({type:"open",date:hdate,note:"Historical opening position",hold:h.id,units,cost:Math.round(cost*100)/100,owner:h.owner,postings:[]});
     }
     save(); closeSheet(); render();
-    toast(hist?"Historical holding saved (no bank debit)":"Holding saved");
+    toastSaved(hist?"Historical holding saved (no bank debit)":"Holding saved");
   }
-  if(e.target.id==="fp"){ const h=S.holdings.find(x=>x.id===$("#hid").value); if(h){ h.price=parseAmt($("#hp").value); save(); } closeSheet(); render(); }
+  if(e.target.id==="fp"){ const h=S.holdings.find(x=>x.id===$("#hid").value); if(h){ const px=rejectAmt($("#hp").value,{required:true,positive:true,maxDecimals:6}); if(px==null) return; h.price=px; h.priceAsOf=today(); save(); toastSaved("Price saved"); } closeSheet(); render(); }
   if(e.target.id==="fholdunits"){
     const h=S.holdings.find(x=>x.id===$("#huid")?.value); if(!h) return;
-    const target=parseAmt($("#huunits")?.value);
-    const price=parseAmt($("#huprice")?.value);
+    const target=rejectAmt($("#huunits")?.value,{required:true,allowNegative:false,maxDecimals:6});
     const date=$("#hudate")?.value||today();
-    if(!(target>=0)){ alert("Enter total units (0 or more)."); return; }
+    if(target==null) return;
+    const priceRaw=$("#huprice")?.value;
+    if(String(priceRaw||"").trim()){
+      const pr=readAmt(priceRaw,{required:true,positive:true,maxDecimals:6});
+      if(!pr.ok){ alert(pr.error); return; }
+      h.price=pr.value; h.priceAsOf=date;
+    }
     const pos=holdPos(h);
     const du=Math.round((target-pos.u)*1e6)/1e6;
-    if(Math.abs(du)<1e-9 && !(price>0&&Math.abs(price-(h.price||0))>1e-9)){ toast("No change"); return; }
-    if(price>0) h.price=price;
+    if(Math.abs(du)<1e-9 && !(String(priceRaw||"").trim())){ toast("No change"); return; }
     if(Math.abs(du)>=1e-9){
       // cost adjustment proportional to average cost
       const avg=pos.u>0?pos.c/pos.u:(h.price||0);
       const dc=Math.round(du*avg*100)/100;
       addTxn({type:"adjust",date,note:"Manual units adjustment",hold:h.id,units:du,cost:dc,postings:[]});
     }
-    save(); closeSheet(); render(); toast("Units updated");
+    save(); closeSheet(); render(); toastSaved("Units updated");
     setTimeout(()=>holdSheet(h.id),40);
     return;
   }
@@ -4017,12 +4227,12 @@ document.addEventListener("submit", e=>{
     for(const n of names){ const k=n.toLowerCase(); if(seen.has(k)) continue; seen.add(k); out.push(n); }
     if(kind==="income") S.incomeCats=out; else S.expenseCats=out;
     if(chosenCat && !out.includes(chosenCat)) chosenCat=out[0];
-    save(); closeSheet(); toast("Categories saved");
+    save(); closeSheet(); toastSaved("Categories saved");
     if(sheetType==="income"||sheetType==="expense") addSheet();
     else render();
     return;
   }
-  if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=parseAmt($("#sm").value); if(!h||!(m>0)){ alert("Choose a fund and enter a positive amount."); return; } if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today(),status:"active",history:[]}); save(); closeSheet(); render(); toast("SIP saved"); }
+  if(e.target.id==="fs1"){ const h=S.holdings.find(v=>v.id===$("#sh").value), a=acct($("#sa").value), m=rejectAmt($("#sm").value,{required:true,positive:true,maxDecimals:2}); if(!h||m==null) return; if(!a){ alert("Choose the account to debit."); return; } if(a.cur!==h.cur){ alert("Use an account in "+h.cur+"."); return; } S.sips.push({id:uid(),hold:h.id,acct:a.id,amt:m,cur:a.cur,freq:+$("#sf").value||1,next:$("#sd").value||today(),status:"active",history:[]}); save(); closeSheet(); render(); toastSaved("SIP saved"); }
   
   
   if(e.target.id==="fcontact"){
@@ -4032,14 +4242,14 @@ document.addEventListener("submit", e=>{
     const existing=(S.contacts||[]).find(x=>x.name.toLowerCase()===name.toLowerCase());
     if(existing){
       existing.notes=notes; // update notes if re-adding same name
-      save(); closeSheet(); render(); toast("Contact updated");
+      save(); closeSheet(); render(); toastSaved("Contact updated");
       setTimeout(()=>{ const el=document.querySelector('[data-contact="'+existing.id+'"]'); if(el) el.click(); }, 40);
       return;
     }
     const c={id:uid(),name,notes,methods:[]};
     if(!S.contacts) S.contacts=[];
     S.contacts.push(c);
-    save(); closeSheet(); render(); toast("Contact saved");
+    save(); closeSheet(); render(); toastSaved("Contact saved");
     setTimeout(()=>{ const el=document.querySelector('[data-contact="'+c.id+'"]'); if(el) el.click(); }, 40);
     return;
   }
@@ -4053,7 +4263,7 @@ document.addEventListener("submit", e=>{
     if(old!==name) renamePerson(old, name);
     c.notes=notes;
     // methods stay on contact object by reference
-    save(); closeSheet(); render(); toast("Details saved");
+    save(); closeSheet(); render(); toastSaved("Details saved");
     setTimeout(()=>{ const el=document.querySelector('[data-contact="'+c.id+'"]'); if(el) el.click(); }, 40);
     return;
   }
@@ -4072,7 +4282,7 @@ document.addEventListener("submit", e=>{
     if(inv>0 && val!==inv){
       // opening is current value; invested is metadata only
     }
-    save(); closeSheet(); render(); toast("Demat account saved"); return;
+    save(); closeSheet(); render(); toastSaved("Demat account saved"); return;
   }
 
   if(e.target.id==="fmethod"){
@@ -4105,7 +4315,7 @@ document.addEventListener("submit", e=>{
       if(!S.bankContacts) S.bankContacts=[];
       S.bankContacts.push({id:meth.id,person:c.name,holder,bank,accountNumber:num,accountMasked:meth.accountMasked,ifsc,branch,cur,_migrated:true});
     }
-    save(); closeSheet(); render(); toast("Saved");
+    save(); closeSheet(); render(); toastSaved("Saved");
     setTimeout(()=>{ const el=document.querySelector('[data-contact="'+c.id+'"]'); if(el) el.click(); }, 40);
     return;
   }
@@ -4132,7 +4342,7 @@ document.addEventListener("submit", e=>{
     let b=(S.bankContacts||[]).find(x=>x.id===m.id);
     if(!b){ b={id:m.id}; (S.bankContacts=S.bankContacts||[]).push(b); }
     Object.assign(b,{person:c.name,holder:m.holder||c.name,bank:m.bank,accountNumber:m.accountNumber,accountMasked:m.accountMasked,ifsc:m.ifsc||"",branch:m.branch||"",upi:m.upi||"",cur:m.cur,nickname:m.nickname||""});
-    save(); closeSheet(); render(); toast("Details saved");
+    save(); closeSheet(); render(); toastSaved("Details saved");
     setTimeout(()=>{ const el=document.querySelector('[data-contact="'+c.id+'"]'); if(el) el.click(); }, 40);
     return;
   }
@@ -4140,8 +4350,9 @@ document.addEventListener("submit", e=>{
   if(e.target.id==="fsal"){
     const person=($("#sp")?.value||"Me").trim();
     const label=($("#sl")?.value||"Salary").trim()||"Salary";
-    const a=acct($("#sa").value); const m=parseAmt($("#sm").value);
-    if(!a||!(m>0)){ alert("Enter a valid account and positive amount."); return; }
+    const a=acct($("#sa").value); const m=rejectAmt($("#sm").value,{required:true,positive:true,maxDecimals:2});
+    if(m==null) return;
+    if(!a){ alert("Choose the account this salary is paid into."); return; }
     const raw=($("#sf")?.value||"m:1").split(":");
     const freqUnit=raw[0]==="w"?"week":"month";
     const freq=Math.max(1, +raw[1]||1);
@@ -4151,14 +4362,15 @@ document.addEventListener("submit", e=>{
     const dup=S.salaries.find(s=>(s.status||"active")==="active"&&s.person===person&&s.acct===a.id&&Math.abs(s.amt-m)<0.01);
     if(dup && !confirm("A similar active schedule already exists for this person and account. Add another anyway?")) return;
     S.salaries.push({id:uid(),person,label,acct:a.id,amt:m,cur:a.cur,freq,freqUnit,next,status:"active",history:[],revisions:[]});
-    save(); closeSheet(); render(); toast("Salary schedule saved"); return;
+    save(); closeSheet(); render(); toastSaved("Salary schedule saved"); return;
   }
   if(e.target.id==="fsaledit"){
     const x=S.salaries.find(v=>v.id===$("#seid")?.value); if(!x) return;
     const person=($("#sep")?.value||x.person||"Me").trim();
     const label=($("#sel")?.value||"Salary").trim()||"Salary";
-    const a=acct($("#sea").value); const m=parseAmt($("#sem").value);
-    if(!a||!(m>0)){ alert("Enter a valid account and positive amount."); return; }
+    const a=acct($("#sea").value); const m=rejectAmt($("#sem").value,{required:true,positive:true,maxDecimals:2});
+    if(m==null) return;
+    if(!a){ alert("Choose the account this salary is paid into."); return; }
     const raw=($("#sef")?.value||"m:1").split(":");
     const freqUnit=raw[0]==="w"?"week":"month";
     const freq=Math.max(1, +raw[1]||1);
@@ -4174,27 +4386,27 @@ document.addEventListener("submit", e=>{
     x.person=person; x.label=label; x.acct=a.id; x.amt=m; x.cur=a.cur; x.freq=freq; x.freqUnit=freqUnit; x.next=next;
     if(!S.people.includes(person)) S.people.push(person);
     // Do not mutate x.history or past txns
-    save(); closeSheet(); render(); toast("Salary schedule updated"); return;
+    save(); closeSheet(); render(); toastSaved("Salary schedule updated"); return;
   }
-  if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=parseAmt($("#su").value); if(!x||u<=0){ $("#su").focus(); return; }
+  if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=rejectAmt($("#su").value,{required:true,positive:true,maxDecimals:6}); if(!x||u==null) return;
     const payDate=x.next||today();
     const before=S.txns.length;
     addTxn({type:"buy",date:payDate,note:"SIP",hold:x.hold,units:u,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]});
     if(S.txns.length===before){
       if((x.next||"")===payDate) x.next=addM(x.next,x.freq||1);
-      save(); closeSheet(); render(); toast("Already recorded for "+payDate+". Next date moved ahead."); return;
+      save(); closeSheet(); render(); toastSaved("Already recorded for "+payDate+". Next date moved ahead."); return;
     }
     x.history=x.history||[]; x.history.push({date:payDate,status:"paid",units:u,amount:x.amt});
     x.next=addM(x.next,x.freq||1); x.status=x.status||"active";
-    save(); closeSheet(); render(); toast("SIP payment recorded"); }
+    save(); closeSheet(); render(); toastSaved("SIP payment recorded"); }
   if(e.target.id==="fpur"){
     const item=($("#un")?.value||"").trim();
-    const amt=parseAmt($("#ua")?.value);
+    const amt=rejectAmt($("#ua")?.value,{required:true,positive:true,maxDecimals:2});
     const date=$("#ud")?.value||today();
     const a=acct($("#uc")?.value);
     const months=parseAmt($("#uw")?.value)||0;
     if(!item){ alert("Enter an item name."); return; }
-    if(!(amt>0)){ alert("Enter a positive amount."); return; }
+    if(amt==null) return;
     if(!a){ alert("Choose the account you paid from."); return; }
     let expiry="";
     if(months>0){
@@ -4204,10 +4416,15 @@ document.addEventListener("submit", e=>{
     const txn=addTxn({type:"expense",date,cat:"Shopping",note:item+(months?(" · warranty "+months+" mo"):""),postings:[{acct:a.id,amt:-amt,cur:a.cur}]});
     S.purchases=S.purchases||[];
     S.purchases.push({id:uid(),item,amt,cur:a.cur,date,expiry,acct:a.id,txnId:txn.id,warrantyMonths:months});
-    save(); closeSheet(); render(); toast("Purchase saved"); return;
+    save(); closeSheet(); render(); toastSaved("Purchase saved"); return;
   }
   if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n){ alert("Enter a policy name."); return; }
-    const pol={id:uid(),name:n,policyNo:($("#pno")?.value||"").trim(),provider:($("#pp")?.value||"").trim(),owner:($("#po")?.value||"Me"),start:($("#pstart")?.value||""),sum:parseAmt($("#ps")?.value),fundValue:parseAmt($("#pfund")?.value||"0"),policyKind:($("#pkind")?.value||"term"),bonus:parseAmt($("#bonus")?.value||"0"),premium:parseAmt($("#pa")?.value),ppt:parseAmt($("#ppt")?.value),term:parseAmt($("#pt")?.value),maturity:($("#mat")?.value||""),cur:($("#pc")?.value||S.display||"INR"),freq:+($("#pf")?.value||12),paidThrough:($("#ppaidthrough")?.value||"").trim(),payments:[],finalPremiumPaid:false};
+    const premium=rejectAmt($("#pa")?.value,{required:true,positive:true,maxDecimals:2});
+    if(premium==null) return;
+    const opt=(id,label)=>{ const raw=$(id)?.value; if(raw==null || String(raw).trim()==="") return 0; const r=readAmt(raw,{maxDecimals:2,allowNegative:false}); if(!r.ok){ alert(label+": "+r.error); return null; } return r.value; };
+    const sum=opt("#ps","Sum assured"), fund=opt("#pfund","Fund value"), bonus=opt("#bonus","Bonus"), ppt=opt("#ppt","Premium paying term"), term=opt("#pt","Policy term");
+    if([sum,fund,bonus,ppt,term].some(v=>v==null)) return;
+    const pol={id:uid(),name:n,policyNo:($("#pno")?.value||"").trim(),provider:($("#pp")?.value||"").trim(),owner:($("#po")?.value||"Me"),start:($("#pstart")?.value||""),sum,fundValue:fund,policyKind:($("#pkind")?.value||"term"),bonus,premium,ppt,term,maturity:($("#mat")?.value||""),cur:($("#pc")?.value||S.display||"INR"),freq:+($("#pf")?.value||12),paidThrough:($("#ppaidthrough")?.value||"").trim(),payments:[],finalPremiumPaid:false};
     const manualNext=($("#pd")?.value||"").trim();
     pol.next=manualNext||policyNextUnpaidDue(pol)||"";
     if(pol.start && Number(pol.premium)>0 && Number(pol.ppt)>0 && !policyNextUnpaidDue(pol)) pol.finalPremiumPaid=true;
@@ -4220,16 +4437,23 @@ document.addEventListener("submit", e=>{
     p.provider=($("#peprov")?.value||"").trim();
     p.owner=($("#peown")?.value||"Me").trim();
     p.start=($("#pestart")?.value||"").trim()||p.start||"";
-    p.sum=parseAmt($("#pesum")?.value||p.sum);
-    if($("#pefund")) p.fundValue=parseAmt($("#pefund").value||"0");
+    const editOpt=(id,label,fallback)=>{ const raw=$(id)?.value; if(raw==null||String(raw).trim()==="") return fallback; const r=readAmt(raw,{maxDecimals:2,allowNegative:false}); if(!r.ok){ alert(label+": "+r.error); return null; } return r.value; };
+    const sum=editOpt("#pesum","Sum assured", Number(p.sum)||0);
+    const fund=$("#pefund")?editOpt("#pefund","Fund value", Number(p.fundValue)||0):p.fundValue;
+    const bonus=editOpt("#pebonus","Bonus", Number(p.bonus)||0);
+    const ppt=editOpt("#peppt","Premium paying term", Number(p.ppt)||0);
+    const term=editOpt("#peterm","Policy term", Number(p.term)||0);
+    if([sum,fund,bonus,ppt,term].some(v=>v==null)) return;
+    p.sum=sum; if($("#pefund")) p.fundValue=fund; p.bonus=bonus; p.ppt=Math.round(ppt)||0; p.term=Math.round(term)||0;
     if($("#pekind")) p.policyKind=$("#pekind").value;
     if($("#pepaidthrough")) p.paidThrough=($("#pepaidthrough").value||"").trim();
-    p.bonus=parseAmt($("#pebonus")?.value||"0");
-    p.premium=parseAmt($("#peprem")?.value||p.premium);
-    p.ppt=Math.round(parseAmt($("#peppt")?.value||String(p.ppt||0)))||0;
-    p.term=Math.round(parseAmt($("#peterm")?.value||String(p.term||0)))||0;
+    const premiumEdit=rejectAmt($("#peprem")?.value,{required:true,positive:true,maxDecimals:2});
+    if(premiumEdit==null) return;
+    p.premium=premiumEdit;
+    const freqR=readAmt($("#pefreq")?.value,{required:true,positive:true,maxDecimals:0,allowNegative:false});
+    if(!freqR.ok){ alert("Frequency: "+freqR.error); return; }
+    p.freq=Math.max(1, Math.round(freqR.value));
     p.maturity=($("#pemat")?.value||"").trim();
-    p.freq=Math.max(1, Math.round(parseAmt($("#pefreq")?.value||String(p.freq||1)))||1);
     const nextOverride=($("#penext")?.value||"").trim();
     // 2) Recalculate schedule status AFTER all fields applied
     // Never mark fully paid solely because schedule inputs are missing
@@ -4250,7 +4474,7 @@ document.addEventListener("submit", e=>{
       if(nextOverride) p.next=nextOverride;
       p.finalPremiumPaid=false;
     }
-    save(); closeSheet(); render(); toast("Policy updated"); return;
+    save(); closeSheet(); render(); toastSaved("Policy updated"); return;
   }
   if(e.target.id==="fpay"){
     const p=S.policies.find(v=>v.id===$("#pid").value), a=acct($("#pacc").value);
@@ -4259,29 +4483,26 @@ document.addEventListener("submit", e=>{
     if(!(Number(p.premium)>0)){ alert("Premium amount is zero — edit the policy first."); return; }
     const end=policyPptEnd(p);
     const due=policyPayableDate(p);
-    // Persist expense + link to policy
+    if(!due){ alert("No unpaid premium is due on this policy."); return; }
+    if(end && due>end){ alert("That due date is after the premium-paying term."); return; }
+    const already=S.txns.find(t=>t.status==="posted"&&t.policyId===p.id&&t.date===due);
+    if(already){
+      p.next=policyNextUnpaidDue(p)||"";
+      p.finalPremiumPaid=!p.next;
+      save();
+      alert("A premium for "+due+" is already recorded. Next due is "+(p.next||"none")+".");
+      closeSheet(); render(); return;
+    }
     const txn=addTxn({type:"expense",date:due,note:"Premium · "+(p.name||"Policy"),cat:"Insurance premium",owner:p.owner||a.owner||"Me",policyId:p.id,postings:[{acct:a.id,amt:-Math.abs(p.premium),cur:p.cur}]});
     p.payments=p.payments||[];
     p.payments.push({id:uid(),date:due,amount:p.premium,cur:p.cur,acct:a.id,txnId:txn.id});
-    // Advance next unpaid due from the date we just paid
-    const freq=Math.max(1, Number(p.freq)||1);
-    let next=addM(due, freq);
-    if(end){
-      if(due >= end || next >= end){
-        // Final premium inside PPT recorded — move next past PPT so overdue clears
-        p.next=addM(end, 1);
-        p.finalPremiumPaid=true;
-      }else{
-        p.next=next;
-        p.finalPremiumPaid=false;
-      }
-    }else{
-      p.next=next;
-    }
+    const nu=policyNextUnpaidDue(p);
+    p.next=nu||"";
+    p.finalPremiumPaid=!nu;
     save();
     closeSheet();
     render();
-    toast("Premium recorded · next "+(p.next||""));
+    toastSaved(nu?("Premium recorded · next "+nu):"Final premium recorded. No further premiums are due.");
     return;
   }
   if(e.target.id==="fcard"){
@@ -4367,7 +4588,7 @@ document.addEventListener("submit", e=>{
       a.stmtDay=day($("#cstmt")?.value); a.dueDay=day($("#cdue")?.value);
       a.linkedBankId=($("#clinked")?.value)||"";
     }
-    S.accounts.push(a); if(!S.people.includes(a.owner))S.people.push(a.owner); log("account",a.id); save(); closeSheet(); render(); toast(type==="card"?"Credit card added":"Account added");
+    S.accounts.push(a); if(!S.people.includes(a.owner))S.people.push(a.owner); log("account",a.id); save(); closeSheet(); render(); toastSaved(type==="card"?"Credit card added":"Account added");
   }
 });
 
@@ -4405,14 +4626,19 @@ function boot(){
         CK=k; BIO=env.bio||null;
         if(KDF_ITER<600000){
           const hadBio=!!(env.bio||BIO);
+          const prevSalt=SALT, prevKey=CK, prevIter=KDF_ITER, prevBio=BIO;
           try{
-            const ns=crypto.getRandomValues(new Uint8Array(16)),nk=await deriveKey(p,ns,600000);
+            const ns=crypto.getRandomValues(new Uint8Array(16)), nk=await deriveKey(p,ns,600000);
             SALT=ns; CK=nk; KDF_ITER=600000; BIO=null;
             store.set(await seal(S));
             unlockNotice=hadBio
               ? "Security update: vault re-encrypted. Fingerprint unlock was turned off — enable it again under More."
               : "Security update: vault re-encrypted with a stronger key.";
-          }catch(upErr){ console.warn("kdf upgrade failed", upErr); }
+          }catch(upErr){
+            SALT=prevSalt; CK=prevKey; KDF_ITER=prevIter; BIO=prevBio;
+            console.warn("kdf upgrade failed", upErr);
+            unlockNotice="A security update could not be stored. Your existing vault and passphrase are unchanged.";
+          }
         }
       }else{
         if(p.length<12) return er("Use at least 12 characters. A unique multi-word passphrase is best.");
@@ -4437,6 +4663,21 @@ function boot(){
 
 let hidAt=0;
 document.addEventListener("visibilitychange",()=>{ if(!S) return; if(document.hidden) hidAt=Date.now(); else if(Date.now()-hidAt>120000) chain=chain.then(()=>{ S=null; CK=null; boot(); }); });
+if(globalThis.__MF_TEST){
+  globalThis.__mf={
+    parseAmt, inspectAmt, readAmt, rejectAmt,
+    save, store, seal, unseal, deriveKey, blank, migrate,
+    processDueAutomations, salaryTermsAt, advanceSalaryNext, addM, addDays, calendarDays,
+    lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyHasOpenPremium,
+    wealthBreakdown, netWorth, valuationNotes, holdPos, balance, addTxn,
+    openBackupPayload, commitRestore, vaultShapeOk, buildHoldPlanRow, applySectionSort,
+    getNwPrefs, forgetBackupFolder,
+    getS(){ return S; }, setS(v){ S=v; },
+    getCK(){ return CK; },
+    setCrypto(k, salt, iter){ CK=k; SALT=salt; if(iter) KDF_ITER=iter; },
+    today, uid
+  };
+}
 boot();
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
