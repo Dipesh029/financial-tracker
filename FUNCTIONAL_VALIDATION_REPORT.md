@@ -416,3 +416,19 @@ Lending principal/interest repayments set `pd` on transactions. `personPos()` su
 | Demat independent sort bar | COMPLETE | sortBarHtml("demat") when filter demat |
 | node --check | COMPLETE | PASS |
 | Insurance paid-through logic | COMPLETE | unchanged from 2.5.6 (prior PREMIUM_OK) |
+
+
+## Update 2.5.8 (2026-11-18)
+
+| # | Requirement | Status | Test |
+|---|-------------|--------|------|
+| 1 | Manual Order = array order not sortOrder | COMPLETE | MANUAL_OK: xyz restored; orig not mutated |
+| 2 | Sort never mutates saved array | COMPLETE | JSON.stringify equality after sorts |
+| 3 | Ambiguous CSV before mutation | COMPLETE | continue before H create |
+| 4 | Different ISIN never symbol-match | COMPLETE | CSV_OK assert length 0 |
+| 5 | Same ISIN different exchange separate | COMPLETE | CSV_OK |
+| 6 | Empty exchange not wildcard | COMPLETE | CSV_OK |
+| 7 | Demat no debit UI (create) | COMPLETE | fdemat has no last4 |
+| 8 | Demat save no cardMeta/debit | COMPLETE | fcard demat branch only broker/id/invested |
+| 9 | Bank still supports debit | COMPLETE | bank branch keeps debitCard path |
+| 10 | node --check | COMPLETE | PASS |

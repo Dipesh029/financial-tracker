@@ -309,8 +309,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.5.7";
+const APP_VERSION = "2.5.8";
 const RELEASES = [
+  {v:"2.5.8", d:"2026-11-18", notes:"Manual Order = array order (no sortOrder); CSV strict ISIN/exchange; demat no debit paths."},
   {v:"2.5.7", d:"2026-11-18", notes:"Remove Reorder; sort-only UI; fix Contacts ci; CSV fileKey includes exchange; Demat sort bar."},
   {v:"2.5.6", d:"2026-11-18", notes:"Policy edit apply-all-then-recalc; CSV identity owner+ISIN+exchange; full reorder coverage; compact sort."},
   {v:"2.5.5", d:"2026-11-18", notes:"Policy paid-through on create; compact sort; reorder forces manual; CSV skipSave."},
@@ -979,17 +980,11 @@ function applySectionSort(arr, section, accessors){
 }
 
 function sortedList(arr, key){
-
-  // Stable display order using optional .sortOrder (number). Unset items keep relative order at end of numbered ones.
+  // Manual Order = original array order. Never mutates arr.
   if(!arr||!arr.length) return arr||[];
-  return arr.slice().sort((a,b)=>{
-    const ao=a.sortOrder, bo=b.sortOrder;
-    if(ao!=null&&bo!=null&&ao!==bo) return ao-bo;
-    if(ao!=null&&bo==null) return -1;
-    if(ao==null&&bo!=null) return 1;
-    return 0;
-  });
+  return arr.slice();
 }
+
 function applySortOrder(arr, orderedIds){
   if(!arr||!orderedIds) return;
   orderedIds.forEach((id,i)=>{ const x=arr.find(y=>y.id===id); if(x) x.sortOrder=i; });
@@ -1895,7 +1890,7 @@ function holdParse(text){
     const isin=iIsin>=0?(cells[iIsin]||"").trim():"";
     const sec=iSec>=0?(cells[iSec]||"").trim():"";
     const exch=iExch>=0?(cells[iExch]||"").trim():"";
-    const fileKey=((isin||"").toUpperCase()+"|"+sym.toUpperCase()+"|"+(exch||"").toUpperCase()+"|"+(owner||"Me"));
+    const fileKey=isin?( (owner||"Me")+"|"+isin.toUpperCase()+"|"+(exch||"").toUpperCase() ):( (owner||"Me")+"|"+sym.toUpperCase()+"|"+(exch||"").toUpperCase() );
     if(seenInFile.has(fileKey)){ fileDup++; continue; }
     seenInFile.add(fileKey);
     items.push({sym, qty, avg, prev:prev||avg, isin, sec, exch});
@@ -1905,24 +1900,35 @@ function holdParse(text){
   for(const it of items){
     let H=null;
     {
+      const iEx=(it.exch||"").toUpperCase();
+      const iIsin=(it.isin||"").trim();
       const candidates=S.holdings.filter(h=>{
         if((h.owner||"Me")!==(owner||"Me")) return false;
         const hEx=(h.exchange||"").toUpperCase();
-        const iEx=(it.exch||"").toUpperCase();
-        if(it.isin && h.isin && h.isin===it.isin){
-          // Require exchange equality when either side has exchange; both empty OK
-          return hEx===iEx;
+        const hIsin=(h.isin||"").trim();
+        // When both have ISIN: only match if equal ISIN + equal exchange (no symbol fallback if ISINs differ)
+        if(iIsin && hIsin){
+          if(iIsin!==hIsin) return false;
+          return hEx===iEx; // missing exchange on both is OK (both ""); never wildcard
         }
-        const hSym=(h.symbol||h.name||"").toUpperCase();
-        const iSym=(it.sym||"").toUpperCase();
-        if(hSym && iSym && hSym===iSym) return hEx===iEx;
+        // Symbol fallback only when ISIN missing on at least one side
+        if(iIsin && !hIsin){
+          // Import has ISIN, holding doesn't — allow symbol+exchange match to attach ISIN later
+          const hSym=(h.symbol||h.name||"").toUpperCase();
+          const iSym=(it.sym||"").toUpperCase();
+          return !!(hSym && iSym && hSym===iSym && hEx===iEx);
+        }
+        if(!iIsin){
+          const hSym=(h.symbol||h.name||"").toUpperCase();
+          const iSym=(it.sym||"").toUpperCase();
+          return !!(hSym && iSym && hSym===iSym && hEx===iEx);
+        }
         return false;
       });
       if(candidates.length===1) H=candidates[0];
       else if(candidates.length>1){
-        // Ambiguous — do not merge
-        plan.push({H:null,it,kind:"ambiguous",note:"Multiple matches"});
-        continue;
+        plan.push({H:null,it,kind:"ambiguous",note:"Multiple matches — skipped"});
+        continue; // before any mutation
       }
     }
     if(H){
@@ -3927,7 +3933,56 @@ document.addEventListener("submit", e=>{
     toast("Premium recorded · next "+(p.next||""));
     return;
   }
-  if(e.target.id==="fcard"){ const a=acct($("#cid").value); if(a){ const newName=($("#anameEdit")?.value||"").trim(); if(!newName){alert("Enter an account nickname.");return;} a.name=newName; const newOwner=($("#aownerEdit")?.value||"").trim()||"Me"; a.owner=newOwner; if(!S.people.includes(newOwner))S.people.push(newOwner); const last4=($("#last4")?.value||"").replace(/\D/g,"").slice(-4); const expR=readExpiryField("expiry",{allowPast:true}); if(!expR.ok){alert(expR.error);return;} const expiry=expR.value; a.cardMeta={last4,network:($("#network")?.value||"").trim(),cardType:($("#cardType")?.value||"").trim(),expiry,annualFee:parseAmt($("#annualFee")?.value||"0")}; if(a.type==="demat"){ if($("#abrokerEdit")) a.broker=$("#abrokerEdit").value.trim(); if($("#adematEdit")) a.dematId=$("#adematEdit").value.trim(); if($("#ainvestedEdit")) a.invested=parseAmt($("#ainvestedEdit").value||"0"); } if(a.type==="bank"){a.bank=$("#abankEdit")?.value.trim()||a.bank||"";a.branch=$("#abranchEdit")?.value.trim()||"";a.ifsc=$("#aifscEdit")?.value.trim().toUpperCase()||"";a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";const n=($("#aacctnoEdit")?.value||"").replace(/\s/g,"").trim();a.accountNumber=n;a.accountMasked=n?(n.length>4?"••••"+n.slice(-4):"••••"):"";} if(a.type==="card"){ if($("#abankEdit")) a.bank=($("#abankEdit").value||"").trim()||a.bank||""; a.limit=parseAmt($("#cl").value);const day=v=>{const n=Math.round(parseAmt(v));return n>=1&&n<=31?n:0;};a.stmtDay=day($("#cs").value);a.dueDay=day($("#cd").value); if($("#alinked")) a.linkedBankId=$("#alinked").value||"";} log("account-details",a.id);save(); } closeSheet(); render(); toast("Account details saved"); }
+  if(e.target.id==="fcard"){
+    const a=acct($("#cid").value); if(!a) return;
+    const newName=($("#anameEdit")?.value||"").trim();
+    if(!newName){ alert("Enter an account nickname."); return; }
+    a.name=newName;
+    const newOwner=($("#aownerEdit")?.value||"").trim()||"Me";
+    a.owner=newOwner;
+    if(!S.people.includes(newOwner)) S.people.push(newOwner);
+    if(a.type==="demat"){
+      if($("#abrokerEdit")) a.broker=($("#abrokerEdit").value||"").trim();
+      if($("#adematEdit")) a.dematId=($("#adematEdit").value||"").trim();
+      if($("#ainvestedEdit")) a.invested=parseAmt($("#ainvestedEdit").value||"0");
+      // Never attach linked debit / cardMeta on demat
+    } else if(a.type==="bank"){
+      a.bank=$("#abankEdit")?.value.trim()||a.bank||"";
+      a.branch=$("#abranchEdit")?.value.trim()||"";
+      a.ifsc=($("#aifscEdit")?.value||"").trim().toUpperCase()||"";
+      a.branchCode=$("#abranchcodeEdit")?.value.trim()||"";
+      const n=($("#aacctnoEdit")?.value||"").replace(/\s/g,"").trim();
+      a.accountNumber=n;
+      a.accountMasked=n?(n.length>4?"••••"+n.slice(-4):"••••"):"";
+      // Linked debit card optional (bank only)
+      if($("#last4")||$("#adlast4")||document.getElementById("expiry")||document.getElementById("adexpiry")){
+        const last4=($("#last4")?.value||$("#adlast4")?.value||"").replace(/\D/g,"").slice(-4);
+        const expId=document.getElementById("expiry")?"expiry":(document.getElementById("adexpiry")?"adexpiry":"");
+        let expiry="";
+        if(expId){ const expR=readExpiryField(expId,{allowPast:true}); if(!expR.ok){ alert(expR.error); return; } expiry=expR.value; }
+        if(last4||expiry){
+          a.debitCard={ last4, network:($("#network")?.value||$("#adnetwork")?.value||"").trim(), expiry };
+        }
+      }
+    } else if(a.type==="card"){
+      const last4=($("#last4")?.value||"").replace(/\D/g,"").slice(-4);
+      const expR=readExpiryField("expiry",{allowPast:true});
+      if(!expR.ok){ alert(expR.error); return; }
+      a.cardMeta={ last4, network:($("#network")?.value||"").trim(), cardType:($("#cardType")?.value||"").trim(), expiry:expR.value, annualFee:parseAmt($("#annualFee")?.value||"0") };
+      if($("#abankEdit")) a.bank=($("#abankEdit").value||"").trim()||a.bank||"";
+      a.limit=parseAmt($("#cl")?.value);
+      const day=v=>{ const n=Math.round(parseAmt(v)); return n>=1&&n<=31?n:0; };
+      a.stmtDay=day($("#cs")?.value);
+      a.dueDay=day($("#cd")?.value);
+      if($("#alinked")) a.linkedBankId=$("#alinked").value||"";
+    }
+    log("account-details",a.id);
+    save();
+    closeSheet();
+    render();
+    toast("Account details saved");
+    return;
+  }
   if(e.target.id==="fa2"){
     const name=$("#an").value.trim(); if(!name) return;
     let o=parseAmt($("#ao").value); const type=$("#at").value;

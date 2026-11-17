@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.5.7
+**Current version:** 2.5.8
 
 ---
 
@@ -109,7 +109,7 @@ If the UI looks old, the service worker is still serving a cached shell — clea
 |---------|--------|
 | **2.0.0** | Premium mobile UI, Home wealth breakdown, themes, Activity pages |
 | **1.6.0** | Segmented Money & Plan tabs (less scrolling) |
-| **1.5.0** | Auto SIP debit + salary schedules on unlock |
+| **2.5.8** | Auto SIP debit + salary schedules on unlock |
 | 1.4.x | Account numbers, debit card meta, folder backup fix, unlock/crypto fixes, UI polish |
 | 1.3.0 | SIP paid/missed ledger, stronger Due soon |
 | 1.2.x | Credit-card fields, projections, release notes |
@@ -180,7 +180,7 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 ### 2.2.5 — 2026-11-17
 - Card expiry: enter digits only (0829 → 08/29) or use month/year pickers; validation for month and past dates.
 
-### 2.2.4 — 2026-11-17
+### 2.5.8 — 2026-11-17
 - App-wide form validation: fixed **New purchase** save (`fpur` handler was missing).
 - Salary “mark received” includes `salaryId` for safer dedupe.
 - Added FUNCTIONAL_VALIDATION_REPORT.md.
