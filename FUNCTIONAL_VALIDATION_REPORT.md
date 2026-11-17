@@ -346,3 +346,19 @@ Lending principal/interest repayments set `pd` on transactions. `personPos()` su
 | Premium count | Inclusive end drift | n = ppt*12/freq instalments | Annual 10 PASS |
 | Month-end | addM already clamps | Kept | Jan31→Feb29 PASS |
 | Legacy liabilities | pd on loan notes | personPos note+lending person filter | PASS |
+
+
+## Update 2.5.4 — Sort system & critical fixes (2026-11-18)
+
+| Requirement | Status |
+|-------------|--------|
+| Remove drag-and-drop | COMPLETE |
+| Sort button per section | COMPLETE (accounts, holdings, SIPs, salaries, lending, policies, contacts) |
+| Manual Reorder ↑↓ | COMPLETE (accounts, holdings, lending, SIPs) |
+| Sort prefs in S.ui vault | COMPLETE |
+| Premium prinTxns corruption | FIXED |
+| CSV exchange preserved | FIXED |
+| doHolds single save | COMPLETE (1 save) |
+| Numeric sort unit test | PASS |
+| node --check | PASS |
+| Manual Android UI | PENDING user device |
