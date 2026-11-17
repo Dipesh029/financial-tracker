@@ -293,8 +293,8 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .nw-breakdown .wealth-pill span{font-size:11px}
 .dragging{opacity:.85;box-shadow:0 8px 24px rgba(0,0,0,.18);transform:scale(1.02);z-index:5;position:relative}
 .sort-bar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px;align-items:center}
-.reorder-controls{display:flex;gap:6px;margin-top:8px}
-.reorder-controls .chip[disabled]{opacity:.35;pointer-events:none}
+
+
 .drag-handle{display:none!important}
 .sort-bar{display:flex;flex-wrap:nowrap;gap:6px;margin:0 0 8px;align-items:center;justify-content:flex-end}
 .sort-chip{font-size:12px!important;padding:4px 10px!important;min-height:32px!important;font-weight:600}
@@ -309,8 +309,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.5.6";
+const APP_VERSION = "2.5.7";
 const RELEASES = [
+  {v:"2.5.7", d:"2026-11-18", notes:"Remove Reorder; sort-only UI; fix Contacts ci; CSV fileKey includes exchange; Demat sort bar."},
   {v:"2.5.6", d:"2026-11-18", notes:"Policy edit apply-all-then-recalc; CSV identity owner+ISIN+exchange; full reorder coverage; compact sort."},
   {v:"2.5.5", d:"2026-11-18", notes:"Policy paid-through on create; compact sort; reorder forces manual; CSV skipSave."},
   {v:"2.5.4", d:"2026-11-18", notes:"Sort button + Manual Reorder (no drag); fix premium fn corruption; CSV exchange + batch save."},
@@ -940,42 +941,15 @@ function setSortPref(section, key, dir){
   S.ui.sort[section]={key, dir:dir||"asc"};
   save();
 }
-function isReorderMode(section){
-  ensureUi();
-  return !!S.ui.reorder[section];
-}
-function setReorderMode(section, on){
-  ensureUi();
-  if(on){ S.ui.sort[section]={key:"manual", dir:"asc"}; }
-  S.ui.reorder[section]=!!on;
-  save();
-  render();
-}
 
-function moveItemInArray(arr, id, delta){
-  if(!arr||!arr.length) return false;
-  const ordered=sortedList(arr);
-  const idx=ordered.findIndex(x=>x.id===id);
-  if(idx<0) return false;
-  const j=idx+delta;
-  if(j<0||j>=ordered.length) return false;
-  const swapped=ordered.slice();
-  const t=swapped[idx]; swapped[idx]=swapped[j]; swapped[j]=t;
-  swapped.forEach((x,i)=>{ x.sortOrder=i; });
-  save();
-  return true;
-}
+
 
 function sortBarHtml(section, options){
   const pref=getSortPref(section);
-  const reorder=isReorderMode(section);
   const opts=[{key:"manual",label:"Manual"},...options];
   const cur=opts.find(o=>o.key===pref.key)||opts[0];
-  const dirMark=pref.key!=="manual"?(pref.dir==="desc"?"↓":"↑"):"";
-  return `<div class="sort-bar">
-    <button type="button" class="chip sort-chip" data-sortopen="${section}">${esc(cur.label)}${dirMark?" "+dirMark:""}</button>
-    <button type="button" class="chip sort-chip ${reorder?"on":""}" data-reordermode="${section}">${reorder?"Done":"Reorder"}</button>
-  </div>`;
+  const dirMark=pref.key!=="manual"?(pref.dir==="desc"?" ↓":" ↑"):"";
+  return `<div class="sort-bar"><button type="button" class="chip sort-chip" data-sortopen="${section}">${esc(cur.label)}${dirMark}</button></div>`;
 }
 
 function sortMenuHtml(section, options){
@@ -1003,13 +977,7 @@ function applySectionSort(arr, section, accessors){
     return String(va).localeCompare(String(vb), undefined, {sensitivity:"base", numeric:true})*dir;
   });
 }
-function reorderControls(section, id, isFirst, isLast){
-  if(!isReorderMode(section)) return "";
-  return `<div class="reorder-controls" onclick="event.stopPropagation()">
-    <button type="button" class="chip" data-move="${section}::${id}::-1" ${isFirst?"disabled":""} aria-label="Move up">↑</button>
-    <button type="button" class="chip" data-move="${section}::${id}::1" ${isLast?"disabled":""} aria-label="Move down">↓</button>
-  </div>`;
-}
+
 function sortedList(arr, key){
 
   // Stable display order using optional .sortOrder (number). Unset items keep relative order at end of numbered ones.
@@ -1428,7 +1396,7 @@ function viewAccounts(){
     if(banks) bits.push(banks+" bank");
     if(upis) bits.push(upis+" UPI");
     const inFam=(S.people||[]).includes(c.name);
-    return `<div class="card tap" data-contact="${c.id}"><div class="row"><div><b>${esc(c.name)}</b><div class="muted">${bits.join(" · ")}${inFam?" · Family view":""}</div></div><span class="muted">Open</span></div>${reorderControls("contacts", c.id, ci===0, ci===list.length-1)}</div>`;
+    return `<div class="card tap" data-contact="${c.id}"><div class="row"><div><b>${esc(c.name)}</b><div class="muted">${bits.join(" · ")}${inFam?" · Family view":""}</div></div><span class="muted">Open</span></div></div>`;
   }).join("")||`<div class="empty"><div class="empty-title">No people yet</div><p>Register a friend once, then add multiple accounts or UPI IDs.</p></div>`}
   <button class="btn" data-newcontact>Add person</button>`;
   }
@@ -1459,19 +1427,17 @@ function viewAccounts(){
     </div>`;
     const dematHtml=(f==="all"||f==="demat")?demats.map(a=>{
       const b=balance(a); const cost=Number(a.invested)||0; const g=b-cost;
-      const di=demats.indexOf(a);
       return `<div class="card tap rec-card" data-acct="${a.id}">
         <div class="name">${esc(a.name)}</div>
         <div class="meta">Demat${a.broker?" · "+esc(a.broker):""} · ${esc(a.owner||"Me")}</div>
         <div class="muted" style="font-size:11px;margin-top:6px">Cash / settlement balance</div>
         <div class="amt num">${fmt(b,a.cur)}</div>
         <div class="rec-foot"><span class="muted" style="font-size:12px">Invested cost ${fmt(cost,a.cur)} · <span class="${g>=0?"in":"out"}">${g>=0?"+":""}${fmt(g,a.cur)}</span></span></div>
-        ${reorderControls("demat", a.id, di===0, di===demats.length-1)}
+        
       </div>`;
     }).join(""):"";
     const holdHtml=(f!=="demat")?holds.map(h=>{
       const hp=holdPos(h); const g=hp.v-hp.c;
-      const hi=holds.indexOf(h);
       return `<div class="card tap rec-card" data-hold="${h.id}">
         <div class="name">${esc(h.name)}</div>
         <div class="meta">${h.type==="fund"?"Mutual fund":"Stock"}${h.folio?" · "+esc(h.folio):""} · ${esc(h.owner||"Me")}</div>
@@ -1479,11 +1445,11 @@ function viewAccounts(){
         <div class="rec-foot">
           <span class="muted" style="font-size:12px">${hp.u} units · cost ${fmt(hp.c,h.cur)} · <span class="${g>=0?"in":"out"}">${g>=0?"+":""}${fmt(g,h.cur)}</span></span>
         </div>
-        ${reorderControls("holdings", h.id, hi===0, hi===holds.length-1)}
+        
       </div>`;
     }).join(""):"";
     return segBar+`<h2 style="margin-top:4px">Investments</h2>
-  ${sortBarHtml("holdings",[{key:"name",label:"Name"},{key:"value",label:"Value"},{key:"cost",label:"Invested"},{key:"pl",label:"P/L"},{key:"pct",label:"% return"}])}
+  ${f==="demat"?sortBarHtml("demat",[{key:"name",label:"Name"},{key:"value",label:"Portfolio value"}]):sortBarHtml("holdings",[{key:"name",label:"Name"},{key:"value",label:"Value"},{key:"cost",label:"Invested"},{key:"pl",label:"P/L"},{key:"pct",label:"% return"}])}
   <div class="mod-hero">
     <div class="muted">Current value</div>
     <div class="big num">${fmt(invVal,S.display)}</div>
@@ -1529,14 +1495,13 @@ function viewAccounts(){
     const used=a.type==="card"&&a.limit?Math.min(100,Math.round(Math.max(0,-b)/a.limit*100)):0;
     const typeLbl=a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank";
     const meta=[a.owner||"Me", typeLbl, a.bank||"", a.accountMasked||"", a.cardMeta?.last4?("•••• "+a.cardMeta.last4):""].filter(Boolean).join(" · ");
-    const ai=list.indexOf(a);
     return `<div class="card tap rec-card" data-acct="${a.id}">
       <div class="name">${esc(a.name)}</div>
       <div class="meta">${esc(meta)}</div>
       <div class="amt num ${b<0?"out":""}">${fmt(b,a.cur)}</div>
       ${a.type==="card"&&a.limit?`<div class="lend-progress ${used>=90?"full":""}" style="margin-top:8px"><i style="width:${used}%;background:${used>=90?"var(--out)":used>=70?"var(--warn)":"var(--accent)"}"></i></div>
       <div class="muted" style="font-size:11px;margin-top:4px">${used}% of ${fmt(a.limit,a.cur)} limit</div>`:""}
-      ${reorderControls("accounts", a.id, ai===0, ai===list.length-1)}
+      
     </div>`;
   }).join("");
   return segBar+`<h2 style="margin-top:4px">Accounts</h2>
@@ -1930,7 +1895,7 @@ function holdParse(text){
     const isin=iIsin>=0?(cells[iIsin]||"").trim():"";
     const sec=iSec>=0?(cells[iSec]||"").trim():"";
     const exch=iExch>=0?(cells[iExch]||"").trim():"";
-    const fileKey=(isin||(sym.toUpperCase()+"|"+exch.toUpperCase()+"|"+owner));
+    const fileKey=((isin||"").toUpperCase()+"|"+sym.toUpperCase()+"|"+(exch||"").toUpperCase()+"|"+(owner||"Me"));
     if(seenInFile.has(fileKey)){ fileDup++; continue; }
     seenInFile.add(fileKey);
     items.push({sym, qty, avg, prev:prev||avg, isin, sec, exch});
@@ -1938,26 +1903,28 @@ function holdParse(text){
   if(!items.length){ alert("No valid rows found ("+failed+" failed, "+fileDup+" duplicate in file)."); return; }
   const plan=[]; let existingMatch=0;
   for(const it of items){
-    let H=S.holdings.find(h=>{
-      if((h.owner||"Me")!==(owner||"Me")) return false;
-      const hEx=(h.exchange||"").toUpperCase();
-      const iEx=(it.exch||"").toUpperCase();
-      // Primary: owner + ISIN + exchange (exchange must match when both present)
-      if(it.isin && h.isin && h.isin===it.isin){
-        if(iEx && hEx && iEx!==hEx) return false;
-        if(iEx && !hEx) return true; // adopt exchange later
-        if(!iEx) return true;
-        return iEx===hEx;
+    let H=null;
+    {
+      const candidates=S.holdings.filter(h=>{
+        if((h.owner||"Me")!==(owner||"Me")) return false;
+        const hEx=(h.exchange||"").toUpperCase();
+        const iEx=(it.exch||"").toUpperCase();
+        if(it.isin && h.isin && h.isin===it.isin){
+          // Require exchange equality when either side has exchange; both empty OK
+          return hEx===iEx;
+        }
+        const hSym=(h.symbol||h.name||"").toUpperCase();
+        const iSym=(it.sym||"").toUpperCase();
+        if(hSym && iSym && hSym===iSym) return hEx===iEx;
+        return false;
+      });
+      if(candidates.length===1) H=candidates[0];
+      else if(candidates.length>1){
+        // Ambiguous — do not merge
+        plan.push({H:null,it,kind:"ambiguous",note:"Multiple matches"});
+        continue;
       }
-      // Fallback: owner + symbol + exchange
-      const hSym=(h.symbol||h.name||"").toUpperCase();
-      const iSym=(it.sym||"").toUpperCase();
-      if(hSym && iSym && hSym===iSym){
-        if(iEx || hEx) return iEx===hEx; // different exchange = different holding
-        return true;
-      }
-      return false;
-    });
+    }
     if(H){
       existingMatch++;
       const pos=holdPos(H);
@@ -1972,7 +1939,7 @@ function holdParse(text){
   }
   pendH={owner, plan, items:items.length, failed, fileDup, existingMatch};
   openSheet(`<h2 style="margin-top:0">Review import</h2>
-  <div class="muted">${items.length} valid · ${plan.filter(p=>p.kind==="new").length} new · ${plan.filter(p=>p.kind==="changed").length} qty changes · ${plan.filter(p=>p.kind==="price").length} price-only · ${fileDup} file dups · ${failed} failed</div>
+  <div class="muted">${items.length} valid · ${plan.filter(p=>p.kind==="new").length} new · ${plan.filter(p=>p.kind==="changed").length} qty changes · ${plan.filter(p=>p.kind==="price").length} price-only · ${plan.filter(p=>p.kind==="ambiguous").length} ambiguous · ${fileDup} file dups · ${failed} failed</div>
   <label>As-of date</label><input type="date" id="hdate" value="${today()}">
   <p class="muted">Import sets positions only — no bank debit. Holdings not in the file are left unchanged (nothing is marked sold).</p>
   <div class="card" style="max-height:40vh;overflow:auto;margin:10px 0">${plan.slice(0,50).map(p=>`<div class="row"><span>${esc(p.it.sym)}${p.it.isin?" · "+esc(p.it.isin):""} · ${p.it.qty} @ ${p.it.avg}</span><b>${p.kind}</b></div>`).join("")}${plan.length>50?"<div class='muted'>…and more</div>":""}</div>
@@ -1985,6 +1952,7 @@ function doHolds(){
   for(const p of P.plan){ let H=p.H;
     if(!H){ H={id:uid(),name:p.it.sym,type:"stock",cur:"INR",isin:p.it.isin,sector:p.it.sec,price:p.it.prev,owner:(P.owner||"Me"),symbol:p.it.sym,exchange:p.it.exch||"",demat:"",broker:"",amc:"",folio:"",notes:""}; S.holdings.push(H); if(!S.people.includes(H.owner))S.people.push(H.owner); added++; }
     else{ H.price=p.it.prev; if(!H.isin) H.isin=p.it.isin; if(p.it.sec) H.sector=p.it.sec; if(p.it.exch&&!H.exchange) H.exchange=p.it.exch; }
+    if(p.kind==="ambiguous") continue;
     if(p.kind==="new") addTxn({type:"open",date,note:"Imported opening position",hold:H.id,units:p.it.qty,cost:Math.round(p.it.qty*p.it.avg*100)/100,postings:[]},{skipSave:true});
     else if(p.kind==="changed"){ addTxn({type:"adjust",date,note:"Portfolio file sync",hold:H.id,units:p.du,cost:p.dc,postings:[]},{skipSave:true}); changed++; } else price++; }
   if(killMissing) for(const h of P.missing){ const q=holdPos(h); addTxn({type:"adjust",date,note:"Not in portfolio file, treated as sold",hold:h.id,units:-q.u,cost:-q.c,postings:[]},{skipSave:true}); sold++; }
@@ -2318,8 +2286,7 @@ function viewPlan(){
       const freqLbl=unit==="week"?(x.freq===2?"Biweekly":"Weekly"):unit==="day"?"Every "+x.freq+" days":(x.freq===1?"Monthly":x.freq===3?"Quarterly":"Every "+x.freq+" months");
       const stClass=st==="active"?(d!=null&&d<=0?"warn":"ok"):"out";
       const dueTxt=st==="stopped"||st==="ended"?lab:(d==null?"—":dl(d));
-      const sai=applySectionSort(S.salaries,"salaries",{name:z=>(z.label||z.person||""),amt:z=>Number(z.amt)||0,next:z=>z.next||""}).findIndex(z=>z.id===x.id);
-    return `<div class="card tap rec-card" data-salary="${x.id}">
+      return `<div class="card tap rec-card" data-salary="${x.id}">
         <div class="name">${esc(x.label||"Salary")}</div>
         <div class="meta">${esc(x.person||"Me")} · ${esc(a.name||"account")} · ${freqLbl}</div>
         <div class="amt num">${fmt(x.amt,x.cur)}</div>
@@ -2327,7 +2294,7 @@ function viewPlan(){
           <span class="status-pill ${stClass}">${esc(lab)}</span>
           <span class="muted" style="font-size:12px">Next ${esc(x.next||"—")} · ${dueTxt}</span>
         </div>
-        ${reorderControls("salaries", x.id, sai<=0, sai>=S.salaries.length-1)}
+        
       </div>`;
     }).join("");
     return segBar+`<h2 style="margin-top:4px">Salaries</h2>
@@ -2373,7 +2340,6 @@ function viewPlan(){
         : st==="Partially Repaid"?"Partial"
         : st==="Interest Partially Paid"?"Interest partial"
         : "Unpaid";
-      const li=sortedList(S.lending).indexOf(l);
       return `<div class="card tap lend-card" data-lend="${l.id}" title="${esc(st)}">
         <div class="name">${esc(l.person)}</div>
         <div class="meta">${dir} · ${esc(l.start||"—")}${recv?` · ${esc(recv.trim())}`:""}</div>
@@ -2396,7 +2362,7 @@ function viewPlan(){
           <span class="muted" style="font-size:12px">${pct}% overall · interest ${fmt(p.interestPaid,l.cur)} paid / ${fmt(p.interestLeft,l.cur)} left</span>
         </div>
         ${l.note?`<div class="muted" style="margin-top:8px;font-size:12px;line-height:1.35">${esc(l.note)}</div>`:""}
-        ${reorderControls("lending", l.id, li===0, li===(S.lending.length-1))}
+        
       </div>`;
     }).join("");
     return segBar+`${sortBarHtml("lending",[{key:"person",label:"Person"},{key:"prin",label:"Principal left"},{key:"interest",label:"Interest left"},{key:"total",label:"Total outstanding"},{key:"start",label:"Start date"}])}<h2 style="margin-top:4px">Lending</h2>
@@ -2426,8 +2392,7 @@ function viewPlan(){
     const d=open&&due?daysTo(due):null;
     const status=policyFullyPaidTerm(p)||!open?"No further premiums due":d===null?"—":(d<0?((-d)+"d overdue"):dl(d));
     const cls=open&&d!==null&&d<=30?"warn":"muted";
-    const pi=applySectionSort(S.policies,"policies",{name:x=>x.name||"",premium:x=>Number(x.premium)||0,next:x=>policyNextUnpaidDue(x)||x.next||"",maturity:x=>x.maturity||"",cover:x=>Number(x.sum)||0}).findIndex(x=>x.id===p.id);
-    return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · next ${esc(due||"—")}</div></div><b class="${cls}">${status}</b></div>${reorderControls("policies", p.id, pi<=0, pi>=S.policies.length-1)}</div>`;
+    return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · next ${esc(due||"—")}</div></div><b class="${cls}">${status}</b></div></div>`;
   }).join("")||`<div class="empty"><div class="empty-title">No policies</div><p>Track premiums and due dates.</p></div>`}
   <button class="btn" data-newpol>Add policy</button>
   <h2>Purchases & warranties</h2>
@@ -2449,7 +2414,6 @@ function viewPlan(){
     const freqLbl={1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1]||"Custom";
     const a=acct(x.acct);
     const stClass=st==="stopped"?"out":(d!=null&&d<=0?"warn":"ok");
-    const si=_sips?_sips.indexOf(x):0;
     return `<div class="card tap rec-card" data-sip="${x.id}">
       <div class="name">${esc(h.name||"Fund")}</div>
       <div class="meta">${freqLbl}${h.folio?" · Folio "+esc(h.folio):""}${a?" · "+esc(a.name):""}</div>
@@ -2458,7 +2422,7 @@ function viewPlan(){
         <span class="status-pill ${stClass}">${st==="stopped"?"Paused":(d!=null&&d<=0?"Due":"Active")}</span>
         <span class="muted" style="font-size:12px">Next ${esc(x.next||"—")}${paid||missed?` · ${paid} paid / ${missed} missed`:""}</span>
       </div>
-      ${reorderControls("sips", x.id, si===0, si===(_sips?_sips.length-1:0))}
+      
     </div>`;
   }).join("");
   return segBar+`<h2 style="margin-top:4px">SIPs</h2>
@@ -2781,7 +2745,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-reordermode],[data-move],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -3110,18 +3074,8 @@ if(d.delmethod){
     if(section&&key){ setSortPref(section, key, dir||"asc"); closeSheet(); render(); toast("Sorted"); }
     return;
   }
-  if(d.reordermode){
-    const section=d.reordermode;
-    setReorderMode(section, !isReorderMode(section));
-    return;
-  }
-  if(d.move){
-    const [section,id,delta]=(d.move||"").split("::");
-    const map={accounts:S.accounts,holdings:S.holdings,demat:S.accounts,sips:S.sips,salaries:S.salaries,lending:S.lending,policies:S.policies,contacts:S.contacts};
-    const arr=map[section];
-    if(arr && moveItemInArray(arr, id, +delta)) render();
-    return;
-  }
+  
+  
   if(d.nwpref){
     const key=d.nwpref;
     const allowed=["insuranceCoverage","insuranceCash","loansReceivable","accruedInterest"];

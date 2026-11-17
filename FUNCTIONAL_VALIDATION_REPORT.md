@@ -400,3 +400,19 @@ Lending principal/interest repayments set `pd` on transactions. `personPos()` su
 | Compact sort UI | COMPLETE | sort-chip CSS |
 | node --check | COMPLETE | PASS |
 | Vault myfinance.v1 | COMPLETE | unchanged |
+
+
+## Update 2.5.7 (2026-11-18)
+
+| Requirement | Status | Test result |
+|-------------|--------|-------------|
+| Remove Reorder/Done/Move | COMPLETE | Search: no Reorder UI, no moveItemInArray |
+| Sort control per section | COMPLETE | sortBarHtml chip only |
+| Manual Order = saved sortOrder | COMPLETE | SORT_OK restore abc |
+| Contacts no undefined ci | COMPLETE | map(c=>...); CONTACTS_OK 0/1/many |
+| CSV fileKey includes exchange | COMPLETE | NSE≠BSE keys |
+| CSV no wildcard empty exchange | COMPLETE | empty exch only matches empty |
+| Ambiguous matches not merged | COMPLETE | candidates.length===2 case |
+| Demat independent sort bar | COMPLETE | sortBarHtml("demat") when filter demat |
+| node --check | COMPLETE | PASS |
+| Insurance paid-through logic | COMPLETE | unchanged from 2.5.6 (prior PREMIUM_OK) |
