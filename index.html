@@ -309,8 +309,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.5.5";
+const APP_VERSION = "2.5.6";
 const RELEASES = [
+  {v:"2.5.6", d:"2026-11-18", notes:"Policy edit apply-all-then-recalc; CSV identity owner+ISIN+exchange; full reorder coverage; compact sort."},
   {v:"2.5.5", d:"2026-11-18", notes:"Policy paid-through on create; compact sort; reorder forces manual; CSV skipSave."},
   {v:"2.5.4", d:"2026-11-18", notes:"Sort button + Manual Reorder (no drag); fix premium fn corruption; CSV exchange + batch save."},
   {v:"2.5.3", d:"2026-11-18", notes:"Critical: sort containment, CSV import, premium schedule, independent NW loan prefs, legacy liabilities."},
@@ -950,27 +951,21 @@ function setReorderMode(section, on){
   save();
   render();
 }
+
 function moveItemInArray(arr, id, delta){
   if(!arr||!arr.length) return false;
-  // Work on full array order via sortOrder
   const ordered=sortedList(arr);
   const idx=ordered.findIndex(x=>x.id===id);
   if(idx<0) return false;
   const j=idx+delta;
   if(j<0||j>=ordered.length) return false;
-  // Swap sortOrder values
-  ordered.forEach((x,i)=>{ if(x.sortOrder==null) x.sortOrder=i; });
-  const a=ordered[idx], b=ordered[j];
-  const tmp=a.sortOrder; a.sortOrder=b.sortOrder; b.sortOrder=tmp;
-  // If equal somehow, reindex
-  if(a.sortOrder===b.sortOrder){
-    ordered.forEach((x,i)=>{ x.sortOrder=i; });
-    // after reindex, swap idx and j
-    const t=ordered[idx].sortOrder; ordered[idx].sortOrder=ordered[j].sortOrder; ordered[j].sortOrder=t;
-  }
+  const swapped=ordered.slice();
+  const t=swapped[idx]; swapped[idx]=swapped[j]; swapped[j]=t;
+  swapped.forEach((x,i)=>{ x.sortOrder=i; });
   save();
   return true;
 }
+
 function sortBarHtml(section, options){
   const pref=getSortPref(section);
   const reorder=isReorderMode(section);
@@ -1433,7 +1428,7 @@ function viewAccounts(){
     if(banks) bits.push(banks+" bank");
     if(upis) bits.push(upis+" UPI");
     const inFam=(S.people||[]).includes(c.name);
-    return `<div class="card tap" data-contact="${c.id}"><div class="row"><div><b>${esc(c.name)}</b><div class="muted">${bits.join(" · ")}${inFam?" · Family view":""}</div></div><span class="muted">Open</span></div></div>`;
+    return `<div class="card tap" data-contact="${c.id}"><div class="row"><div><b>${esc(c.name)}</b><div class="muted">${bits.join(" · ")}${inFam?" · Family view":""}</div></div><span class="muted">Open</span></div>${reorderControls("contacts", c.id, ci===0, ci===list.length-1)}</div>`;
   }).join("")||`<div class="empty"><div class="empty-title">No people yet</div><p>Register a friend once, then add multiple accounts or UPI IDs.</p></div>`}
   <button class="btn" data-newcontact>Add person</button>`;
   }
@@ -1464,12 +1459,14 @@ function viewAccounts(){
     </div>`;
     const dematHtml=(f==="all"||f==="demat")?demats.map(a=>{
       const b=balance(a); const cost=Number(a.invested)||0; const g=b-cost;
+      const di=demats.indexOf(a);
       return `<div class="card tap rec-card" data-acct="${a.id}">
         <div class="name">${esc(a.name)}</div>
         <div class="meta">Demat${a.broker?" · "+esc(a.broker):""} · ${esc(a.owner||"Me")}</div>
         <div class="muted" style="font-size:11px;margin-top:6px">Cash / settlement balance</div>
         <div class="amt num">${fmt(b,a.cur)}</div>
         <div class="rec-foot"><span class="muted" style="font-size:12px">Invested cost ${fmt(cost,a.cur)} · <span class="${g>=0?"in":"out"}">${g>=0?"+":""}${fmt(g,a.cur)}</span></span></div>
+        ${reorderControls("demat", a.id, di===0, di===demats.length-1)}
       </div>`;
     }).join(""):"";
     const holdHtml=(f!=="demat")?holds.map(h=>{
@@ -1943,12 +1940,22 @@ function holdParse(text){
   for(const it of items){
     let H=S.holdings.find(h=>{
       if((h.owner||"Me")!==(owner||"Me")) return false;
-      if(it.isin && h.isin && h.isin===it.isin) return true;
-      if(h.symbol && h.symbol.toUpperCase()===it.sym.toUpperCase()){
-        if(it.exch && h.exchange && h.exchange.toUpperCase()!==it.exch.toUpperCase()) return false;
+      const hEx=(h.exchange||"").toUpperCase();
+      const iEx=(it.exch||"").toUpperCase();
+      // Primary: owner + ISIN + exchange (exchange must match when both present)
+      if(it.isin && h.isin && h.isin===it.isin){
+        if(iEx && hEx && iEx!==hEx) return false;
+        if(iEx && !hEx) return true; // adopt exchange later
+        if(!iEx) return true;
+        return iEx===hEx;
+      }
+      // Fallback: owner + symbol + exchange
+      const hSym=(h.symbol||h.name||"").toUpperCase();
+      const iSym=(it.sym||"").toUpperCase();
+      if(hSym && iSym && hSym===iSym){
+        if(iEx || hEx) return iEx===hEx; // different exchange = different holding
         return true;
       }
-      if(!h.symbol && h.name && h.name.toUpperCase()===it.sym.toUpperCase()) return true;
       return false;
     });
     if(H){
@@ -2311,7 +2318,8 @@ function viewPlan(){
       const freqLbl=unit==="week"?(x.freq===2?"Biweekly":"Weekly"):unit==="day"?"Every "+x.freq+" days":(x.freq===1?"Monthly":x.freq===3?"Quarterly":"Every "+x.freq+" months");
       const stClass=st==="active"?(d!=null&&d<=0?"warn":"ok"):"out";
       const dueTxt=st==="stopped"||st==="ended"?lab:(d==null?"—":dl(d));
-      return `<div class="card tap rec-card" data-salary="${x.id}">
+      const sai=applySectionSort(S.salaries,"salaries",{name:z=>(z.label||z.person||""),amt:z=>Number(z.amt)||0,next:z=>z.next||""}).findIndex(z=>z.id===x.id);
+    return `<div class="card tap rec-card" data-salary="${x.id}">
         <div class="name">${esc(x.label||"Salary")}</div>
         <div class="meta">${esc(x.person||"Me")} · ${esc(a.name||"account")} · ${freqLbl}</div>
         <div class="amt num">${fmt(x.amt,x.cur)}</div>
@@ -2319,6 +2327,7 @@ function viewPlan(){
           <span class="status-pill ${stClass}">${esc(lab)}</span>
           <span class="muted" style="font-size:12px">Next ${esc(x.next||"—")} · ${dueTxt}</span>
         </div>
+        ${reorderControls("salaries", x.id, sai<=0, sai>=S.salaries.length-1)}
       </div>`;
     }).join("");
     return segBar+`<h2 style="margin-top:4px">Salaries</h2>
@@ -2417,7 +2426,8 @@ function viewPlan(){
     const d=open&&due?daysTo(due):null;
     const status=policyFullyPaidTerm(p)||!open?"No further premiums due":d===null?"—":(d<0?((-d)+"d overdue"):dl(d));
     const cls=open&&d!==null&&d<=30?"warn":"muted";
-    return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · next ${esc(due||"—")}</div></div><b class="${cls}">${status}</b></div></div>`;
+    const pi=applySectionSort(S.policies,"policies",{name:x=>x.name||"",premium:x=>Number(x.premium)||0,next:x=>policyNextUnpaidDue(x)||x.next||"",maturity:x=>x.maturity||"",cover:x=>Number(x.sum)||0}).findIndex(x=>x.id===p.id);
+    return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · next ${esc(due||"—")}</div></div><b class="${cls}">${status}</b></div>${reorderControls("policies", p.id, pi<=0, pi>=S.policies.length-1)}</div>`;
   }).join("")||`<div class="empty"><div class="empty-title">No policies</div><p>Track premiums and due dates.</p></div>`}
   <button class="btn" data-newpol>Add policy</button>
   <h2>Purchases & warranties</h2>
@@ -3889,21 +3899,46 @@ document.addEventListener("submit", e=>{
     const pol={id:uid(),name:n,policyNo:($("#pno")?.value||"").trim(),provider:($("#pp")?.value||"").trim(),owner:($("#po")?.value||"Me"),start:($("#pstart")?.value||""),sum:parseAmt($("#ps")?.value),fundValue:parseAmt($("#pfund")?.value||"0"),policyKind:($("#pkind")?.value||"term"),bonus:parseAmt($("#bonus")?.value||"0"),premium:parseAmt($("#pa")?.value),ppt:parseAmt($("#ppt")?.value),term:parseAmt($("#pt")?.value),maturity:($("#mat")?.value||""),cur:($("#pc")?.value||S.display||"INR"),freq:+($("#pf")?.value||12),paidThrough:($("#ppaidthrough")?.value||"").trim(),payments:[],finalPremiumPaid:false};
     const manualNext=($("#pd")?.value||"").trim();
     pol.next=manualNext||policyNextUnpaidDue(pol)||"";
-    if(!pol.next && policyFullyPaidTerm(pol)) pol.finalPremiumPaid=true;
+    if(pol.start && Number(pol.premium)>0 && Number(pol.ppt)>0 && !policyNextUnpaidDue(pol)) pol.finalPremiumPaid=true;
     S.policies.push(pol); save(); closeSheet(); render(); }
   if(e.target.id==="fpoledit"){
     const p=S.policies.find(x=>x.id===$("#peid")?.value); if(!p) return;
-    p.name=($("#pen")?.value||p.name).trim(); p.policyNo=($("#peno")?.value||"").trim();
-    p.provider=($("#peprov")?.value||"").trim(); p.owner=($("#peown")?.value||"Me").trim();
-    p.start=$("#pestart")?.value||p.start||""; p.sum=parseAmt($("#pesum")?.value||p.sum); if($("#pefund")) p.fundValue=parseAmt($("#pefund").value||"0"); if($("#pekind")) p.policyKind=$("#pekind").value; if($("#pepaidthrough")) p.paidThrough=($("#pepaidthrough").value||"").trim();
-    // Recalculate next due from schedule + paid-through + recorded
-    const nu=policyNextUnpaidDue(p);
-    if(nu){ p.next=nu; p.finalPremiumPaid=false; } else { p.finalPremiumPaid=true; }
-    p.bonus=parseAmt($("#pebonus")?.value||"0"); p.premium=parseAmt($("#peprem")?.value||p.premium);
-    p.ppt=Math.round(parseAmt($("#peppt")?.value||"0"))||p.ppt||0;
-    p.term=Math.round(parseAmt($("#peterm")?.value||"0"))||p.term||0;
-    p.maturity=$("#pemat")?.value||""; p.next=$("#penext")?.value||p.next;
-    p.freq=Math.max(1, Math.round(parseAmt($("#pefreq")?.value||"1"))||1);
+    // 1) Apply ALL edited fields first (preserve payments array)
+    p.name=($("#pen")?.value||p.name).trim();
+    p.policyNo=($("#peno")?.value||"").trim();
+    p.provider=($("#peprov")?.value||"").trim();
+    p.owner=($("#peown")?.value||"Me").trim();
+    p.start=($("#pestart")?.value||"").trim()||p.start||"";
+    p.sum=parseAmt($("#pesum")?.value||p.sum);
+    if($("#pefund")) p.fundValue=parseAmt($("#pefund").value||"0");
+    if($("#pekind")) p.policyKind=$("#pekind").value;
+    if($("#pepaidthrough")) p.paidThrough=($("#pepaidthrough").value||"").trim();
+    p.bonus=parseAmt($("#pebonus")?.value||"0");
+    p.premium=parseAmt($("#peprem")?.value||p.premium);
+    p.ppt=Math.round(parseAmt($("#peppt")?.value||String(p.ppt||0)))||0;
+    p.term=Math.round(parseAmt($("#peterm")?.value||String(p.term||0)))||0;
+    p.maturity=($("#pemat")?.value||"").trim();
+    p.freq=Math.max(1, Math.round(parseAmt($("#pefreq")?.value||String(p.freq||1)))||1);
+    const nextOverride=($("#penext")?.value||"").trim();
+    // 2) Recalculate schedule status AFTER all fields applied
+    // Never mark fully paid solely because schedule inputs are missing
+    const hasSchedule=!!(p.start && Number(p.premium)>0 && (Number(p.ppt)>0 || (p.payments||[]).length));
+    if(nextOverride){
+      // Explicit next-due override wins
+      p.next=nextOverride;
+      p.finalPremiumPaid=false;
+    } else if(hasSchedule){
+      const nu=policyNextUnpaidDue(p);
+      if(nu){ p.next=nu; p.finalPremiumPaid=false; }
+      else {
+        p.next="";
+        p.finalPremiumPaid=true;
+      }
+    } else {
+      // Incomplete schedule info — keep existing next if any; do not force finalPremiumPaid
+      if(nextOverride) p.next=nextOverride;
+      p.finalPremiumPaid=false;
+    }
     save(); closeSheet(); render(); toast("Policy updated"); return;
   }
   if(e.target.id==="fpay"){

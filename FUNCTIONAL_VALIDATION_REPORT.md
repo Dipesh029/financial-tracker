@@ -382,3 +382,21 @@ Lending principal/interest repayments set `pd` on transactions. `personPos()` su
 | node --check | PASS | |
 | Paid-through unit schedule | PASS | 10 annual covered through 2025-04-28 |
 | Android UI | PENDING | user device |
+
+
+## Update 2.5.6 (2026-11-18) — Mandatory fixes
+
+| Requirement | Status | Test |
+|-------------|--------|------|
+| Policy edit apply-all-then-recalc | COMPLETE | Code path ordered; nextOverride respected |
+| Not finalPremiumPaid when schedule incomplete | COMPLETE | hasSchedule gate |
+| CSV owner+ISIN+exchange | COMPLETE | CSV_MATCH_OK asserts |
+| Different exchange not merged | COMPLETE | assert PASS |
+| Different owner not merged | COMPLETE | assert PASS |
+| skipSave bulk import | COMPLETE | doHolds uses skipSave |
+| Reorder accounts/holdings/sips/lending | COMPLETE | controls present |
+| Reorder salaries/policies/demat/contacts | COMPLETE | controls present |
+| Move first/last blocked | COMPLETE | REORDER_OK |
+| Compact sort UI | COMPLETE | sort-chip CSS |
+| node --check | COMPLETE | PASS |
+| Vault myfinance.v1 | COMPLETE | unchanged |

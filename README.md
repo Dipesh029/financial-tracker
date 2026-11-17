@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.5.5
+**Current version:** 2.5.6
 
 ---
 
@@ -120,6 +120,9 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.5.6 — 2026-11-18
+- Policy edit: apply all fields then recalc; CSV identity owner+ISIN+exchange; reorder on all list sections.
 
 ### 2.5.5 — 2026-11-18
 - Policy create/edit: Paid Through Date; simplified form; compact sort chips; reorder forces manual; CSV batch skipSave.
