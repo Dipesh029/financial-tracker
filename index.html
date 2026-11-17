@@ -230,9 +230,17 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 .members-only .metric span{font-weight:600}
 textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font:inherit;resize:vertical}
 
-.expiry-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:8px;margin:6px 0 2px}
-.expiry-row input,.expiry-row select{min-width:0;width:100%}
-@media (max-width:380px){.expiry-row{grid-template-columns:1fr 1fr}.expiry-row input{grid-column:1/-1}}
+.expiry-row{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin:6px 0 2px;
+}
+.expiry-row input{
+  min-width:0;
+  width:100%;
+  text-align:center;
+}
 
 .form-section{border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:0 0 12px;background:var(--card)}
 .form-section-title{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
@@ -1380,56 +1388,80 @@ function isExpiryValid(s,opts){
 }
 function expiryPickerHtml(idPrefix, initial){
   const p=parseExpiryParts(initial||"")||{};
-  const mm=p.mm||"", yy=p.yy||"";
-  const yNow=new Date().getFullYear();
-  let years="";
-  for(let y=yNow;y<=yNow+20;y++){ const short=String(y).slice(-2); years+='<option value="'+short+'"'+(yy===short?' selected':'')+'>'+y+'</option>'; }
-  const months=[["01","Jan"],["02","Feb"],["03","Mar"],["04","Apr"],["05","May"],["06","Jun"],["07","Jul"],["08","Aug"],["09","Sep"],["10","Oct"],["11","Nov"],["12","Dec"]];
-  let monthOpts="";
-  for(const pair of months){ monthOpts+='<option value="'+pair[0]+'"'+(mm===pair[0]?' selected':'')+'>'+pair[0]+' '+pair[1]+'</option>'; }
-  const shown=initial?formatExpiryInput(initial):"";
   return '<label>Card expiry</label>'+
-    '<input type="hidden" id="'+idPrefix+'" value="'+esc(shown)+'">'+
+    '<input type="hidden" id="'+idPrefix+'" value="'+esc(initial?formatExpiryInput(initial):"")+'">'+
     '<div class="expiry-row">'+
-    '<input id="'+idPrefix+'_num" inputmode="numeric" pattern="[0-9]*" placeholder="MMYY or MM/YY" maxlength="5" value="'+esc(shown)+'" autocomplete="cc-exp" aria-label="Expiry digits">'+
-    '<select id="'+idPrefix+'_mm" aria-label="Month"><option value="">Month</option>'+monthOpts+'</select>'+
-    '<select id="'+idPrefix+'_yy" aria-label="Year"><option value="">Year</option>'+years+'</select>'+
+      '<div>'+
+        '<label for="'+idPrefix+'_mm">Month</label>'+
+        '<input id="'+idPrefix+'_mm" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="MM" value="'+esc(p.mm||'')+'" aria-label="Expiry month">'+
+      '</div>'+
+      '<div>'+
+        '<label for="'+idPrefix+'_yy">Year</label>'+
+        '<input id="'+idPrefix+'_yy" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="YY" value="'+esc(p.yy||'')+'" aria-label="Expiry year">'+
+      '</div>'+
     '</div>'+
-    '<div class="muted">Type 0829 for 08/29, or pick month & year. Slash is optional.</div>';
+    '<div class="muted">Enter the expiry month (01–12) and year (e.g. 29).</div>';
 }
+
 function wireExpiryField(idPrefix){
   const hidden=document.getElementById(idPrefix);
-  const num=document.getElementById(idPrefix+"_num");
   const mm=document.getElementById(idPrefix+"_mm");
   const yy=document.getElementById(idPrefix+"_yy");
-  if(!hidden||!num) return;
-  const apply=function(){
-    if(mm&&yy&&mm.value&&yy.value){ const v=mm.value+"/"+yy.value; hidden.value=v; if(num.value!==v) num.value=v; return; }
-    hidden.value=formatExpiryInput(num.value);
+
+  if(!hidden||!mm||!yy) return;
+
+  const clean=function(input){
+    input.value=String(input.value||"").replace(/\D/g,"").slice(0,2);
   };
-  num.addEventListener("input", function(){
-    const f=formatExpiryInput(num.value);
-    if(num.value!==f) num.value=f;
-    const p=parseExpiryParts(num.value);
-    if(p&&mm&&yy){ mm.value=p.mm; yy.value=p.yy; }
-    hidden.value=formatExpiryInput(num.value);
-  });
-  if(mm) mm.addEventListener("change", apply);
-  if(yy) yy.addEventListener("change", apply);
+
+  const apply=function(){
+    clean(mm);
+    clean(yy);
+
+    const month=mm.value;
+    const year=yy.value;
+
+    if(/^(0[1-9]|1[0-2])$/.test(month)&&/^\d{2}$/.test(year)){
+      hidden.value=month+"/"+year;
+    }else{
+      hidden.value="";
+    }
+  };
+
+  mm.addEventListener("input",apply);
+  yy.addEventListener("input",apply);
+
   apply();
 }
+   
 function readExpiryField(idPrefix, opts){
   opts=opts||{};
+
   const hidden=document.getElementById(idPrefix);
-  const num=document.getElementById(idPrefix+"_num");
-  let v=(hidden&&hidden.value)||"";
-  if(!v&&num) v=formatExpiryInput(num.value);
-  v=formatExpiryInput(v);
-  if(!v) return opts.required?{ok:false,error:"Enter the card expiry."}:{ok:true,value:""};
-  const p=parseExpiryParts(v);
-  if(!p) return {ok:false,error:"Enter a valid expiry (month 01–12 and year)."};
-  v=p.mm+"/"+p.yy;
-  if(!isExpiryValid(v,{allowPast:!!opts.allowPast})) return {ok:false,error:"This expiry is in the past."};
+  const mm=document.getElementById(idPrefix+"_mm");
+  const yy=document.getElementById(idPrefix+"_yy");
+
+  const month=mm?String(mm.value||"").replace(/\D/g,"").slice(0,2):"";
+  const year=yy?String(yy.value||"").replace(/\D/g,"").slice(0,2):"";
+
+  if(!month&&!year){
+    return opts.required
+      ?{ok:false,error:"Enter the card expiry."}
+      :{ok:true,value:""};
+  }
+
+  if(!/^(0[1-9]|1[0-2])$/.test(month)||!/^\d{2}$/.test(year)){
+    return {ok:false,error:"Enter a valid expiry month (01–12) and two-digit year."};
+  }
+
+  const v=month+"/"+year;
+
+  if(!isExpiryValid(v,{allowPast:!!opts.allowPast})){
+    return {ok:false,error:"This expiry is in the past."};
+  }
+
+  if(hidden) hidden.value=v;
+
   return {ok:true,value:v};
 }
 
