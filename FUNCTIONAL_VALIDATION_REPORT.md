@@ -266,3 +266,29 @@ Prior fixed issues (already in 2.2.x): contact notes, add person, UPI save, dema
 | NW prefs | pref-row layout with short explanations |
 | Logic | Unchanged |
 | Status | **PASS** (syntax); workflow smoke on device recommended |
+
+
+## Update 2.4.3 — Card expiry fields (2026-11-18)
+
+| Item | Detail |
+|------|--------|
+| Issue | Duplicate expiry UI (combined MM/YY + month + year selects) and validation errors |
+| Fix | Exactly **two** inputs: Month (MM) and Year (YY/YYYY); hidden stores `MM/YY` for compatibility |
+| Forms | Linked debit (`adexpiry`), new credit card (`cexpiry`), edit account (`expiry`) |
+| Validation | Month 01–12; year 2 or 4 digits; past expiry blocked on new cards |
+| Status | **FIXED** (syntax PASS) |
+
+
+## Update 2.5.0 — Comprehensive functional pack (2026-11-18)
+
+| Area | Change | Status |
+|------|--------|--------|
+| NW prefs | 4 toggles only; personal-use removed from UI/calc | FIXED |
+| CSV import | `csvimp` opens import sheet; **holdParse** implemented | FIXED (code); needs device file pick smoke |
+| MF units | Adjust total units via adjustment txn | FIXED |
+| Forecast | SIP monthly pre-filled from active SIPs | FIXED |
+| Policy | Structured detail + premiums paid to date | FIXED |
+| Demat | Cash/settlement label | FIXED |
+| Lending cards | Interest paid/left on summary | FIXED |
+| Sort | Long-press reorder + `sortOrder` persistence | FIXED (basic); multi-list device test recommended |
+| Data | No vault key change; additive fields only | PASS |

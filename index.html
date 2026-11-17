@@ -230,17 +230,10 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 .members-only .metric span{font-weight:600}
 textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font:inherit;resize:vertical}
 
-.expiry-row{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px;
-  margin:6px 0 2px;
-}
-.expiry-row input{
-  min-width:0;
-  width:100%;
-  text-align:center;
-}
+.expiry-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:6px 0 2px}
+.expiry-row input,.expiry-row select{min-width:0;width:100%}
+.expiry-row label.sub{font-size:12px;color:var(--muted);font-weight:600;margin:0 0 4px;display:block}
+@media (max-width:380px){.expiry-row{grid-template-columns:1fr 1fr}.expiry-row input{grid-column:1/-1}}
 
 .form-section{border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:0 0 12px;background:var(--card)}
 .form-section-title{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
@@ -298,6 +291,7 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .pref-row .pref-text span{display:block;font-size:12px;color:var(--muted);margin-top:2px;line-height:1.35}
 .nw-breakdown{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .nw-breakdown .wealth-pill span{font-size:11px}
+.dragging{opacity:.85;box-shadow:0 8px 24px rgba(0,0,0,.18);transform:scale(1.02);z-index:5;position:relative}
 </style>
 </head>
 <body>
@@ -309,8 +303,10 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.4.2";
+const APP_VERSION = "2.5.0";
 const RELEASES = [
+  {v:"2.5.0", d:"2026-11-18", notes:"NW prefs (4 toggles); CSV import fixed; MF units adjust; SIP-aware forecast; premiums paid; sort order; lending interest on cards."},
+  {v:"2.4.3", d:"2026-11-18", notes:"Card expiry: only Month (MM) + Year (YY) fields; removed duplicate combined input."},
   {v:"2.4.2", d:"2026-11-17", notes:"UI polish: SIPs, Salaries, Accounts, Investments, Home NW, net-worth prefs."},
   {v:"2.4.1", d:"2026-11-17", notes:"Net worth preferences: optional cover, loans, interest, personal assets toggles; adjusted position."},
   {v:"2.4.0", d:"2026-11-17", notes:"Net worth: loans receivable as assets; insurance coverage excluded; fund/surrender value only; demat holdings once."},
@@ -477,6 +473,40 @@ function migrate(){
   }
 }
 
+function policyPremiumsPaidToDate(p){
+  // Prefer recorded payments; else schedule assumption from start to min(today, ppt end)
+  const premium=Number(p.premium)||0;
+  const freq=Number(p.freq)||1; // months between premiums
+  const cur=p.cur||S.display||"INR";
+  const paidTx=(p.payments||[]).filter(x=>x&&x.date);
+  if(paidTx.length){
+    const total=paidTx.reduce((s,x)=>s+(Number(x.amount)||premium),0);
+    return {total, count:paidTx.length, source:"recorded", expected:null, remaining:null};
+  }
+  if(!p.start||!(premium>0)) return {total:0, count:0, source:"none", expected:null, remaining:null};
+  const end=policyPptEnd(p)||"";
+  const last=end&&end<today()?end:today();
+  // count instalments from start to last inclusive on frequency
+  let d=p.start, count=0;
+  const guard=600;
+  while(d && d<=last && count<guard){
+    count++;
+    d=addM(d, freq);
+    if(end && d>end) break;
+  }
+  // if next due is still open and we counted past unpaid current period, adjust: if next > today, last paid is previous
+  const next=policyEffectiveNext(p);
+  if(next && next>today() && count>0){
+    // next is future → count is correct for paid up to previous
+  } else if(next && next<=today() && policyHasOpenPremium(p) && count>0){
+    // current period unpaid — don't count it
+    count=Math.max(0, count-1);
+  }
+  const total=count*premium;
+  const expectedEnd=end?Math.ceil((Number(p.ppt)||0)*12/freq)*premium:null;
+  const remaining=expectedEnd!=null?Math.max(0, expectedEnd-total):null;
+  return {total, count, source:"schedule", expected:expectedEnd, remaining};
+}
 function policyPptEnd(p){
   if(!p||!p.start||!(Number(p.ppt)>0)) return "";
   // Last premium due date = commencement + PPT years (e.g. 2016-04-28 + 10y → 2026-04-28).
@@ -779,12 +809,82 @@ function personNetWorth(person){
 }
 function defaultNwPrefs(){
   return {
-    insuranceCoverage:false, // sum assured → adjusted only
+    insuranceCoverage:false,
     insuranceCash:true,
     loansReceivable:true,
-    accruedInterest:true,
-    personalAssets:false
+    accruedInterest:true
   };
+}
+function wireSortableLists(){
+  try{
+    const root=document.querySelector("#content")||document.querySelector("#app")||document.body;
+    enableListSort(root, "[data-acct].card, [data-acct].rec-card", ids=>{ applySortOrder(S.accounts, ids); save(); });
+    enableListSort(root, "[data-hold].card, [data-hold].rec-card", ids=>{ applySortOrder(S.holdings, ids); save(); });
+    enableListSort(root, "[data-contact].card", ids=>{ applySortOrder(S.contacts, ids); save(); });
+    enableListSort(root, "[data-sip].card, [data-sip].rec-card", ids=>{ applySortOrder(S.sips, ids); save(); });
+  }catch(e){}
+}
+function enableListSort(rootSel, itemSel, onReorder){
+  // Long-press (400ms) then drag to reorder; saves via onReorder(ids)
+  const root=typeof rootSel==="string"?document.querySelector(rootSel):rootSel;
+  if(!root) return;
+  let dragEl=null, startY=0, armed=false, timer=null;
+  root.querySelectorAll(itemSel).forEach(el=>{
+    if(el.dataset.sortBound) return;
+    el.dataset.sortBound="1";
+    const clear=()=>{ if(timer){ clearTimeout(timer); timer=null; } armed=false; };
+    el.addEventListener("pointerdown", e=>{
+      if(e.button&&e.button!==0) return;
+      startY=e.clientY; armed=false;
+      timer=setTimeout(()=>{ armed=true; dragEl=el; el.classList.add("dragging"); try{ el.setPointerCapture(e.pointerId); }catch(err){} }, 420);
+    });
+    el.addEventListener("pointermove", e=>{
+      if(!timer&&!armed) return;
+      if(!armed && Math.abs(e.clientY-startY)>12){ clear(); return; }
+      if(!armed||!dragEl) return;
+      e.preventDefault();
+      const y=e.clientY;
+      const siblings=[...root.querySelectorAll(itemSel)].filter(x=>x!==dragEl);
+      let placed=false;
+      for(const s of siblings){
+        const r=s.getBoundingClientRect();
+        if(y < r.top+r.height/2){ root.insertBefore(dragEl, s); placed=true; break; }
+      }
+      if(!placed) root.appendChild(dragEl);
+    });
+    el.addEventListener("pointerup", ()=>{
+      clear();
+      if(dragEl){
+        dragEl.classList.remove("dragging");
+        const ids=[...root.querySelectorAll(itemSel)].map(x=>x.getAttribute("data-acct")||x.getAttribute("data-hold")||x.getAttribute("data-contact")||x.getAttribute("data-sip")||x.id).filter(Boolean);
+        if(onReorder) onReorder(ids);
+        dragEl=null;
+      }
+    });
+    el.addEventListener("pointercancel", ()=>{ clear(); if(dragEl){ dragEl.classList.remove("dragging"); dragEl=null; } });
+  });
+}
+(function bootSort(){
+  const start=()=>{ try{
+    const obs=new MutationObserver(()=>{ clearTimeout(window.__sortT); window.__sortT=setTimeout(wireSortableLists, 80); });
+    obs.observe(document.documentElement,{childList:true,subtree:true});
+  }catch(e){} };
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", start); else start();
+})();
+function sortedList(arr, key){
+  // Stable display order using optional .sortOrder (number). Unset items keep relative order at end of numbered ones.
+  if(!arr||!arr.length) return arr||[];
+  return arr.slice().sort((a,b)=>{
+    const ao=a.sortOrder, bo=b.sortOrder;
+    if(ao!=null&&bo!=null&&ao!==bo) return ao-bo;
+    if(ao!=null&&bo==null) return -1;
+    if(ao==null&&bo!=null) return 1;
+    return 0;
+  });
+}
+function applySortOrder(arr, orderedIds){
+  if(!arr||!orderedIds) return;
+  orderedIds.forEach((id,i)=>{ const x=arr.find(y=>y.id===id); if(x) x.sortOrder=i; });
 }
 function getNwPrefs(){
   const d=defaultNwPrefs();
@@ -793,8 +893,7 @@ function getNwPrefs(){
     insuranceCoverage:!!(p.insuranceCoverage!=null?p.insuranceCoverage:d.insuranceCoverage),
     insuranceCash:!!(p.insuranceCash!=null?p.insuranceCash:d.insuranceCash),
     loansReceivable:!!(p.loansReceivable!=null?p.loansReceivable:d.loansReceivable),
-    accruedInterest:!!(p.accruedInterest!=null?p.accruedInterest:d.accruedInterest),
-    personalAssets:!!(p.personalAssets!=null?p.personalAssets:d.personalAssets)
+    accruedInterest:!!(p.accruedInterest!=null?p.accruedInterest:d.accruedInterest)
   };
 }
 function loansReceivable(owner){
@@ -856,21 +955,10 @@ function wealthBreakdown(owner){
   };
 }
 function personalAssetsValue(owner){
-  if(!getNwPrefs().personalAssets) return 0;
-  let v=0;
-  for(const a of (S.accounts||[])){
-    if(a.archived||(owner&&a.owner!==owner)) continue;
-    if(a.type==="vehicle"||a.type==="personal"||a.personalUse){
-      v+=toDisplay(Math.max(0, balance(a)), a.cur);
-    }
-  }
-  // Optional explicit personal asset list
-  for(const x of (S.personalAssets||[])){
-    if(owner && x.owner && x.owner!==owner) continue;
-    v+=toDisplay(Number(x.value)||0, x.cur||S.display);
-  }
-  return v;
+  // Personal-use assets are not included in net worth (preference removed in 2.5.0).
+  return 0;
 }
+
 function netWorth(owner){
   let assets=0, owed=0;
   for(const a of S.accounts){
@@ -985,8 +1073,6 @@ function viewSettings(){
     <button type="button" class="chip ${p.loansReceivable?"on":""}" data-nwpref="loansReceivable">${p.loansReceivable?"On":"Off"}</button></div>
   <div class="pref-row"><div class="pref-text"><b>Accrued interest receivable</b><span>Unpaid interest already accrued — not future interest. Default on.</span></div>
     <button type="button" class="chip ${p.accruedInterest?"on":""}" data-nwpref="accruedInterest">${p.accruedInterest?"On":"Off"}</button></div>
-  <div class="pref-row"><div class="pref-text"><b>Personal-use assets</b><span>Vehicles and similar if you recorded values. Default off.</span></div>
-    <button type="button" class="chip ${p.personalAssets?"on":""}" data-nwpref="personalAssets">${p.personalAssets?"On":"Off"}</button></div>
   <div class="pref-row"><div class="pref-text"><b>Insurance coverage (sum assured)</b><span>Adjusted position only — never actual net worth. Default off.</span></div>
     <button type="button" class="chip ${p.insuranceCoverage?"on":""}" data-nwpref="insuranceCoverage">${p.insuranceCoverage?"On":"Off"}</button></div>
   <button type="button" class="btn alt" data-nwprefreset style="margin-top:10px">Restore defaults</button>
@@ -1190,8 +1276,8 @@ function viewAccounts(){
   }
   if(seg==="investments"){
     const f = moneyHoldFilter||"all";
-    const demats=S.accounts.filter(a=>!a.archived&&a.type==="demat");
-    let holds = S.holdings.slice();
+    const demats=sortedList(S.accounts.filter(a=>!a.archived&&a.type==="demat"));
+    let holds = sortedList(S.holdings.slice());
     if(f==="fund") holds = holds.filter(h=>h.type==="fund");
     if(f==="stock") holds = holds.filter(h=>h.type==="stock");
     if(f==="demat") holds = [];
@@ -1210,8 +1296,9 @@ function viewAccounts(){
       return `<div class="card tap rec-card" data-acct="${a.id}">
         <div class="name">${esc(a.name)}</div>
         <div class="meta">Demat${a.broker?" · "+esc(a.broker):""} · ${esc(a.owner||"Me")}</div>
+        <div class="muted" style="font-size:11px;margin-top:6px">Cash / settlement balance</div>
         <div class="amt num">${fmt(b,a.cur)}</div>
-        <div class="rec-foot"><span class="muted" style="font-size:12px">Cost ${fmt(cost,a.cur)} · <span class="${g>=0?"in":"out"}">${g>=0?"+":""}${fmt(g,a.cur)}</span></span></div>
+        <div class="rec-foot"><span class="muted" style="font-size:12px">Invested cost ${fmt(cost,a.cur)} · <span class="${g>=0?"in":"out"}">${g>=0?"+":""}${fmt(g,a.cur)}</span></span></div>
       </div>`;
     }).join(""):"";
     const holdHtml=(f!=="demat")?holds.map(h=>{
@@ -1244,7 +1331,7 @@ function viewAccounts(){
   }
   // accounts segment
   const af = moneyAcctFilter||"all";
-  let list = S.accounts.filter(a=>!a.archived&&a.type!=="demat");
+  let list = sortedList(S.accounts.filter(a=>!a.archived&&a.type!=="demat"));
   if(af==="bank") list = list.filter(a=>a.type==="bank");
   if(af==="cash") list = list.filter(a=>a.type==="cash");
   if(af==="card") list = list.filter(a=>a.type==="card");
@@ -1388,80 +1475,69 @@ function isExpiryValid(s,opts){
 }
 function expiryPickerHtml(idPrefix, initial){
   const p=parseExpiryParts(initial||"")||{};
+  const mm=p.mm||"";
+  let yy=p.yy||"";
+  // Prefer YY for storage display
+  if(yy.length===4) yy=yy.slice(-2);
   return '<label>Card expiry</label>'+
-    '<input type="hidden" id="'+idPrefix+'" value="'+esc(initial?formatExpiryInput(initial):"")+'">'+
+    '<input type="hidden" id="'+idPrefix+'" value="'+esc(mm&&yy?(mm+"/"+yy):"")+'">'+
     '<div class="expiry-row">'+
-      '<div>'+
-        '<label for="'+idPrefix+'_mm">Month</label>'+
-        '<input id="'+idPrefix+'_mm" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="MM" value="'+esc(p.mm||'')+'" aria-label="Expiry month">'+
-      '</div>'+
-      '<div>'+
-        '<label for="'+idPrefix+'_yy">Year</label>'+
-        '<input id="'+idPrefix+'_yy" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="YY" value="'+esc(p.yy||'')+'" aria-label="Expiry year">'+
-      '</div>'+
+    '<div><label class="sub">Month (MM)</label>'+
+    '<input id="'+idPrefix+'_mm" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="MM" value="'+esc(mm)+'" autocomplete="cc-exp-month" aria-label="Expiry month"></div>'+
+    '<div><label class="sub">Year (YY)</label>'+
+    '<input id="'+idPrefix+'_yy" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="YY" value="'+esc(yy)+'" autocomplete="cc-exp-year" aria-label="Expiry year"></div>'+
     '</div>'+
-    '<div class="muted">Enter the expiry month (01–12) and year (e.g. 29).</div>';
+    '<div class="muted">Example: 08 and 29 for August 2029. Stored as MM/YY.</div>';
 }
-
 function wireExpiryField(idPrefix){
   const hidden=document.getElementById(idPrefix);
   const mm=document.getElementById(idPrefix+"_mm");
   const yy=document.getElementById(idPrefix+"_yy");
-
   if(!hidden||!mm||!yy) return;
-
-  const clean=function(input){
-    input.value=String(input.value||"").replace(/\D/g,"").slice(0,2);
-  };
-
   const apply=function(){
-    clean(mm);
-    clean(yy);
-
-    const month=mm.value;
-    const year=yy.value;
-
-    if(/^(0[1-9]|1[0-2])$/.test(month)&&/^\d{2}$/.test(year)){
-      hidden.value=month+"/"+year;
-    }else{
-      hidden.value="";
-    }
+    let m=(mm.value||"").replace(/\D/g,"").slice(0,2);
+    let y=(yy.value||"").replace(/\D/g,"").slice(0,4);
+    if(m.length===1) m="0"+m;
+    if(y.length===4) y=y.slice(-2);
+    if(mm.value!==m && m) mm.value=m;
+    if(y.length===2 && yy.value!==y && (yy.value||"").replace(/\D/g,"").length>=2) yy.value=y;
+    if(m.length===2 && y.length===2) hidden.value=m+"/"+y;
+    else if(m||y) hidden.value="";
+    else hidden.value="";
   };
-
-  mm.addEventListener("input",apply);
-  yy.addEventListener("input",apply);
-
+  mm.addEventListener("input", function(){
+    mm.value=(mm.value||"").replace(/\D/g,"").slice(0,2);
+    apply();
+  });
+  yy.addEventListener("input", function(){
+    yy.value=(yy.value||"").replace(/\D/g,"").slice(0,4);
+    apply();
+  });
+  mm.addEventListener("blur", apply);
+  yy.addEventListener("blur", apply);
   apply();
 }
-   
 function readExpiryField(idPrefix, opts){
   opts=opts||{};
-
   const hidden=document.getElementById(idPrefix);
-  const mm=document.getElementById(idPrefix+"_mm");
-  const yy=document.getElementById(idPrefix+"_yy");
-
-  const month=mm?String(mm.value||"").replace(/\D/g,"").slice(0,2):"";
-  const year=yy?String(yy.value||"").replace(/\D/g,"").slice(0,2):"";
-
-  if(!month&&!year){
-    return opts.required
-      ?{ok:false,error:"Enter the card expiry."}
-      :{ok:true,value:""};
-  }
-
-  if(!/^(0[1-9]|1[0-2])$/.test(month)||!/^\d{2}$/.test(year)){
-    return {ok:false,error:"Enter a valid expiry month (01–12) and two-digit year."};
-  }
-
-  const v=month+"/"+year;
-
-  if(!isExpiryValid(v,{allowPast:!!opts.allowPast})){
-    return {ok:false,error:"This expiry is in the past."};
-  }
-
+  const mmEl=document.getElementById(idPrefix+"_mm");
+  const yyEl=document.getElementById(idPrefix+"_yy");
+  let m=(mmEl&&mmEl.value||"").replace(/\D/g,"").slice(0,2);
+  let y=(yyEl&&yyEl.value||"").replace(/\D/g,"").slice(0,4);
+  if(m.length===1) m="0"+m;
+  if(y.length===4) y=y.slice(-2);
+  let v="";
+  if(m||y) v=(m.length===2&&y.length===2)?(m+"/"+y):"";
+  if(!v && hidden) v=formatExpiryInput(hidden.value||"");
+  if(!m && !y && !v) return opts.required?{ok:false,error:"Enter the card expiry month and year."}:{ok:true,value:""};
+  if(m && (m.length!==2 || +m<1 || +m>12)) return {ok:false,error:"Expiry month must be 01–12."};
+  if(y && y.length!==2) return {ok:false,error:"Expiry year must be 2 digits (YY) or 4 digits (YYYY)."};
+  if(!m || !y) return {ok:false,error:"Enter both expiry month and year."};
+  v=m+"/"+y;
+  const p=parseExpiryParts(v);
+  if(!p) return {ok:false,error:"Enter a valid expiry month and year."};
+  if(!isExpiryValid(v,{allowPast:!!opts.allowPast})) return {ok:false,error:"This expiry is in the past."};
   if(hidden) hidden.value=v;
-
   return {ok:true,value:v};
 }
 
@@ -1614,10 +1690,80 @@ ${h.notes?`<p class="muted">${esc(h.notes)}</p>`:""}
 <form id="ffv"><input type="hidden" id="fvid" value="${h.id}">
 <label>Expected annual return (%)</label><input id="fvr" inputmode="decimal" value="${h.type==="fund"?"12":"10"}">
 <label>Years to project</label><input id="fvy" inputmode="decimal" value="5">
-<label>Extra monthly investment</label><input id="fvs" inputmode="decimal" value="0" placeholder="0">
+<label>Monthly SIP / top-up</label><input id="fvs" inputmode="decimal" value="${(S.sips||[]).filter(x=>x.hold===h.id&&(x.status||'active')==='active').reduce((s,x)=>s+(Number(x.amt)||0)/((x.freq||1)),0)||0}" placeholder="0">
+<div class="muted">Pre-filled from active SIPs on this fund. Edit as needed. Estimate only.</div>
 <button class="btn alt" type="submit">Show forecast</button></form>
 <div id="fvOut" style="display:none;margin-top:12px"></div>
 <button class="btn alt" data-close style="margin-top:12px">Close</button>`);}
+function holdParse(text){
+  if(!text||!String(text).trim()){ alert("Paste CSV data or choose a file first."); return; }
+  const owner=($("#howner")&&$("#howner").value)||"Me";
+  const lines=String(text).replace(/^\uFEFF/,"").split(/\r?\n/).filter(l=>l.trim());
+  if(lines.length<2){ alert("Need a header row and at least one data row."); return; }
+  // Simple CSV split respecting quotes
+  const split=(line)=>{
+    const out=[]; let cur="", q=false;
+    for(let i=0;i<line.length;i++){
+      const ch=line[i];
+      if(ch==='"'){ if(q&&line[i+1]==='"'){ cur+='"'; i++; } else q=!q; }
+      else if((ch===","||ch==="\t")&&!q){ out.push(cur.trim()); cur=""; }
+      else cur+=ch;
+    }
+    out.push(cur.trim()); return out;
+  };
+  const headers=split(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z0-9]/g,""));
+  const col=(names)=>{ for(const n of names){ const i=headers.indexOf(n); if(i>=0) return i; } return -1; };
+  const iSym=col(["symbol","sym","ticker","tradingsymbol","scrip","name","security","instrument"]);
+  const iQty=col(["qty","quantity","qty.","units","holding","freefloat","availableqty"]);
+  const iAvg=col(["avg","average","avgprice","averageprice","buyavg","cost","buyprice","avgcost"]);
+  const iPrice=col(["price","ltp","last","lastprice","close","prevclose","nav","marketprice","cmp"]);
+  const iIsin=col(["isin"]);
+  const iSec=col(["sector","industry"]);
+  if(iSym<0||iQty<0){ alert("Could not find Symbol and Quantity columns. Include headers like Symbol, Qty, Avg, LTP."); return; }
+  const items=[];
+  let failed=0;
+  for(let r=1;r<lines.length;r++){
+    const cells=split(lines[r]); if(!cells.length||!cells[0]) continue;
+    const sym=(cells[iSym]||"").trim(); if(!sym){ failed++; continue; }
+    const qty=parseFloat(String(cells[iQty]||"0").replace(/,/g,""))||0;
+    const avg=iAvg>=0?parseFloat(String(cells[iAvg]||"0").replace(/,/g,""))||0:0;
+    const prev=iPrice>=0?parseFloat(String(cells[iPrice]||"0").replace(/,/g,""))||0:(avg||0);
+    const isin=iIsin>=0?(cells[iIsin]||"").trim():"";
+    const sec=iSec>=0?(cells[iSec]||"").trim():"";
+    if(!(qty>0)&&qty!==0){ failed++; continue; }
+    items.push({sym, qty, avg, prev:prev||avg, isin, sec});
+  }
+  if(!items.length){ alert("No valid rows found ("+failed+" skipped)."); return; }
+  const plan=[];
+  let dup=0;
+  for(const it of items){
+    let H=S.holdings.find(h=>(h.owner||"Me")===(owner||"Me") && (
+      (it.isin&&h.isin&&h.isin===it.isin) ||
+      (h.symbol&&h.symbol.toUpperCase()===it.sym.toUpperCase()) ||
+      (h.name&&h.name.toUpperCase()===it.sym.toUpperCase())
+    ));
+    if(H){
+      const pos=holdPos(H);
+      const du=Math.round((it.qty-pos.u)*1e6)/1e6;
+      const newCost=Math.round(it.qty*it.avg*100)/100;
+      const dc=Math.round((newCost-pos.c)*100)/100;
+      if(Math.abs(du)<1e-9 && Math.abs((H.price||0)-it.prev)<0.0001){ dup++; plan.push({H,it,kind:"price"}); }
+      else if(Math.abs(du)<1e-9) plan.push({H,it,kind:"price"});
+      else plan.push({H,it,kind:"changed",du,dc});
+    } else {
+      plan.push({H:null,it,kind:"new"});
+    }
+  }
+  pendH={owner, plan, items:items.length, failed, dup};
+  openSheet(`<h2 style="margin-top:0">Review import</h2>
+  <div class="muted">${items.length} rows · ${plan.filter(p=>p.kind==="new").length} new · ${plan.filter(p=>p.kind==="changed").length} qty changes · ${failed} failed</div>
+  <label>As-of date</label><input type="date" id="hdate" value="${today()}">
+  <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="hmiss"> Mark holdings missing from file as sold (zero units)</label>
+  <div class="card" style="max-height:40vh;overflow:auto;margin:10px 0">${plan.slice(0,40).map(p=>`<div class="row"><span>${esc(p.it.sym)} · ${p.it.qty} @ ${p.it.avg}</span><b>${p.kind}</b></div>`).join("")}${plan.length>40?"<div class='muted'>…and more</div>":""}</div>
+  <p class="muted">Import sets positions only — no bank debit.</p>
+  <button class="btn" data-doholds>Apply import</button>
+  <button class="btn alt" data-close>Cancel</button>`);
+}
 function doHolds(){
   const P=pendH; if(!P) return; const date=($("#hdate")||{}).value||today(), killMissing=!!($("#hmiss")&&$("#hmiss").checked);
   let added=0, changed=0, price=0, sold=0;
@@ -1995,7 +2141,7 @@ function viewPlan(){
         </div>
         <div class="lend-foot">
           <span class="status-pill ${stClass}">${esc(shortSt)}</span>
-          <span class="muted" style="font-size:12px">${pct}% overall · ${fmt(orig,l.cur)} original</span>
+          <span class="muted" style="font-size:12px">${pct}% overall · interest ${fmt(p.interestPaid,l.cur)} paid / ${fmt(p.interestLeft,l.cur)} left</span>
         </div>
         ${l.note?`<div class="muted" style="margin-top:8px;font-size:12px;line-height:1.35">${esc(l.note)}</div>`:""}
       </div>`;
@@ -2686,8 +2832,13 @@ if(d.delmethod){
   if("togglehide" in d){ S.hideBalances=!S.hideBalances; save(); render(); return; }
   if(d.nwpref){
     const key=d.nwpref;
+    const allowed=["insuranceCoverage","insuranceCash","loansReceivable","accruedInterest"];
+    if(!allowed.includes(key)) return;
     S.nwPrefs=Object.assign({}, defaultNwPrefs(), S.nwPrefs||{});
-    if(key in S.nwPrefs){ S.nwPrefs[key]=!S.nwPrefs[key]; save(); render(); toast("Preference saved"); }
+    S.nwPrefs[key]=!S.nwPrefs[key];
+    save();
+    render();
+    toast(S.nwPrefs[key]?"Enabled":"Disabled");
     return;
   }
   if("nwprefreset" in d){
@@ -2827,12 +2978,24 @@ if(d.delmethod){
     const payBlock=active
       ?('<form id="fpay"><input type="hidden" id="pid" value="'+p.id+'"><label>Paid from</label><select id="pacc">'+accOpts().map(([v,n])=>'<option value="'+v+'">'+esc(n)+'</option>').join("")+'</select><button class="btn" type="submit">Mark premium paid · '+esc(eff||p.next||"due")+'</button></form>'+overdueNote)
       :('<div class="muted" style="margin:10px 0">Premium-paying term is complete (no outstanding due inside PPT). You can still edit dates below if needed.</div>');
+    const paidInfo=policyPremiumsPaidToDate(p);
+    const paidLine=paidInfo.count
+      ?("Premiums paid to date: <b>"+fmt(paidInfo.total,p.cur)+"</b> · "+paidInfo.count+" instalment(s)"+(paidInfo.source==="schedule"?" (from schedule)":" (recorded)")+(paidInfo.remaining!=null?" · remaining ~"+fmt(paidInfo.remaining,p.cur):""))
+      :("No premiums counted yet.");
     openSheet('<h2 style="margin-top:0">'+esc(p.name)+'</h2>'+
-      '<div class="muted">'+esc(p.provider||"")+(p.policyNo?" · Policy "+esc(p.policyNo):"")+"<br>"+
-      "Cover "+fmt(p.sum,p.cur)+" · Bonus "+fmt(p.bonus||0,p.cur)+"<br>"+
-      "Premium "+fmt(p.premium,p.cur)+" every "+(p.freq||1)+" month(s)<br>"+
-      (p.start?"Started "+esc(p.start)+" · ":"")+(p.ppt?"PPT "+p.ppt+" years · ":"")+(p.term?"Term "+p.term+" years · ":"")+(p.maturity?"Matures "+esc(p.maturity):"")+"<br>"+
-      (active?'<span class="in">Premium payable</span>':'<span class="muted">Outside premium schedule</span>')+
+      '<div class="form-section"><div class="form-section-title">Policy</div>'+
+      '<div class="row"><span>Provider</span><b>'+esc(p.provider||"—")+'</b></div>'+
+      (p.policyNo?'<div class="row"><span>Policy no.</span><b>'+esc(p.policyNo)+'</b></div>':'')+
+      '<div class="row"><span>Owner</span><b>'+esc(p.owner||"Me")+'</b></div>'+
+      '<div class="row"><span>Cover (sum assured)</span><b>'+fmt(p.sum,p.cur)+'</b></div>'+
+      ((p.fundValue||p.surrenderValue)?'<div class="row"><span>Cash / surrender value</span><b>'+fmt(p.fundValue||p.surrenderValue,p.cur)+'</b></div>':'')+
+      '<div class="row"><span>Premium</span><b>'+fmt(p.premium,p.cur)+' / '+(p.freq||1)+' mo</b></div>'+
+      (p.start?'<div class="row"><span>Commencement</span><b>'+esc(p.start)+'</b></div>':'')+
+      (p.ppt?'<div class="row"><span>PPT</span><b>'+p.ppt+' years</b></div>':'')+
+      (p.term?'<div class="row"><span>Policy term</span><b>'+p.term+' years</b></div>':'')+
+      (p.maturity?'<div class="row"><span>Maturity</span><b>'+esc(p.maturity)+'</b></div>':'')+
+      '<div class="row"><span>Status</span><b>'+(active?'Premium payable':'Outside premium schedule')+'</b></div>'+
+      '<div class="muted" style="margin-top:8px">'+paidLine+'</div>'+
       "</div>"+
       (termNote?'<div class="muted" style="margin-top:8px">'+termNote+"</div>":"")+
       payBlock+
@@ -2873,7 +3036,16 @@ if(d.delmethod){
 <button class="btn alt" data-close>Cancel</button>`); return; }
   if("holdparse" in d){ const v=$("#hpaste").value; if(v.trim()) holdParse(v); return; }
   if("doholds" in d){ doHolds(); return; }
-  if("csvimp" in d){ $("#csvf").click(); return; }
+  if("csvimp" in d){ /* open holdings import sheet (same as data-holds) */
+    openSheet(`<h2 style="margin-top:0">Import stock holdings</h2>
+<p class="muted">Choose a broker CSV or paste a table with a header row. Import updates positions — it does not debit bank accounts.</p>
+<label>Owner of these stocks</label>
+<select id="howner">${S.people.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>
+<input type="file" id="hf" accept=".csv,text/csv,text/plain,*/*" style="margin-top:12px">
+<label>Or paste here</label>
+<textarea id="hpaste" rows="5" style="width:100%;font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:12px"></textarea>
+<button class="btn" data-holdparse>Review</button>
+<button class="btn alt" data-close>Cancel</button>`); return; }
   if("csvtpl" in d){ download("import-template.csv","id,date,type,category,account,amount,note\nX-1,2026-11-01,expense,Groceries,ING current,42.10,Albert Heijn\nX-2,2026-11-01,income,Salary,ING current,3500,October salary\n","text/csv"); return; }
   if("newhold" in d){ newHoldSheet(); return; }
   if(d.hold){ holdSheet(d.hold); return; }
@@ -3161,6 +3333,26 @@ document.addEventListener("submit", e=>{
     toast(hist?"Historical holding saved (no bank debit)":"Holding saved");
   }
   if(e.target.id==="fp"){ const h=S.holdings.find(x=>x.id===$("#hid").value); if(h){ h.price=parseAmt($("#hp").value); save(); } closeSheet(); render(); }
+  if(e.target.id==="fholdunits"){
+    const h=S.holdings.find(x=>x.id===$("#huid")?.value); if(!h) return;
+    const target=parseAmt($("#huunits")?.value);
+    const price=parseAmt($("#huprice")?.value);
+    const date=$("#hudate")?.value||today();
+    if(!(target>=0)){ alert("Enter total units (0 or more)."); return; }
+    const pos=holdPos(h);
+    const du=Math.round((target-pos.u)*1e6)/1e6;
+    if(Math.abs(du)<1e-9 && !(price>0&&Math.abs(price-(h.price||0))>1e-9)){ toast("No change"); return; }
+    if(price>0) h.price=price;
+    if(Math.abs(du)>=1e-9){
+      // cost adjustment proportional to average cost
+      const avg=pos.u>0?pos.c/pos.u:(h.price||0);
+      const dc=Math.round(du*avg*100)/100;
+      addTxn({type:"adjust",date,note:"Manual units adjustment",hold:h.id,units:du,cost:dc,postings:[]});
+    }
+    save(); closeSheet(); render(); toast("Units updated");
+    setTimeout(()=>holdSheet(h.id),40);
+    return;
+  }
   if(e.target.id==="ffv"){
     const h=S.holdings.find(x=>x.id===$("#fvid").value); if(!h)return;
     const p=holdPos(h), R=parseAmt($("#fvr").value), Y=parseAmt($("#fvy").value), Smt=parseAmt($("#fvs").value||"0");
