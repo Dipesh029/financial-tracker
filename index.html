@@ -309,8 +309,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.5.9";
+const APP_VERSION = "2.5.10";
 const RELEASES = [
+  {v:"2.5.10", d:"2026-11-18", notes:"acctSheet gates card UI by type; production regression tests."},
   {v:"2.5.9", d:"2026-11-18", notes:"CSV ambiguous skip-before-create; cardMeta for bank debit; demat no card fields."},
   {v:"2.5.8", d:"2026-11-18", notes:"Manual Order = array order (no sortOrder); CSV strict ISIN/exchange; demat no debit paths."},
   {v:"2.5.7", d:"2026-11-18", notes:"Remove Reorder; sort-only UI; fix Contacts ci; CSV fileKey includes exchange; Demat sort bar."},
@@ -1834,6 +1835,90 @@ ${h.notes?`<p class="muted">${esc(h.notes)}</p>`:""}
 <button class="btn alt" type="submit">Show forecast</button></form>
 <div id="fvOut" style="display:none;margin-top:12px"></div>
 <button class="btn alt" data-close style="margin-top:12px">Close</button>`);}
+function matchHoldingCandidates(holdings, it, owner){
+  // Production matcher used by CSV import. Returns 0, 1, or many candidates.
+  const iEx=(it.exch||"").toUpperCase();
+  const iIsin=(it.isin||"").trim();
+  const iSym=(it.sym||"").toUpperCase();
+  return (holdings||[]).filter(h=>{
+    if((h.owner||"Me")!==(owner||"Me")) return false;
+    const hEx=(h.exchange||"").toUpperCase();
+    const hIsin=(h.isin||"").trim();
+    if(iIsin && hIsin){
+      if(iIsin!==hIsin) return false;
+      return hEx===iEx;
+    }
+    // Symbol fallback only when ISIN missing on at least one side
+    const hSym=(h.symbol||h.name||"").toUpperCase();
+    if(hSym && iSym && hSym===iSym) return hEx===iEx;
+    return false;
+  });
+}
+function buildHoldPlanRow(holdings, it, owner){
+  const candidates=matchHoldingCandidates(holdings, it, owner);
+  if(candidates.length>1) return {H:null, it, kind:"ambiguous", note:"Multiple matches — skipped"};
+  if(candidates.length===1){
+    const H=candidates[0];
+    // qty compare deferred to holdParse with holdPos
+    return {H, it, kind:"matched"};
+  }
+  return {H:null, it, kind:"new"};
+}
+function applyHoldPlanMutations(plan, opts){
+  // Pure-ish apply: opts={holdings, people, addTxn, uid, date}
+  // Skips ambiguous BEFORE any create. Returns stats + new holdings list.
+  const holdings=(opts.holdings||[]).slice();
+  const people=(opts.people||[]).slice();
+  const date=opts.date||"2020-01-01";
+  const txns=[];
+  let added=0, changed=0, price=0, skippedAmbiguous=0;
+  for(const p of plan){
+    if(p.kind==="ambiguous"){ skippedAmbiguous++; continue; }
+    let H=p.H;
+    if(!H){
+      H={id:(opts.uid?opts.uid():("h"+added)), name:p.it.sym, type:"stock", cur:"INR", isin:p.it.isin, sector:p.it.sec, price:p.it.prev, owner:(opts.owner||"Me"), symbol:p.it.sym, exchange:p.it.exch||""};
+      holdings.push(H);
+      if(!people.includes(H.owner)) people.push(H.owner);
+      added++;
+      p.H=H;
+      if(p.kind==="new" || !p.kind) txns.push({type:"open", hold:H.id});
+    } else if(p.kind==="changed"){
+      changed++;
+      txns.push({type:"adjust", hold:H.id});
+    } else price++;
+  }
+  const snapItems=plan.filter(p=>p.kind!=="ambiguous").map(p=>p.it);
+  return {holdings, people, txns, added, changed, price, skippedAmbiguous, snapItems};
+}
+function acctSheetCardSectionHtml(a){
+  // Returns HTML for card-related fields only — empty for demat/cash.
+  if(!a || a.type==="demat" || a.type==="cash") return "";
+  if(a.type==="bank"){
+    const cm=a.cardMeta||{};
+    return `<b>Linked debit card (optional)</b>
+<p class="muted" style="margin:4px 0 0">Not a separate balance — spends from this bank account.</p>
+<label>Last 4 digits</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc(cm.last4||"")}" placeholder="1234" autocomplete="off">
+<label>Network</label><select id="network"><option value="">—</option>${["Visa","Mastercard","RuPay","Amex","Other"].map(n=>`<option ${cm.network===n?"selected":""}>${n}</option>`).join("")}</select>
+${typeof expiryPickerHtml==="function"?expiryPickerHtml("expiry",cm.expiry||""):`<label>Expiry</label><input id="expiry" value="${esc(cm.expiry||"")}">`}
+<div class="muted">CVV/CVC and PIN are never collected or stored.</div>`;
+  }
+  if(a.type==="card"){
+    const cm=a.cardMeta||{};
+    return `<b>Credit card details</b>
+<label>Card issuer / bank</label><input id="abankEdit" value="${esc(a.bank||"")}">
+<label>Last 4 digits</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc(cm.last4||"")}" placeholder="1234" autocomplete="off">
+<label>Network</label><select id="network"><option value="">—</option>${["Visa","Mastercard","RuPay","Amex","Other"].map(n=>`<option ${cm.network===n?"selected":""}>${n}</option>`).join("")}</select>
+<label>Card type</label><select id="cardType"><option value="">—</option>${["Debit","Credit","Charge","Corporate","Other"].map(n=>`<option ${cm.cardType===n?"selected":""}>${n}</option>`).join("")}</select>
+${typeof expiryPickerHtml==="function"?expiryPickerHtml("expiry",cm.expiry||""):`<label>Expiry</label><input id="expiry" value="${esc(cm.expiry||"")}">`}
+<div class="muted">CVV/CVC and PIN are never collected or stored.</div>
+<label>Annual fee</label><input id="annualFee" inputmode="decimal" value="${cm.annualFee||""}">
+<label>Credit limit</label><input id="cl" inputmode="decimal" value="${a.limit||""}">
+<label>Statement day of month</label><input id="cs" inputmode="numeric" value="${a.stmtDay||""}">
+<label>Payment due day of month</label><input id="cd" inputmode="numeric" value="${a.dueDay||""}">`;
+  }
+  return "";
+}
+
 function parseCsvRows(text){
   // RFC-style CSV: quoted fields may contain commas and newlines
   const rows=[]; let row=[]; let cur=""; let q=false;
@@ -1899,39 +1984,10 @@ function holdParse(text){
   if(!items.length){ alert("No valid rows found ("+failed+" failed, "+fileDup+" duplicate in file)."); return; }
   const plan=[]; let existingMatch=0;
   for(const it of items){
-    let H=null;
-    {
-      const iEx=(it.exch||"").toUpperCase();
-      const iIsin=(it.isin||"").trim();
-      const candidates=S.holdings.filter(h=>{
-        if((h.owner||"Me")!==(owner||"Me")) return false;
-        const hEx=(h.exchange||"").toUpperCase();
-        const hIsin=(h.isin||"").trim();
-        // When both have ISIN: only match if equal ISIN + equal exchange (no symbol fallback if ISINs differ)
-        if(iIsin && hIsin){
-          if(iIsin!==hIsin) return false;
-          return hEx===iEx; // missing exchange on both is OK (both ""); never wildcard
-        }
-        // Symbol fallback only when ISIN missing on at least one side
-        if(iIsin && !hIsin){
-          // Import has ISIN, holding doesn't — allow symbol+exchange match to attach ISIN later
-          const hSym=(h.symbol||h.name||"").toUpperCase();
-          const iSym=(it.sym||"").toUpperCase();
-          return !!(hSym && iSym && hSym===iSym && hEx===iEx);
-        }
-        if(!iIsin){
-          const hSym=(h.symbol||h.name||"").toUpperCase();
-          const iSym=(it.sym||"").toUpperCase();
-          return !!(hSym && iSym && hSym===iSym && hEx===iEx);
-        }
-        return false;
-      });
-      if(candidates.length===1) H=candidates[0];
-      else if(candidates.length>1){
-        plan.push({H:null,it,kind:"ambiguous",note:"Multiple matches — skipped"});
-        continue; // before any mutation
-      }
-    }
+    const row=buildHoldPlanRow(S.holdings, it, owner);
+    if(row.kind==="ambiguous"){ plan.push(row); continue; }
+    let H=row.H;
+
     if(H){
       existingMatch++;
       const pos=holdPos(H);
@@ -2631,16 +2687,10 @@ function acctSheet(id){
 <label>Branch code</label><input id="abranchcodeEdit" value="${esc(a.branchCode||"")}">
 <div class="muted">Stored encrypted on this phone. Shown masked in lists.</div>
 <button type="button" class="btn alt" data-copyownbank="${a.id}" style="margin-top:10px">Copy account details</button>`:""}
-  <b>${a.type==="card"?"Credit card details":"Linked debit card (optional)"}</b>${a.type==="bank"?`<p class="muted" style="margin:4px 0 0">Not a separate balance — spends from this bank account. Useful for last digits and expiry reminders.</p>`:""}
-  ${a.type==="card"?`<label>Card issuer / bank</label><input id="abankEdit" value="${esc(a.bank||"")}">`:""}
-  <label>Last 4 digits</label><input id="last4" inputmode="numeric" maxlength="4" value="${esc((a.cardMeta||{}).last4||"")}" placeholder="1234" autocomplete="off">
-  <label>Network</label><select id="network"><option value="">—</option>${["Visa","Mastercard","RuPay","Amex","Other"].map(n=>`<option ${((a.cardMeta||{}).network||"")===n?"selected":""}>${n}</option>`).join("")}</select>
-  <label>Card type</label><select id="cardType"><option value="">—</option>${["Debit","Credit","Charge","Corporate","Other"].map(n=>`<option ${((a.cardMeta||{}).cardType||"")===n?"selected":""}>${n}</option>`).join("")}</select>
-  ${expiryPickerHtml("expiry",(a.cardMeta||{}).expiry||"")}
-  <div class="muted">CVV/CVC and PIN are never collected or stored.</div>
-  <label>Annual fee</label><input id="annualFee" inputmode="decimal" value="${(a.cardMeta||{}).annualFee||""}">
-  ${a.type==="card"?`<label>Credit limit</label><input id="cl" inputmode="decimal" value="${a.limit||""}"><label>Statement day of month</label><input id="cs" inputmode="numeric" value="${a.stmtDay||""}"><label>Payment due day of month</label><input id="cd" inputmode="numeric" value="${a.dueDay||""}"><label>Linked bank account</label><select id="alinked"><option value="">— Not linked —</option>${S.accounts.filter(x=>!x.archived&&x.type==="bank").map(x=>`<option value="${x.id}" ${a.linkedBankId===x.id?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("")}</select><div class="muted">Bank you usually pay this card from.</div>`:""}
-  <button class="btn alt" type="submit">Save card details</button></form>
+  ${acctSheetCardSectionHtml(a)}
+  ${a.type==="card"?`<label>Linked bank account</label><select id="alinked"><option value="">— Not linked —</option>${S.accounts.filter(x=>!x.archived&&x.type==="bank").map(x=>`<option value="${x.id}" ${a.linkedBankId===x.id?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("")}</select><div class="muted">Bank you usually pay this card from.</div>`:""}
+  <button class="btn alt" type="submit">Save details</button>
+</form>
   <button class="btn" data-reconcile="${a.id}">Set current balance</button>
   <button class="btn alt" data-filter="${a.id}">See transactions</button>
   <button class="btn danger" data-archive="${a.id}">Archive account</button>

@@ -444,4 +444,19 @@ Lending principal/interest repayments set `pd` on transactions. `personPos()` su
 | Demat card fields | Create/edit demat paths have no card UI; save ignores cardMeta | code path + test |
 | Manual sort | unchanged | `PASS manual_sort` |
 
-Commands: `node tests/regression.mjs` → ALL_REGRESSION_PASS; `node --check` on extracted script → PASS
+Commands: `node regression.mjs` → ALL_REGRESSION_PASS; `node --check` on extracted script → PASS
+
+
+## Update 2.5.10 (2026-11-18)
+
+Production tests via `node regression.mjs` (extracts real functions from index.html):
+
+| Test | Result |
+|------|--------|
+| PASS acctSheet_card_gating | demat/cash empty; bank debit; card credit |
+| PASS csv_production_matcher | ISIN/exchange rules |
+| PASS ambiguous_before_create | no holding create |
+| PASS manual_sort_production | array order, no mutate |
+| PASS cardMeta_not_debitCard | source has cardMeta only |
+
+`acctSheet` uses `acctSheetCardSectionHtml(a)` — no unconditional card fields.

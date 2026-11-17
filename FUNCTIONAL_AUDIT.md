@@ -64,3 +64,8 @@ Balances are **derived** from opening + posted postings (not stored as a separat
 
 ## 2.5.3 Critical fixes (2026-11-18)
 See FUNCTIONAL_VALIDATION_REPORT.md for detail.
+
+
+## 2.5.10
+- Card UI gated by account type in acctSheet.
+- Regression: `node regression.mjs`.
