@@ -136,6 +136,7 @@ import vm from "vm";
   assert(!src.includes("data-newsalaryary") && !/data-newsal["\s>]/.test(src), "broken salary attribute");
   assert(src.includes("Could not save"), "save errors are surfaced");
   assert(src.includes("function renamePerson"), "rename updates records");
+  assert(src.includes('data-planseg="sips"'), "plan tabs include SIPs button");
   assert(src.includes("data-paycard"), "pay card action");
   assert(src.includes("data-locknow"), "lock now");
   assert(!src.includes('prompt("Enter your current finance-app passphrase'), "passphrase not via prompt");
