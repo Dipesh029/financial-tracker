@@ -238,3 +238,31 @@ Prior fixed issues (already in 2.2.x): contact notes, add person, UPI save, dema
 | Demat debit card | Not on demat form (bank-only linked debit) |
 | Tests | NW unit: 100k bank + 50k holdings + 25k receivable + 5M cover → assets 175k PASS |
 | Status | **FIXED** / classification logic verified in Node |
+
+
+## Update 2.4.1 — Net worth preferences (2026-11-17)
+
+| Pref | Default | Effect |
+|------|---------|--------|
+| Insurance cash/surrender | ON | In actual assets |
+| Loans receivable | ON | Principal outstanding in assets |
+| Accrued interest receivable | ON | Interest left in assets (with loans) |
+| Personal-use assets | OFF | Vehicles/personal if recorded |
+| Insurance coverage (sum assured) | OFF | Adjusted position only — never actual NW |
+| Restore defaults | — | Resets all five |
+| Persistence | `S.nwPrefs` in encrypted vault |
+| Status | **FIXED** (syntax PASS; prefs applied in `loansReceivable` / `insuranceValues` / `netWorth`) |
+
+
+## Update 2.4.2 — SIPs, Salaries, Accounts, Investments, Home UI (2026-11-17)
+
+| Module | UI change |
+|--------|-----------|
+| SIPs | Monthly commitment hero; active count; rec-cards with status pills |
+| Salaries | Monthly inflow hero; schedule cards; status |
+| Accounts | Bank+cash hero; type filters; balance cards; card limit bar |
+| Investments | Value/cost/gain hero; demat + holding cards |
+| Home | Actual NW focal; adjusted cover note; cleaner breakdown |
+| NW prefs | pref-row layout with short explanations |
+| Logic | Unchanged |
+| Status | **PASS** (syntax); workflow smoke on device recommended |

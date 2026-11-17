@@ -271,6 +271,25 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
   .lend-card .lend-amt{font-size:18px}
 }
 .lend-detail-actions{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+
+.mod-hero{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin:6px 0 14px;box-shadow:var(--shadow)}
+.mod-hero .big{font-size:24px;font-weight:720;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums}
+.mod-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.mod-metric{background:var(--bg);border-radius:12px;padding:10px 12px;min-width:0}
+.mod-metric span{display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.mod-metric b{font-size:14px;font-variant-numeric:tabular-nums;word-break:break-word}
+.rec-card{padding:14px 15px;overflow:hidden}
+.rec-card .name{font-size:15px;font-weight:650;line-height:1.25;word-break:break-word}
+.rec-card .meta{font-size:12px;color:var(--muted);margin:4px 0 0;line-height:1.35}
+.rec-card .amt{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:8px}
+.rec-foot{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-top:10px}
+.pref-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.pref-row:last-of-type{border-bottom:0}
+.pref-row .pref-text{flex:1;min-width:0}
+.pref-row .pref-text b{display:block;font-size:14px;font-weight:600}
+.pref-row .pref-text span{display:block;font-size:12px;color:var(--muted);margin-top:2px;line-height:1.35}
+.nw-breakdown{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.nw-breakdown .wealth-pill span{font-size:11px}
 </style>
 </head>
 <body>
@@ -282,8 +301,10 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.4.0";
+const APP_VERSION = "2.4.2";
 const RELEASES = [
+  {v:"2.4.2", d:"2026-11-17", notes:"UI polish: SIPs, Salaries, Accounts, Investments, Home NW, net-worth prefs."},
+  {v:"2.4.1", d:"2026-11-17", notes:"Net worth preferences: optional cover, loans, interest, personal assets toggles; adjusted position."},
   {v:"2.4.0", d:"2026-11-17", notes:"Net worth: loans receivable as assets; insurance coverage excluded; fund/surrender value only; demat holdings once."},
   {v:"2.3.3", d:"2026-11-17", notes:"Lending landing UI polish: compact status, dual progress, card spacing."},
   {v:"2.3.2", d:"2026-11-17", notes:"Lending: period-based interest (stops after principal repaid); manual interest adjust/waiver."},
@@ -436,6 +457,8 @@ function migrate(){
   if(S.autoSip==null) S.autoSip=true;
   if(S.autoSalary==null) S.autoSalary=true;
   if(S.hideBalances==null) S.hideBalances=false;
+  if(S.nwPrefs==null) S.nwPrefs=defaultNwPrefs();
+  else { const d=defaultNwPrefs(); S.nwPrefs=Object.assign({}, d, S.nwPrefs); }
   if(S.onboardingDone==null) S.onboardingDone=!!(S.accounts&&S.accounts.length);
   if(!Array.isArray(S.expenseCats)||!S.expenseCats.length) S.expenseCats=EXPENSE_CATS.slice();
   if(S.expenseCats && !S.expenseCats.includes("Sent externally")) S.expenseCats.push("Sent externally");
@@ -746,36 +769,62 @@ function personNetWorth(person){
   // Net worth attributed to this owner label (accounts + holdings).
   return netWorth(person).total;
 }
+function defaultNwPrefs(){
+  return {
+    insuranceCoverage:false, // sum assured → adjusted only
+    insuranceCash:true,
+    loansReceivable:true,
+    accruedInterest:true,
+    personalAssets:false
+  };
+}
+function getNwPrefs(){
+  const d=defaultNwPrefs();
+  const p=(S&&S.nwPrefs)||{};
+  return {
+    insuranceCoverage:!!(p.insuranceCoverage!=null?p.insuranceCoverage:d.insuranceCoverage),
+    insuranceCash:!!(p.insuranceCash!=null?p.insuranceCash:d.insuranceCash),
+    loansReceivable:!!(p.loansReceivable!=null?p.loansReceivable:d.loansReceivable),
+    accruedInterest:!!(p.accruedInterest!=null?p.accruedInterest:d.accruedInterest),
+    personalAssets:!!(p.personalAssets!=null?p.personalAssets:d.personalAssets)
+  };
+}
 function loansReceivable(owner){
-  // Friends/family lending: receivable asset (lent) / payable liability (borrowed)
   let receivable=0, payable=0, principalRecv=0, interestRecv=0;
+  const prefs=getNwPrefs();
   for(const l of (S.lending||[])){
-    if(owner && l.person && false){ /* owner filter is on account ownership; lending is household by default */ }
-    // Optional: filter by linked account owner
     const a=acct(l.account);
     if(owner && a && a.owner && a.owner!==owner) continue;
     if(owner && !a && owner!=="Me") continue;
     const p=lendingPosition(l);
-    const tot=toDisplay(p.totalOutstanding, l.cur);
     const prin=toDisplay(p.principalLeft, l.cur);
     const intL=toDisplay(p.interestLeft, l.cur);
-    if(l.direction==="lent"){ receivable+=tot; principalRecv+=prin; interestRecv+=intL; }
-    else { payable+=tot; }
+    if(l.direction==="lent"){
+      if(!prefs.loansReceivable) continue;
+      receivable+=prin;
+      principalRecv+=prin;
+      if(prefs.accruedInterest){ receivable+=intL; interestRecv+=intL; }
+    } else {
+      payable+=prin;
+      if(prefs.accruedInterest) payable+=intL;
+    }
   }
   return {receivable, payable, principalRecv, interestRecv};
 }
+
 function insuranceValues(owner){
-  // Coverage (sum assured) is NOT an asset. Only explicit fund/surrender cash value is.
+  const prefs=getNwPrefs();
   let coverage=0, cashValue=0;
   for(const p of (S.policies||[])){
     if(owner && (p.owner||"Me")!==owner) continue;
     const cur=p.cur||S.display||"INR";
     coverage+=toDisplay(Number(p.sum)||0, cur);
     const fv=Number(p.fundValue!=null?p.fundValue:(p.surrenderValue!=null?p.surrenderValue:0))||0;
-    if(fv>0) cashValue+=toDisplay(fv, cur);
+    if(fv>0 && prefs.insuranceCash) cashValue+=toDisplay(fv, cur);
   }
-  return {coverage, cashValue};
+  return {coverage, cashValue, coverageForAdjusted: prefs.insuranceCoverage?coverage:0};
 }
+
 function wealthBreakdown(owner){
   let cash=0,bank=0,dematCash=0,cardLiab=0,holdings=0;
   for(const a of S.accounts){
@@ -797,6 +846,22 @@ function wealthBreakdown(owner){
     loanPrincipal:loans.principalRecv, loanInterest:loans.interestRecv,
     insuranceCoverage:ins.coverage, insuranceCash:ins.cashValue
   };
+}
+function personalAssetsValue(owner){
+  if(!getNwPrefs().personalAssets) return 0;
+  let v=0;
+  for(const a of (S.accounts||[])){
+    if(a.archived||(owner&&a.owner!==owner)) continue;
+    if(a.type==="vehicle"||a.type==="personal"||a.personalUse){
+      v+=toDisplay(Math.max(0, balance(a)), a.cur);
+    }
+  }
+  // Optional explicit personal asset list
+  for(const x of (S.personalAssets||[])){
+    if(owner && x.owner && x.owner!==owner) continue;
+    v+=toDisplay(Number(x.value)||0, x.cur||S.display);
+  }
+  return v;
 }
 function netWorth(owner){
   let assets=0, owed=0;
@@ -820,7 +885,16 @@ function netWorth(owner){
   // Insurance: cash/fund/surrender only — never sum assured
   const ins=insuranceValues(owner);
   assets+=ins.cashValue;
-  return {assets, owed, total:assets-owed, loansReceivable:loans.receivable, loansPayable:loans.payable, insuranceCoverage:ins.coverage, insuranceCash:ins.cashValue};
+  assets+=personalAssetsValue(owner);
+  const actual=assets-owed;
+  const adjusted=actual+(ins.coverageForAdjusted||0);
+  return {
+    assets, owed, total:actual, actual,
+    adjusted, adjustedNetWorth:adjusted,
+    loansReceivable:loans.receivable, loansPayable:loans.payable,
+    insuranceCoverage:ins.coverage, insuranceCash:ins.cashValue,
+    coverageInAdjusted:!!getNwPrefs().insuranceCoverage
+  };
 }
 
 function historyHtml(owner){const hs=(S.history||[]).filter(x=>owner?x.owner===owner:!x.owner).slice(-12).reverse();return `<h2>Net worth history</h2><div class="card">${hs.length?hs.map(x=>`<div class="row"><span>${esc(x.date)}</span><b class="num">${fmt(toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate),S.display)}</b></div>`).join(""):`<div class="muted">No saved snapshots yet for this view.</div>`}<button class="btn alt" data-snapshot>Save this month's snapshot</button></div><button class="btn alt" data-tab="activity">See all activity</button>`;}
@@ -894,6 +968,22 @@ function viewSettings(){
   <button class="btn alt" data-editcats="expense" style="margin-top:8px">Edit expense categories</button>
   <button class="btn alt" data-editcats="income">Edit income categories</button></div>
 
+  <div class="card"><b>Net worth calculation</b>
+  <div class="muted" style="margin-bottom:4px">Actual net worth excludes insurance sum assured. Bank, cash, investments and demat holdings are always included.</div>
+  ${(()=>{const p=getNwPrefs();return `
+  <div class="pref-row"><div class="pref-text"><b>Insurance cash / surrender</b><span>Realizable policy value in actual assets. Default on.</span></div>
+    <button type="button" class="chip ${p.insuranceCash?"on":""}" data-nwpref="insuranceCash">${p.insuranceCash?"On":"Off"}</button></div>
+  <div class="pref-row"><div class="pref-text"><b>Loans receivable</b><span>Principal still owed by friends & family. Default on.</span></div>
+    <button type="button" class="chip ${p.loansReceivable?"on":""}" data-nwpref="loansReceivable">${p.loansReceivable?"On":"Off"}</button></div>
+  <div class="pref-row"><div class="pref-text"><b>Accrued interest receivable</b><span>Unpaid interest already accrued — not future interest. Default on.</span></div>
+    <button type="button" class="chip ${p.accruedInterest?"on":""}" data-nwpref="accruedInterest">${p.accruedInterest?"On":"Off"}</button></div>
+  <div class="pref-row"><div class="pref-text"><b>Personal-use assets</b><span>Vehicles and similar if you recorded values. Default off.</span></div>
+    <button type="button" class="chip ${p.personalAssets?"on":""}" data-nwpref="personalAssets">${p.personalAssets?"On":"Off"}</button></div>
+  <div class="pref-row"><div class="pref-text"><b>Insurance coverage (sum assured)</b><span>Adjusted position only — never actual net worth. Default off.</span></div>
+    <button type="button" class="chip ${p.insuranceCoverage?"on":""}" data-nwpref="insuranceCoverage">${p.insuranceCoverage?"On":"Off"}</button></div>
+  <button type="button" class="btn alt" data-nwprefreset style="margin-top:10px">Restore defaults</button>
+  `})()}
+  </div>
   <div class="card"><b>Privacy</b>
   <div class="row"><span>Hide balances on Home</span><button type="button" class="chip ${S.hideBalances?"on":""}" data-togglehide>${S.hideBalances?"On":"Off"}</button></div>
   <div class="muted">Masks net worth on the dashboard. Details remain visible in Money.</div></div>
@@ -999,14 +1089,15 @@ function viewHome0(){
   ${memberShow.length?`<div class="metric-grid members-only">${memberShow.map(m=>`<div class="metric tap" data-setowner="${esc(m.o)}"><span>${esc(m.o)}</span><b class="num ${m.total<0?"out":""}">${fmtHide(m.total,S.display)}</b></div>`).join("")}</div><p class="muted" style="margin:6px 0 12px">Tap a member to focus. Manage names under More.</p>`:`<p class="muted">No members match this filter.</p>`}`:""}
 
   <div class="hero-nw">
-    <div class="label">${owner?esc(owner)+" · net worth":"Family net worth"}</div>
+    <div class="label">${owner?esc(owner)+" · actual net worth":"Family · actual net worth"}</div>
     <div class="value">${fmtHide(nw.total,S.display)}</div>
     <div class="split">
       <div><span>Assets</span><b>${fmtHide(nw.assets,S.display)}</b></div>
       <div><span>Liabilities</span><b>${fmtHide(nw.owed,S.display)}</b></div>
     </div>
+    ${nw.coverageInAdjusted?`<div class="muted" style="margin-top:10px;line-height:1.4">Adjusted position <b>${fmtHide(nw.adjusted,S.display)}</b><br><span style="font-size:11px">Includes insurance cover ${fmtHide(nw.insuranceCoverage,S.display)} (not cash you hold)</span></div>`:""}
   </div>
-  <div class="wealth-grid">
+  <div class="wealth-grid nw-breakdown">
     <div class="wealth-pill"><span>Cash</span><b class="num">${fmtHide(wb.cash,S.display)}</b></div>
     <div class="wealth-pill"><span>Bank</span><b class="num">${fmtHide(wb.bank,S.display)}</b></div>
     <div class="wealth-pill"><span>Investments</span><b class="num">${fmtHide(wb.invested,S.display)}</b></div>
@@ -1014,7 +1105,7 @@ function viewHome0(){
     <div class="wealth-pill"><span>Cards owed</span><b class="num out">${fmtHide(wb.cardLiab,S.display)}</b></div>
     <div class="wealth-pill"><span>Insurance cover</span><b class="num">${fmtHide(wb.insuranceCoverage,S.display)}</b></div>
   </div>
-  <p class="muted" style="margin-top:0">Investments = demat cash + holdings + insurance fund/surrender value. Cover is protection only — not net worth. Loans receivable = friends &amp; family outstanding.</p>
+  <p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Cover is protection only. Investments count once. Loans follow your net-worth preferences under More.</p>
 
   <div class="card">
     <div class="row"><span>Income this month</span><b class="num in">${fmtHide(t.inc,S.display)}</b></div>
@@ -1096,22 +1187,52 @@ function viewAccounts(){
     if(f==="fund") holds = holds.filter(h=>h.type==="fund");
     if(f==="stock") holds = holds.filter(h=>h.type==="stock");
     if(f==="demat") holds = [];
+    let invVal=0, invCost=0;
+    for(const a of demats){ invVal+=toDisplay(Math.max(0,balance(a)),a.cur); invCost+=toDisplay(Number(a.invested)||0,a.cur); }
+    for(const h of S.holdings){ const hp=holdPos(h); invVal+=toDisplay(hp.v,h.cur); invCost+=toDisplay(hp.c,h.cur); }
+    const gain=invVal-invCost;
     const filterBar = `<div class="chips" style="margin-bottom:10px">
       <button type="button" class="chip ${f==="all"?"on":""}" data-moneyholdf="all">All</button>
       <button type="button" class="chip ${f==="demat"?"on":""}" data-moneyholdf="demat">Demat</button>
       <button type="button" class="chip ${f==="stock"?"on":""}" data-moneyholdf="stock">Stocks</button>
-      <button type="button" class="chip ${f==="fund"?"on":""}" data-moneyholdf="fund">Mutual funds</button>
+      <button type="button" class="chip ${f==="fund"?"on":""}" data-moneyholdf="fund">Funds</button>
     </div>`;
-    const dematHtml=(f==="all"||f==="demat")?(demats.map(a=>{const b=balance(a);const inv=a.invested||0;const pl=b-inv;const pct=inv>0?Math.round(pl/inv*1000)/10:0;return `<div class="card tap" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · Demat${a.broker?" · "+esc(a.broker):""}${a.dematId?" · "+esc(a.dematId):""}</div></div>
-    <div style="text-align:right"><b class="num">${fmt(b,a.cur)}</b><div class="muted">invested ${fmt(inv,a.cur)}${inv?` · ${pl>=0?"+":""}${pct}%`:""}</div></div></div></div>`;}).join("")+(demats.length?"":"")):"";
-    const holdHtml=holds.map(h=>{const p=holdPos(h);const pl=p.v-p.c;const pct=p.c>0?Math.round(pl/p.c*1000)/10:0;return `<div class="card tap" data-hold="${h.id}"><div class="row"><div><b>${esc(h.name)}</b><div class="muted">${esc(h.owner||"Me")} · ${h.type==="stock"?"Stock":"Fund"}${h.folio?" · Folio "+esc(h.folio):""}${h.symbol?" · "+esc(h.symbol):""}</div></div>
-    <div style="text-align:right"><b class="num">${fmt(p.v,h.cur)}</b><div class="muted ${pl<0?"out":"in"}">${h.price?((pl>=0?"+":"")+pct+"%"):"set price"}</div></div></div></div>`;}).join("");
-    const empty=!dematHtml&&!holdHtml;
-    return segBar+`<h2 style="margin-top:4px">Investments</h2>${filterBar}
-  ${empty?`<div class="empty"><div class="empty-title">No investments yet</div><p>Add a demat account (e.g. Zerodha) with invested vs current value, or track individual stocks.</p></div>`:dematHtml+holdHtml}
-  <button class="btn" data-newdemat>Add demat account</button>
-  <button class="btn alt" data-newhold>Add stock / fund holding</button>
-  <button class="btn alt" data-csvimp>Import stock CSV</button>`;
+    const dematHtml=(f==="all"||f==="demat")?demats.map(a=>{
+      const b=balance(a); const cost=Number(a.invested)||0; const g=b-cost;
+      return `<div class="card tap rec-card" data-acct="${a.id}">
+        <div class="name">${esc(a.name)}</div>
+        <div class="meta">Demat${a.broker?" · "+esc(a.broker):""} · ${esc(a.owner||"Me")}</div>
+        <div class="amt num">${fmt(b,a.cur)}</div>
+        <div class="rec-foot"><span class="muted" style="font-size:12px">Cost ${fmt(cost,a.cur)} · <span class="${g>=0?"in":"out"}">${g>=0?"+":""}${fmt(g,a.cur)}</span></span></div>
+      </div>`;
+    }).join(""):"";
+    const holdHtml=(f!=="demat")?holds.map(h=>{
+      const hp=holdPos(h); const g=hp.v-hp.c;
+      return `<div class="card tap rec-card" data-hold="${h.id}">
+        <div class="name">${esc(h.name)}</div>
+        <div class="meta">${h.type==="fund"?"Mutual fund":"Stock"}${h.folio?" · "+esc(h.folio):""} · ${esc(h.owner||"Me")}</div>
+        <div class="amt num">${fmt(hp.v,h.cur)}</div>
+        <div class="rec-foot">
+          <span class="muted" style="font-size:12px">${hp.u} units · cost ${fmt(hp.c,h.cur)} · <span class="${g>=0?"in":"out"}">${g>=0?"+":""}${fmt(g,h.cur)}</span></span>
+        </div>
+      </div>`;
+    }).join(""):"";
+    return segBar+`<h2 style="margin-top:4px">Investments</h2>
+  <div class="mod-hero">
+    <div class="muted">Current value</div>
+    <div class="big num">${fmt(invVal,S.display)}</div>
+    <div class="mod-metrics">
+      <div class="mod-metric"><span>Invested (cost)</span><b class="num">${fmt(invCost,S.display)}</b></div>
+      <div class="mod-metric"><span>Unrealized</span><b class="num ${gain>=0?"in":"out"}">${gain>=0?"+":""}${fmt(gain,S.display)}</b></div>
+    </div>
+  </div>
+  ${filterBar}
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    <button type="button" class="chip" data-newdemat>+ Demat</button>
+    <button type="button" class="chip" data-newhold>+ Holding</button>
+    <button type="button" class="chip" data-csvimp>CSV</button>
+  </div>
+  ${(!dematHtml&&!holdHtml)?`<div class="empty"><div class="empty-title">No investments yet</div><p>Add a demat account or a stock / fund holding.</p></div>`:dematHtml+holdHtml}`;
   }
   // accounts segment
   const af = moneyAcctFilter||"all";
@@ -1119,21 +1240,50 @@ function viewAccounts(){
   if(af==="bank") list = list.filter(a=>a.type==="bank");
   if(af==="cash") list = list.filter(a=>a.type==="cash");
   if(af==="card") list = list.filter(a=>a.type==="card");
+  let sumBank=0,sumCash=0,sumCard=0;
+  for(const a of S.accounts){
+    if(a.archived||a.type==="demat") continue;
+    const b=toDisplay(balance(a),a.cur);
+    if(a.type==="bank") sumBank+=Math.max(0,b);
+    else if(a.type==="cash") sumCash+=Math.max(0,b);
+    else if(a.type==="card"&&b<0) sumCard+=-b;
+  }
   const filterBar = `<div class="chips" style="margin-bottom:10px">
     <button type="button" class="chip ${af==="all"?"on":""}" data-moneyacctf="all">All</button>
     <button type="button" class="chip ${af==="bank"?"on":""}" data-moneyacctf="bank">Bank</button>
     <button type="button" class="chip ${af==="cash"?"on":""}" data-moneyacctf="cash">Cash</button>
     <button type="button" class="chip ${af==="card"?"on":""}" data-moneyacctf="card">Cards</button>
   </div>`;
-  return segBar+`<h2 style="margin-top:4px">Accounts</h2>${filterBar}
-  ${list.length?list.map(a=>{ const b=balance(a);
+  const cards=list.map(a=>{
+    const b=balance(a);
     const used=a.type==="card"&&a.limit?Math.min(100,Math.round(Math.max(0,-b)/a.limit*100)):0;
-    const barCls=used>=90?"out":used>=70?"warn":"";
-    return `<div class="card tap" data-acct="${a.id}"><div class="row"><div><b>${esc(a.name)}</b><div class="muted">${esc(a.owner||"Me")} · ${a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank"}${a.type==="bank"&&a.cardMeta?.last4?" + debit":""}${a.type==="card"&&a.linkedBankId?(acct(a.linkedBankId)?" · via "+esc(acct(a.linkedBankId).name):""):""}${a.bank?" · "+esc(a.bank):""}${a.accountMasked?" · "+esc(a.accountMasked):""}${a.cardMeta?.last4?" · •••• "+esc(a.cardMeta.last4):""}${a.cardMeta?.expiry?" · exp "+esc(a.cardMeta.expiry):""} · ${a.cur}</div></div>
-    <div style="text-align:right"><b class="num ${b<0?"out":""}">${fmt(b,a.cur)}</b>${a.type==="card"&&b<0?`<div class="muted">outstanding</div>`:""}</div></div>
-    ${a.type==="card"&&a.limit?`<div class="bar ${barCls}"><i style="width:${used}%"></i></div><div class="limit-meta"><span>Limit ${fmt(a.limit,a.cur)}</span><span>${used}% used</span></div>`:""}
-    </div>`; }).join(""):`<div class="empty"><div class="empty-title">No accounts here</div><p>Add a bank, cash or credit card account to start.</p></div>`}
-  <button class="btn" data-newacct>Add account</button>`;
+    const typeLbl=a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank";
+    const meta=[a.owner||"Me", typeLbl, a.bank||"", a.accountMasked||"", a.cardMeta?.last4?("•••• "+a.cardMeta.last4):""].filter(Boolean).join(" · ");
+    return `<div class="card tap rec-card" data-acct="${a.id}">
+      <div class="name">${esc(a.name)}</div>
+      <div class="meta">${esc(meta)}</div>
+      <div class="amt num ${b<0?"out":""}">${fmt(b,a.cur)}</div>
+      ${a.type==="card"&&a.limit?`<div class="lend-progress ${used>=90?"full":""}" style="margin-top:8px"><i style="width:${used}%;background:${used>=90?"var(--out)":used>=70?"var(--warn)":"var(--accent)"}"></i></div>
+      <div class="muted" style="font-size:11px;margin-top:4px">${used}% of ${fmt(a.limit,a.cur)} limit</div>`:""}
+    </div>`;
+  }).join("");
+  return segBar+`<h2 style="margin-top:4px">Accounts</h2>
+  <div class="mod-hero">
+    <div class="muted">Bank + cash</div>
+    <div class="big num">${fmt(sumBank+sumCash,S.display)}</div>
+    <div class="mod-metrics">
+      <div class="mod-metric"><span>Bank</span><b class="num">${fmt(sumBank,S.display)}</b></div>
+      <div class="mod-metric"><span>Cash</span><b class="num">${fmt(sumCash,S.display)}</b></div>
+      <div class="mod-metric"><span>Cards owed</span><b class="num out">${fmt(sumCard,S.display)}</b></div>
+      <div class="mod-metric"><span>Accounts</span><b>${list.length}</b></div>
+    </div>
+  </div>
+  ${filterBar}
+  <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 8px">
+    <h2 style="margin:0;font-size:15px">List</h2>
+    <button type="button" class="chip" data-newacct>+ Add</button>
+  </div>
+  ${cards||`<div class="empty"><div class="empty-title">No accounts here</div><p>Add a bank, cash or credit card account.</p><button class="btn" data-newacct>Add account</button></div>`}`;
 }
 
 function readmeHtml(){
@@ -1724,22 +1874,48 @@ function viewPlan(){
     <button type="button" data-planseg="cover" class="${seg==="cover"?"on":""}">Cover</button>
   </div>`;
   if(seg==="salaries"){
-    return segBar+`<h2 style="margin-top:4px">Salary schedules</h2>
-  <p class="muted">Recurring credits. Auto-posted on unlock when due (if enabled under More). Editing amount does not change past payments.</p>
-  ${S.salaries.map(x=>{
-    const a=acct(x.acct)||{};
-    const d=daysTo(x.next);
-    const st=x.status||"active";
-    const lab=salaryStatusLabel(x);
-    const unit=x.freqUnit||"month";
-    const freqLbl=unit==="week"?(x.freq===2?"Biweekly":"Weekly"):unit==="day"?"Every "+x.freq+" days":(x.freq===1?"Monthly":x.freq===3?"Quarterly":"Every "+x.freq+" months");
-    return `<div class="card tap" data-salary="${x.id}"><div class="row"><div>
-      <b>${esc(x.person||"Me")} · ${esc(x.label||"Salary")}</b>
-      <div class="muted">${fmt(x.amt,x.cur)} → ${esc(a.name||"account")} · ${freqLbl}</div>
-      <div class="muted">Next ${esc(x.next||"—")} · ${lab}</div>
-    </div><b class="${st==="stopped"||st==="ended"?"muted":d<=0?"warn":"muted"}">${st==="stopped"||st==="ended"?lab:dl(d)}</b></div></div>`;
-  }).join("")||`<div class="empty"><div class="empty-title">No salary schedules</div><p>Add a schedule for Me or a family member.</p></div>`}
-  <button class="btn" data-newsalary>Add salary schedule</button>`;
+    let monthly=0, active=0;
+    for(const x of S.salaries){
+      const st=x.status||"active";
+      if(st==="active"){ active++; const unit=x.freqUnit||"month";
+        if(unit==="month") monthly+=toDisplay(x.amt,x.cur)/(x.freq||1);
+        else if(unit==="week") monthly+=toDisplay(x.amt,x.cur)*52/12/(x.freq===2?2:1);
+        else monthly+=toDisplay(x.amt,x.cur);
+      }
+    }
+    const cards=S.salaries.map(x=>{
+      const a=acct(x.acct)||{};
+      const d=daysTo(x.next);
+      const st=x.status||"active";
+      const lab=salaryStatusLabel(x);
+      const unit=x.freqUnit||"month";
+      const freqLbl=unit==="week"?(x.freq===2?"Biweekly":"Weekly"):unit==="day"?"Every "+x.freq+" days":(x.freq===1?"Monthly":x.freq===3?"Quarterly":"Every "+x.freq+" months");
+      const stClass=st==="active"?(d!=null&&d<=0?"warn":"ok"):"out";
+      const dueTxt=st==="stopped"||st==="ended"?lab:(d==null?"—":dl(d));
+      return `<div class="card tap rec-card" data-salary="${x.id}">
+        <div class="name">${esc(x.label||"Salary")}</div>
+        <div class="meta">${esc(x.person||"Me")} · ${esc(a.name||"account")} · ${freqLbl}</div>
+        <div class="amt num">${fmt(x.amt,x.cur)}</div>
+        <div class="rec-foot">
+          <span class="status-pill ${stClass}">${esc(lab)}</span>
+          <span class="muted" style="font-size:12px">Next ${esc(x.next||"—")} · ${dueTxt}</span>
+        </div>
+      </div>`;
+    }).join("");
+    return segBar+`<h2 style="margin-top:4px">Salaries</h2>
+  <div class="mod-hero">
+    <div class="muted">Expected monthly inflow</div>
+    <div class="big num in">${fmt(monthly,S.display)}</div>
+    <div class="mod-metrics">
+      <div class="mod-metric"><span>Active schedules</span><b>${active}</b></div>
+      <div class="mod-metric"><span>Total schedules</span><b>${S.salaries.length}</b></div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 8px">
+    <h2 style="margin:0;font-size:15px">Schedules</h2>
+    <button type="button" class="chip" data-newsal>+ Add</button>
+  </div>
+  ${cards||`<div class="empty"><div class="empty-title">No salary schedules</div><p>Add a schedule for Me or a family member. Past payments stay when you edit amounts.</p><button class="btn" data-newsal>Add salary schedule</button></div>`}`;
   }
   if(seg==="lending"){
     let outstandingLent=0, outstandingBorrowed=0, originalLent=0, repaidLent=0, active=0, interestLent=0;
@@ -1825,10 +2001,44 @@ function viewPlan(){
   <button class="btn alt" data-newpur>Add purchase</button>`;
   }
   // sips default
+  let sipMonthly=0, sipActive=0;
+  for(const x of S.sips){
+    if((x.status||"active")==="active"){ sipActive++; sipMonthly+=toDisplay(x.amt,x.cur)/((x.freq||1)); }
+  }
+  const sipCards=S.sips.map(x=>{
+    const h=S.holdings.find(v=>v.id===x.hold)||{};
+    const d=daysTo(x.next);
+    const hist=x.history||[];
+    const paid=hist.filter(i=>i.status==="paid").length, missed=hist.filter(i=>i.status==="missed").length;
+    const st=x.status||"active";
+    const freqLbl={1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1]||"Custom";
+    const a=acct(x.acct);
+    const stClass=st==="stopped"?"out":(d!=null&&d<=0?"warn":"ok");
+    return `<div class="card tap rec-card" data-sip="${x.id}">
+      <div class="name">${esc(h.name||"Fund")}</div>
+      <div class="meta">${freqLbl}${h.folio?" · Folio "+esc(h.folio):""}${a?" · "+esc(a.name):""}</div>
+      <div class="amt num">${fmt(x.amt,x.cur)}</div>
+      <div class="rec-foot">
+        <span class="status-pill ${stClass}">${st==="stopped"?"Paused":(d!=null&&d<=0?"Due":"Active")}</span>
+        <span class="muted" style="font-size:12px">Next ${esc(x.next||"—")}${paid||missed?` · ${paid} paid / ${missed} missed`:""}</span>
+      </div>
+    </div>`;
+  }).join("");
   return segBar+`<h2 style="margin-top:4px">SIPs</h2>
-  <p class="muted">Due SIPs post automatically on unlock (bank debit + units from price if set).</p>
-  ${S.sips.map(x=>{const h=S.holdings.find(v=>v.id===x.hold)||{},d=daysTo(x.next);const hist=x.history||[];const paid=hist.filter(i=>i.status==="paid").length,missed=hist.filter(i=>i.status==="missed").length;const st=x.status||"active";return `<div class="card" data-sip="${x.id}"><div class="row"><div><b>${esc(h.name)}</b>${h.folio?`<div class="muted">Folio ${esc(h.folio)}</div>`:""}<div class="muted">${fmt(x.amt,x.cur)} · ${({1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1])} · next ${x.next}${st==="stopped"?" · stopped":""}${paid||missed?` · ${paid} paid / ${missed} missed`:""}</div></div><b class="${st==="stopped"?"muted":d<=0?"warn":"muted"}">${st==="stopped"?"stopped":dl(d)}</b></div></div>`}).join("")||`<div class="empty"><div class="empty-title">No SIPs yet</div><p>Add a SIP after you have a mutual fund holding.</p></div>`}
-  <button class="btn" data-newsip>Add SIP</button>`;
+  <div class="mod-hero">
+    <div class="muted">Monthly SIP commitment</div>
+    <div class="big num">${fmt(sipMonthly,S.display)}</div>
+    <div class="mod-metrics">
+      <div class="mod-metric"><span>Active SIPs</span><b>${sipActive}</b></div>
+      <div class="mod-metric"><span>All SIPs</span><b>${S.sips.length}</b></div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 8px">
+    <h2 style="margin:0;font-size:15px">Schedules</h2>
+    <button type="button" class="chip" data-newsip>+ Add</button>
+  </div>
+  <p class="muted" style="margin-top:0">Due SIPs post on unlock when auto-pay is enabled.</p>
+  ${sipCards||`<div class="empty"><div class="empty-title">No SIPs yet</div><p>Link a mutual fund holding and bank account to schedule installments.</p><button class="btn" data-newsip>Add SIP</button></div>`}`;
 }
 
 function dueHtml(){
@@ -2133,7 +2343,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-nwpref],[data-nwprefreset],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -2442,6 +2652,15 @@ if(d.delmethod){
   if("readme" in d){openSheet(readmeHtml());return;}
   if("togglesip" in d){ S.autoSip=S.autoSip===false; save(); render(); return; }
   if("togglehide" in d){ S.hideBalances=!S.hideBalances; save(); render(); return; }
+  if(d.nwpref){
+    const key=d.nwpref;
+    S.nwPrefs=Object.assign({}, defaultNwPrefs(), S.nwPrefs||{});
+    if(key in S.nwPrefs){ S.nwPrefs[key]=!S.nwPrefs[key]; save(); render(); toast("Preference saved"); }
+    return;
+  }
+  if("nwprefreset" in d){
+    S.nwPrefs=defaultNwPrefs(); save(); render(); toast("Net worth defaults restored"); return;
+  }
   if("dismissonboard" in d){ S.onboardingDone=true; save(); render(); return; }
   if("togglesal" in d){ S.autoSalary=S.autoSalary===false; save(); render(); return; }
   if("newsalary" in d){
