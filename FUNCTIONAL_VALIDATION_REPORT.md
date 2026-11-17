@@ -225,3 +225,16 @@ Prior fixed issues (already in 2.2.x): contact notes, add person, UPI save, dema
 | Layout | `min-width:0`, word-break, flex-wrap foot; ≤360px stacks stats |
 | Checked | Card template structure for long status cases; `node --check` PASS |
 | Status | **PASS** (UI) |
+
+
+## Update 2.4.0 — Net worth classification (2026-11-17)
+
+| Rule | Implementation |
+|------|----------------|
+| Loans receivable | `lendingPosition` outstanding (lent) → assets; borrowed → liabilities |
+| Insurance cover | `sum` / sum assured **not** in net worth |
+| Insurance cash | Optional `fundValue` / surrender → assets & investments once |
+| Investments | Demat cash + holdings mark-to-market + insurance cash (no double-count) |
+| Demat debit card | Not on demat form (bank-only linked debit) |
+| Tests | NW unit: 100k bank + 50k holdings + 25k receivable + 5M cover → assets 175k PASS |
+| Status | **FIXED** / classification logic verified in Node |

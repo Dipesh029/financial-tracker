@@ -282,8 +282,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.3.3";
+const APP_VERSION = "2.4.0";
 const RELEASES = [
+  {v:"2.4.0", d:"2026-11-17", notes:"Net worth: loans receivable as assets; insurance coverage excluded; fund/surrender value only; demat holdings once."},
   {v:"2.3.3", d:"2026-11-17", notes:"Lending landing UI polish: compact status, dual progress, card spacing."},
   {v:"2.3.2", d:"2026-11-17", notes:"Lending: period-based interest (stops after principal repaid); manual interest adjust/waiver."},
   {v:"2.3.1", d:"2026-11-17", notes:"Lending: principal vs interest outstanding; settled only when both clear; dual progress."},
@@ -745,26 +746,83 @@ function personNetWorth(person){
   // Net worth attributed to this owner label (accounts + holdings).
   return netWorth(person).total;
 }
+function loansReceivable(owner){
+  // Friends/family lending: receivable asset (lent) / payable liability (borrowed)
+  let receivable=0, payable=0, principalRecv=0, interestRecv=0;
+  for(const l of (S.lending||[])){
+    if(owner && l.person && false){ /* owner filter is on account ownership; lending is household by default */ }
+    // Optional: filter by linked account owner
+    const a=acct(l.account);
+    if(owner && a && a.owner && a.owner!==owner) continue;
+    if(owner && !a && owner!=="Me") continue;
+    const p=lendingPosition(l);
+    const tot=toDisplay(p.totalOutstanding, l.cur);
+    const prin=toDisplay(p.principalLeft, l.cur);
+    const intL=toDisplay(p.interestLeft, l.cur);
+    if(l.direction==="lent"){ receivable+=tot; principalRecv+=prin; interestRecv+=intL; }
+    else { payable+=tot; }
+  }
+  return {receivable, payable, principalRecv, interestRecv};
+}
+function insuranceValues(owner){
+  // Coverage (sum assured) is NOT an asset. Only explicit fund/surrender cash value is.
+  let coverage=0, cashValue=0;
+  for(const p of (S.policies||[])){
+    if(owner && (p.owner||"Me")!==owner) continue;
+    const cur=p.cur||S.display||"INR";
+    coverage+=toDisplay(Number(p.sum)||0, cur);
+    const fv=Number(p.fundValue!=null?p.fundValue:(p.surrenderValue!=null?p.surrenderValue:0))||0;
+    if(fv>0) cashValue+=toDisplay(fv, cur);
+  }
+  return {coverage, cashValue};
+}
 function wealthBreakdown(owner){
-  let cash=0,bank=0,demat=0,cardLiab=0,holdings=0;
+  let cash=0,bank=0,dematCash=0,cardLiab=0,holdings=0;
   for(const a of S.accounts){
     if(a.archived||(owner&&a.owner!==owner))continue;
     const b=toDisplay(balance(a),a.cur);
     if(a.type==="cash") cash+=Math.max(0,b);
     else if(a.type==="bank") bank+=Math.max(0,b);
-    else if(a.type==="demat") demat+=Math.max(0,b);
+    else if(a.type==="demat") dematCash+=Math.max(0,b); // cash/settlement balance in demat — not holdings
     else if(a.type==="card"&&b<0) cardLiab+=-b;
   }
-  for(const h of S.holdings){if(!(owner&&h.owner!==owner)) holdings+=toDisplay(holdPos(h).v,h.cur);}
-  return {cash,bank,demat,holdings,invested:demat+holdings,cardLiab};
+  for(const h of S.holdings){ if(!(owner&&h.owner!==owner)) holdings+=toDisplay(holdPos(h).v,h.cur); }
+  const loans=loansReceivable(owner);
+  const ins=insuranceValues(owner);
+  // Investments subset: demat cash + security holdings + insurance cash/fund values (once)
+  const invested=dematCash+holdings+ins.cashValue;
+  return {
+    cash, bank, demat:dematCash, holdings, invested,
+    cardLiab, loansReceivable:loans.receivable, loansPayable:loans.payable,
+    loanPrincipal:loans.principalRecv, loanInterest:loans.interestRecv,
+    insuranceCoverage:ins.coverage, insuranceCash:ins.cashValue
+  };
 }
 function netWorth(owner){
-  let assets=0,owed=0;
-  for(const a of S.accounts){if(a.archived||(owner&&a.owner!==owner))continue;const b=toDisplay(balance(a),a.cur);if(b>=0)assets+=b;else owed+=-b;}
-  for(const h of S.holdings){if(owner&&h.owner!==owner)continue;assets+=toDisplay(holdPos(h).v,h.cur);}
-  for(const v of Object.values(personPos(owner))){if(v>=0)assets+=v;else owed+=-v;}
-  return {assets,owed,total:assets-owed};
+  let assets=0, owed=0;
+  for(const a of S.accounts){
+    if(a.archived||(owner&&a.owner!==owner)) continue;
+    const b=toDisplay(balance(a),a.cur);
+    if(b>=0) assets+=b; else owed+=-b;
+  }
+  // Security holdings (stocks/funds) — not included in account balances
+  for(const h of S.holdings){
+    if(owner&&h.owner!==owner) continue;
+    assets+=toDisplay(holdPos(h).v,h.cur);
+  }
+  // Legacy person balances from marked transfers (pd)
+  for(const v of Object.values(personPos(owner))){
+    if(v>=0) assets+=v; else owed+=-v;
+  }
+  const loans=loansReceivable(owner);
+  assets+=loans.receivable;
+  owed+=loans.payable;
+  // Insurance: cash/fund/surrender only — never sum assured
+  const ins=insuranceValues(owner);
+  assets+=ins.cashValue;
+  return {assets, owed, total:assets-owed, loansReceivable:loans.receivable, loansPayable:loans.payable, insuranceCoverage:ins.coverage, insuranceCash:ins.cashValue};
 }
+
 function historyHtml(owner){const hs=(S.history||[]).filter(x=>owner?x.owner===owner:!x.owner).slice(-12).reverse();return `<h2>Net worth history</h2><div class="card">${hs.length?hs.map(x=>`<div class="row"><span>${esc(x.date)}</span><b class="num">${fmt(toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate),S.display)}</b></div>`).join(""):`<div class="muted">No saved snapshots yet for this view.</div>`}<button class="btn alt" data-snapshot>Save this month's snapshot</button></div><button class="btn alt" data-tab="activity">See all activity</button>`;}
 function investSummaryHtml(owner){
   let cost=0,val=0,n=0;
@@ -951,10 +1009,12 @@ function viewHome0(){
   <div class="wealth-grid">
     <div class="wealth-pill"><span>Cash</span><b class="num">${fmtHide(wb.cash,S.display)}</b></div>
     <div class="wealth-pill"><span>Bank</span><b class="num">${fmtHide(wb.bank,S.display)}</b></div>
-    <div class="wealth-pill"><span>Invested</span><b class="num">${fmtHide(wb.invested,S.display)}</b></div>
+    <div class="wealth-pill"><span>Investments</span><b class="num">${fmtHide(wb.invested,S.display)}</b></div>
+    <div class="wealth-pill"><span>Loans receivable</span><b class="num">${fmtHide(wb.loansReceivable,S.display)}</b></div>
     <div class="wealth-pill"><span>Cards owed</span><b class="num out">${fmtHide(wb.cardLiab,S.display)}</b></div>
+    <div class="wealth-pill"><span>Insurance cover</span><b class="num">${fmtHide(wb.insuranceCoverage,S.display)}</b></div>
   </div>
-  <p class="muted" style="margin-top:0">Invested = demat + holdings (manual prices).</p>
+  <p class="muted" style="margin-top:0">Investments = demat cash + holdings + insurance fund/surrender value. Cover is protection only — not net worth. Loans receivable = friends &amp; family outstanding.</p>
 
   <div class="card">
     <div class="row"><span>Income this month</span><b class="num in">${fmtHide(t.inc,S.display)}</b></div>
@@ -2502,7 +2562,7 @@ if(d.delmethod){
     <button class="btn alt" data-close style="margin-top:10px">Close</button>`); return; }
   if(d.sipfail){ const x=S.sips.find(v=>v.id===d.sipfail); if(x){ const missDate=x.next||today(); x.history=x.history||[]; x.history.push({date:missDate,status:"missed",units:0,amount:x.amt}); x.next=addM(x.next,x.freq||1); log("sipfail",x.id); save(); } closeSheet(); render(); toast("Marked as missed / skipped"); return; }
   if(d.sipstop){ const x=S.sips.find(v=>v.id===d.sipstop); if(x){ x.status=(x.status==="stopped"?"active":"stopped"); log("sipstop",x.id); save(); closeSheet(); render(); toast(x.status==="stopped"?"SIP stopped":"SIP resumed"); } return; }
-  if("newpol" in d){ fs("New insurance policy","fpol",[["pn","Policy / scheme name","text"],["pno","Policy number","text"],["pp","Provider / insurer","text"],["po","Owner","select",S.people.map(n=>[n,n])],["pstart","Commencement date","date"],["ps","Sum assured","num"],["bonus","Bonus (optional)","num"],["pa","Premium per payment","num"],["ppt","Premium paying term (years)","num"],["pt","Policy term (years)","num"],["mat","Maturity date","date"],["pc","Currency","select",[["INR","INR"],["EUR","EUR"]]],["pf","Paid every","select",[["1","Month"],["3","3 months"],["6","6 months"],["12","Year"]]],["pd","Next premium due","date"]],"Save policy"); return; }
+  if("newpol" in d){ fs("New insurance policy","fpol",[["pn","Policy / scheme name","text"],["pno","Policy number","text"],["pp","Provider / insurer","text"],["po","Owner","select",S.people.map(n=>[n,n])],["pstart","Commencement date","date"],["ps","Sum assured (cover only — not net worth)","num"],["pfund","Current fund / surrender value (optional)","num"],["bonus","Bonus (optional)","num"],["pa","Premium per payment","num"],["ppt","Premium paying term (years)","num"],["pt","Policy term (years)","num"],["mat","Maturity date","date"],["pc","Currency","select",[["INR","INR"],["EUR","EUR"]]],["pf","Paid every","select",[["1","Month"],["3","3 months"],["6","6 months"],["12","Year"]]],["pd","Next premium due","date"]],"Save policy"); return; }
   if(d.pol){
     const p=S.policies.find(v=>v.id===d.pol); if(!p) return;
     const active=policyHasOpenPremium(p);
@@ -2534,6 +2594,7 @@ if(d.delmethod){
       '<label>Owner</label><input id="peown" value="'+esc(p.owner||"Me")+'">'+
       '<label>Commencement</label><input type="date" id="pestart" value="'+esc(p.start||"")+'">'+
       '<label>Sum assured</label><input id="pesum" inputmode="decimal" value="'+(p.sum||"")+'">'+
+      '<label>Current fund / surrender value (in assets)</label><input id="pefund" inputmode="decimal" value="'+(p.fundValue||p.surrenderValue||'')+'" placeholder="0 if term-only">'+
       '<label>Bonus</label><input id="pebonus" inputmode="decimal" value="'+(p.bonus||"")+'">'+
       '<label>Premium</label><input id="peprem" inputmode="decimal" value="'+(p.premium||"")+'">'+
       '<label>PPT (years)</label><input id="peppt" inputmode="numeric" value="'+(p.ppt||"")+'">'+
@@ -3099,12 +3160,12 @@ document.addEventListener("submit", e=>{
     S.purchases.push({id:uid(),item,amt,cur:a.cur,date,expiry,acct:a.id,txnId:txn.id,warrantyMonths:months});
     save(); closeSheet(); render(); toast("Purchase saved"); return;
   }
-  if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n){ alert("Enter a policy name."); return; } S.policies.push({id:uid(),name:n,policyNo:$("#pno").value.trim(),provider:$("#pp").value.trim(),owner:$("#po").value||"Me",start:$("#pstart").value||"",sum:parseAmt($("#ps").value),bonus:parseAmt($("#bonus").value),premium:parseAmt($("#pa").value),ppt:parseAmt($("#ppt").value),term:parseAmt($("#pt").value),maturity:$("#mat").value||"",cur:$("#pc").value,freq:+$("#pf").value,next:$("#pd").value||today()}); save(); closeSheet(); render(); }
+  if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n){ alert("Enter a policy name."); return; } S.policies.push({id:uid(),name:n,policyNo:$("#pno").value.trim(),provider:$("#pp").value.trim(),owner:$("#po").value||"Me",start:$("#pstart").value||"",sum:parseAmt($("#ps").value),fundValue:parseAmt($("#pfund")?.value||"0"),policyKind:($("#pkind")?.value||"term"),bonus:parseAmt($("#bonus").value),premium:parseAmt($("#pa").value),ppt:parseAmt($("#ppt").value),term:parseAmt($("#pt").value),maturity:$("#mat").value||"",cur:$("#pc").value,freq:+$("#pf").value,next:$("#pd").value||today()}); save(); closeSheet(); render(); }
   if(e.target.id==="fpoledit"){
     const p=S.policies.find(x=>x.id===$("#peid")?.value); if(!p) return;
     p.name=($("#pen")?.value||p.name).trim(); p.policyNo=($("#peno")?.value||"").trim();
     p.provider=($("#peprov")?.value||"").trim(); p.owner=($("#peown")?.value||"Me").trim();
-    p.start=$("#pestart")?.value||p.start||""; p.sum=parseAmt($("#pesum")?.value||p.sum);
+    p.start=$("#pestart")?.value||p.start||""; p.sum=parseAmt($("#pesum")?.value||p.sum); if($("#pefund")) p.fundValue=parseAmt($("#pefund").value||"0"); if($("#pekind")) p.policyKind=$("#pekind").value;
     p.bonus=parseAmt($("#pebonus")?.value||"0"); p.premium=parseAmt($("#peprem")?.value||p.premium);
     p.ppt=Math.round(parseAmt($("#peppt")?.value||"0"))||p.ppt||0;
     p.term=Math.round(parseAmt($("#peterm")?.value||"0"))||p.term||0;

@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.3.3
+**Current version:** 2.4.0
 
 ---
 
@@ -120,6 +120,9 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.4.0 — 2026-11-17
+- Net worth classification: loans receivable as assets; borrowed as liabilities; insurance sum assured excluded; optional fund/surrender value in assets; investments counted once.
 
 ### 2.3.3 — 2026-11-17
 - Lending landing UI polish: compact status pills, dual principal/interest progress, cleaner card hierarchy.
