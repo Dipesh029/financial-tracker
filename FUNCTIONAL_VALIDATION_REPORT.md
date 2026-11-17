@@ -362,3 +362,23 @@ Lending principal/interest repayments set `pd` on transactions. `personPos()` su
 | Numeric sort unit test | PASS |
 | node --check | PASS |
 | Manual Android UI | PENDING user device |
+
+
+## Update 2.5.5 (2026-11-18)
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| Paid Through on create | COMPLETE | `newPolicySheet` + `ppaidthrough` → `pol.paidThrough` |
+| Paid Through on edit | COMPLETE | `pepaidthrough` + next recalc |
+| No bank txn for historical | COMPLETE | paidThrough only updates coverage, no addTxn |
+| Next due after paidThrough | COMPLETE | `policyNextUnpaidDue` |
+| Simplified policy form | COMPLETE | Essentials + collapsible Additional |
+| Compact sort controls | COMPLETE | `.sort-chip` right-aligned |
+| Reorder → manual order | COMPLETE | `setReorderMode` sets key manual |
+| Move up/down | COMPLETE | `moveItemInArray` reindex |
+| CSV skipSave batch | COMPLETE | open/adjust `{skipSave:true}`; final `save()` |
+| Exchange preserved | COMPLETE | `exchange:p.it.exch` |
+| Vault key myfinance.v1 | COMPLETE | unchanged |
+| node --check | PASS | |
+| Paid-through unit schedule | PASS | 10 annual covered through 2025-04-28 |
+| Android UI | PENDING | user device |

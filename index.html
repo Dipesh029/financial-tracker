@@ -296,6 +296,8 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .reorder-controls{display:flex;gap:6px;margin-top:8px}
 .reorder-controls .chip[disabled]{opacity:.35;pointer-events:none}
 .drag-handle{display:none!important}
+.sort-bar{display:flex;flex-wrap:nowrap;gap:6px;margin:0 0 8px;align-items:center;justify-content:flex-end}
+.sort-chip{font-size:12px!important;padding:4px 10px!important;min-height:32px!important;font-weight:600}
 </style>
 </head>
 <body>
@@ -307,8 +309,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.5.4";
+const APP_VERSION = "2.5.5";
 const RELEASES = [
+  {v:"2.5.5", d:"2026-11-18", notes:"Policy paid-through on create; compact sort; reorder forces manual; CSV skipSave."},
   {v:"2.5.4", d:"2026-11-18", notes:"Sort button + Manual Reorder (no drag); fix premium fn corruption; CSV exchange + batch save."},
   {v:"2.5.3", d:"2026-11-18", notes:"Critical: sort containment, CSV import, premium schedule, independent NW loan prefs, legacy liabilities."},
   {v:"2.5.2", d:"2026-11-18", notes:"Sort order on all major lists; audit completion pass for pending scope items."},
@@ -942,6 +945,7 @@ function isReorderMode(section){
 }
 function setReorderMode(section, on){
   ensureUi();
+  if(on){ S.ui.sort[section]={key:"manual", dir:"asc"}; }
   S.ui.reorder[section]=!!on;
   save();
   render();
@@ -968,16 +972,17 @@ function moveItemInArray(arr, id, delta){
   return true;
 }
 function sortBarHtml(section, options){
-  // options: [{key,label}] plus always Manual
   const pref=getSortPref(section);
   const reorder=isReorderMode(section);
-  const opts=[{key:"manual",label:"Manual order"},...options];
+  const opts=[{key:"manual",label:"Manual"},...options];
   const cur=opts.find(o=>o.key===pref.key)||opts[0];
+  const dirMark=pref.key!=="manual"?(pref.dir==="desc"?"↓":"↑"):"";
   return `<div class="sort-bar">
-    <button type="button" class="chip" data-sortopen="${section}">Sort: ${esc(cur.label)}${pref.key!=="manual"?(pref.dir==="desc"?" ↓":" ↑"):""}</button>
-    <button type="button" class="chip ${reorder?"on":""}" data-reordermode="${section}">${reorder?"Done":"Reorder"}</button>
+    <button type="button" class="chip sort-chip" data-sortopen="${section}">${esc(cur.label)}${dirMark?" "+dirMark:""}</button>
+    <button type="button" class="chip sort-chip ${reorder?"on":""}" data-reordermode="${section}">${reorder?"Done":"Reorder"}</button>
   </div>`;
 }
+
 function sortMenuHtml(section, options){
   const pref=getSortPref(section);
   const opts=[{key:"manual",label:"Manual order"},...options];
@@ -1973,9 +1978,9 @@ function doHolds(){
   for(const p of P.plan){ let H=p.H;
     if(!H){ H={id:uid(),name:p.it.sym,type:"stock",cur:"INR",isin:p.it.isin,sector:p.it.sec,price:p.it.prev,owner:(P.owner||"Me"),symbol:p.it.sym,exchange:p.it.exch||"",demat:"",broker:"",amc:"",folio:"",notes:""}; S.holdings.push(H); if(!S.people.includes(H.owner))S.people.push(H.owner); added++; }
     else{ H.price=p.it.prev; if(!H.isin) H.isin=p.it.isin; if(p.it.sec) H.sector=p.it.sec; if(p.it.exch&&!H.exchange) H.exchange=p.it.exch; }
-    if(p.kind==="new") addTxn({type:"open",date,note:"Imported opening position",hold:H.id,units:p.it.qty,cost:Math.round(p.it.qty*p.it.avg*100)/100,postings:[]});
-    else if(p.kind==="changed"){ addTxn({type:"adjust",date,note:"Portfolio file sync",hold:H.id,units:p.du,cost:p.dc,postings:[]}); changed++; } else price++; }
-  if(killMissing) for(const h of P.missing){ const q=holdPos(h); addTxn({type:"adjust",date,note:"Not in portfolio file, treated as sold",hold:h.id,units:-q.u,cost:-q.c,postings:[]}); sold++; }
+    if(p.kind==="new") addTxn({type:"open",date,note:"Imported opening position",hold:H.id,units:p.it.qty,cost:Math.round(p.it.qty*p.it.avg*100)/100,postings:[]},{skipSave:true});
+    else if(p.kind==="changed"){ addTxn({type:"adjust",date,note:"Portfolio file sync",hold:H.id,units:p.du,cost:p.dc,postings:[]},{skipSave:true}); changed++; } else price++; }
+  if(killMissing) for(const h of P.missing){ const q=holdPos(h); addTxn({type:"adjust",date,note:"Not in portfolio file, treated as sold",hold:h.id,units:-q.u,cost:-q.c,postings:[]},{skipSave:true}); sold++; }
   S.snaps=S.snaps||[]; S.snaps.push({date,inv:Math.round(P.items.reduce((a,x)=>a+x.qty*x.avg,0)),val:Math.round(P.items.reduce((a,x)=>a+x.qty*x.prev,0))});
   pendH=null; save(); closeSheet(); render(); toast(added+" new, "+changed+" changed, "+price+" prices, "+sold+" sold");
 }
@@ -2005,6 +2010,38 @@ function salaryStatusLabel(x){
 }
 
 const daysTo=t=>Math.round((new Date(t+"T00:00")-new Date(today()+"T00:00"))/864e5);
+function newPolicySheet(){
+  const people=S.people.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  openSheet(`<h2 style="margin-top:0">New policy</h2>
+  <form id="fpol" autocomplete="off">
+  <div class="form-section">
+    <div class="form-section-title">Essentials</div>
+    <label>Policy name</label><input id="pn" required placeholder="e.g. LIC Jeevan">
+    <label>Provider</label><input id="pp" placeholder="e.g. LIC, HDFC Life">
+    <label>Owner</label><select id="po">${people}</select>
+    <label>Premium amount</label><input id="pa" inputmode="decimal" required placeholder="0">
+    <label>Payment frequency</label><select id="pf"><option value="1">Monthly</option><option value="3">Quarterly</option><option value="6">Half-yearly</option><option value="12" selected>Yearly</option></select>
+    <label>Commencement date</label><input type="date" id="pstart">
+    <label>Premium paying term (years)</label><input id="ppt" inputmode="numeric" placeholder="e.g. 10">
+    <label>Policy term (years)</label><input id="pt" inputmode="numeric" placeholder="e.g. 20">
+    <label>Sum assured / cover</label><input id="ps" inputmode="decimal" placeholder="Coverage (not an asset)">
+    <label>Premiums paid through</label><input type="date" id="ppaidthrough">
+    <div class="muted">Instalments on or before this date count as paid. No bank debit. Leave empty to track each premium.</div>
+  </div>
+  <details style="margin-top:10px">
+    <summary style="cursor:pointer;font-weight:650">Additional details</summary>
+    <label>Policy number</label><input id="pno">
+    <label>Policy type</label><select id="pkind"><option value="term">Term</option><option value="ulip">ULIP</option><option value="trad">Traditional</option><option value="other">Other</option></select>
+    <label>Maturity date</label><input type="date" id="mat">
+    <label>Bonus</label><input id="bonus" inputmode="decimal">
+    <label>Fund / surrender value</label><input id="pfund" inputmode="decimal">
+    <label>Currency</label><select id="pc"><option>INR</option><option>EUR</option></select>
+    <label>Next due override</label><input type="date" id="pd">
+  </details>
+  <button class="btn" type="submit">Save Details</button>
+  <button class="btn alt" type="button" data-close>Cancel</button>
+  </form>`);
+}
 function fs(title,fid,fields,btn){openSheet(`<h2 style="margin-top:0">${title}</h2><form id="${fid}" autocomplete="off">${fields.map(([i,l,t,o])=>`<label>${l}</label>`+(t==="select"?`<select id="${i}">${o.map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>`:`<input id="${i}" type="${t==="date"?"date":"text"}" ${t==="num"?'inputmode="decimal"':""} ${t==="date"?`value="${today()}"`:""}>`)).join("")}<button class="btn" type="submit">${btn}</button></form>`);}
 function lendingPosition(l){
   const principalOrig=Math.max(0, Number(l.principal)||0);
@@ -3209,7 +3246,7 @@ if(d.delmethod){
     <button class="btn alt" data-close style="margin-top:10px">Close</button>`); return; }
   if(d.sipfail){ const x=S.sips.find(v=>v.id===d.sipfail); if(x){ const missDate=x.next||today(); x.history=x.history||[]; x.history.push({date:missDate,status:"missed",units:0,amount:x.amt}); x.next=addM(x.next,x.freq||1); log("sipfail",x.id); save(); } closeSheet(); render(); toast("Marked as missed / skipped"); return; }
   if(d.sipstop){ const x=S.sips.find(v=>v.id===d.sipstop); if(x){ x.status=(x.status==="stopped"?"active":"stopped"); log("sipstop",x.id); save(); closeSheet(); render(); toast(x.status==="stopped"?"SIP stopped":"SIP resumed"); } return; }
-  if("newpol" in d){ fs("New insurance policy","fpol",[["pn","Policy / scheme name","text"],["pno","Policy number","text"],["pp","Provider / insurer","text"],["po","Owner","select",S.people.map(n=>[n,n])],["pstart","Commencement date","date"],["ps","Sum assured (cover only — not net worth)","num"],["pfund","Current fund / surrender value (optional)","num"],["bonus","Bonus (optional)","num"],["pa","Premium per payment","num"],["ppt","Premium paying term (years)","num"],["pt","Policy term (years)","num"],["mat","Maturity date","date"],["pc","Currency","select",[["INR","INR"],["EUR","EUR"]]],["pf","Paid every","select",[["1","Month"],["3","3 months"],["6","6 months"],["12","Year"]]],["pd","Next premium due","date"]],"Save policy"); return; }
+  if("newpol" in d){ newPolicySheet(); return; }
   if(d.pol){
     const p=S.policies.find(v=>v.id===d.pol); if(!p) return;
     const active=policyHasOpenPremium(p);
@@ -3225,7 +3262,7 @@ if(d.delmethod){
       :('<div class="muted" style="margin:10px 0">Premium-paying term is complete (no outstanding due inside PPT). You can still edit dates below if needed.</div>');
     const paidInfo=policyPremiumsPaidToDate(p);
     const paidLine=(p.paidThrough?"Paid through "+p.paidThrough+" · ":"")+(paidInfo.count
-      ?("Premiums paid to date: <b>"+fmt(paidInfo.total,p.cur)+"</b> · "+paidInfo.count+" instalment(s)"+(paidInfo.source==="schedule"?" (from schedule)":" (recorded)")+(paidInfo.remaining!=null?" · remaining ~"+fmt(paidInfo.remaining,p.cur):""))
+      ?("Premiums paid to date: <b>"+fmt(paidInfo.total,p.cur)+"</b> · "+paidInfo.count+" instalment(s)"+(paidInfo.source==="historical"?" (historical paid-through)":paidInfo.source==="mixed"?" (historical + recorded)":paidInfo.source==="recorded"?" (recorded)":paidInfo.source==="schedule"?" (from schedule)":"")+(paidInfo.remaining!=null?" · remaining ~"+fmt(paidInfo.remaining,p.cur):""))
       :("No premiums counted yet."));
     openSheet('<h2 style="margin-top:0">'+esc(p.name)+'</h2>'+
       '<div class="form-section"><div class="form-section-title">Policy</div>'+
@@ -3848,12 +3885,20 @@ document.addEventListener("submit", e=>{
     S.purchases.push({id:uid(),item,amt,cur:a.cur,date,expiry,acct:a.id,txnId:txn.id,warrantyMonths:months});
     save(); closeSheet(); render(); toast("Purchase saved"); return;
   }
-  if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n){ alert("Enter a policy name."); return; } S.policies.push({id:uid(),name:n,policyNo:$("#pno").value.trim(),provider:$("#pp").value.trim(),owner:$("#po").value||"Me",start:$("#pstart").value||"",sum:parseAmt($("#ps").value),fundValue:parseAmt($("#pfund")?.value||"0"),policyKind:($("#pkind")?.value||"term"),bonus:parseAmt($("#bonus").value),premium:parseAmt($("#pa").value),ppt:parseAmt($("#ppt").value),term:parseAmt($("#pt").value),maturity:$("#mat").value||"",cur:$("#pc").value,freq:+$("#pf").value,next:$("#pd").value||today()}); save(); closeSheet(); render(); }
+  if(e.target.id==="fpol"){ const n=$("#pn").value.trim(); if(!n){ alert("Enter a policy name."); return; }
+    const pol={id:uid(),name:n,policyNo:($("#pno")?.value||"").trim(),provider:($("#pp")?.value||"").trim(),owner:($("#po")?.value||"Me"),start:($("#pstart")?.value||""),sum:parseAmt($("#ps")?.value),fundValue:parseAmt($("#pfund")?.value||"0"),policyKind:($("#pkind")?.value||"term"),bonus:parseAmt($("#bonus")?.value||"0"),premium:parseAmt($("#pa")?.value),ppt:parseAmt($("#ppt")?.value),term:parseAmt($("#pt")?.value),maturity:($("#mat")?.value||""),cur:($("#pc")?.value||S.display||"INR"),freq:+($("#pf")?.value||12),paidThrough:($("#ppaidthrough")?.value||"").trim(),payments:[],finalPremiumPaid:false};
+    const manualNext=($("#pd")?.value||"").trim();
+    pol.next=manualNext||policyNextUnpaidDue(pol)||"";
+    if(!pol.next && policyFullyPaidTerm(pol)) pol.finalPremiumPaid=true;
+    S.policies.push(pol); save(); closeSheet(); render(); }
   if(e.target.id==="fpoledit"){
     const p=S.policies.find(x=>x.id===$("#peid")?.value); if(!p) return;
     p.name=($("#pen")?.value||p.name).trim(); p.policyNo=($("#peno")?.value||"").trim();
     p.provider=($("#peprov")?.value||"").trim(); p.owner=($("#peown")?.value||"Me").trim();
     p.start=$("#pestart")?.value||p.start||""; p.sum=parseAmt($("#pesum")?.value||p.sum); if($("#pefund")) p.fundValue=parseAmt($("#pefund").value||"0"); if($("#pekind")) p.policyKind=$("#pekind").value; if($("#pepaidthrough")) p.paidThrough=($("#pepaidthrough").value||"").trim();
+    // Recalculate next due from schedule + paid-through + recorded
+    const nu=policyNextUnpaidDue(p);
+    if(nu){ p.next=nu; p.finalPremiumPaid=false; } else { p.finalPremiumPaid=true; }
     p.bonus=parseAmt($("#pebonus")?.value||"0"); p.premium=parseAmt($("#peprem")?.value||p.premium);
     p.ppt=Math.round(parseAmt($("#peppt")?.value||"0"))||p.ppt||0;
     p.term=Math.round(parseAmt($("#peterm")?.value||"0"))||p.term||0;
