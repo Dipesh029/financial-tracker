@@ -1,6 +1,6 @@
 # Functional audit — My Finance PWA
 
-Last reviewed against app version **1.5.0**.
+Last reviewed against app version **2.5.9**.
 
 ## Architecture
 

@@ -309,8 +309,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.5.8";
+const APP_VERSION = "2.5.9";
 const RELEASES = [
+  {v:"2.5.9", d:"2026-11-18", notes:"CSV ambiguous skip-before-create; cardMeta for bank debit; demat no card fields."},
   {v:"2.5.8", d:"2026-11-18", notes:"Manual Order = array order (no sortOrder); CSV strict ISIN/exchange; demat no debit paths."},
   {v:"2.5.7", d:"2026-11-18", notes:"Remove Reorder; sort-only UI; fix Contacts ci; CSV fileKey includes exchange; Demat sort bar."},
   {v:"2.5.6", d:"2026-11-18", notes:"Policy edit apply-all-then-recalc; CSV identity owner+ISIN+exchange; full reorder coverage; compact sort."},
@@ -1953,18 +1954,45 @@ function holdParse(text){
   <button class="btn alt" data-close>Cancel</button>`);
 }
 function doHolds(){
-  const P=pendH; if(!P) return; const date=($("#hdate")||{}).value||today(), killMissing=false; // sold-missing disabled — unsafe without explicit per-holding confirm
-  let added=0, changed=0, price=0, sold=0;
-  for(const p of P.plan){ let H=p.H;
-    if(!H){ H={id:uid(),name:p.it.sym,type:"stock",cur:"INR",isin:p.it.isin,sector:p.it.sec,price:p.it.prev,owner:(P.owner||"Me"),symbol:p.it.sym,exchange:p.it.exch||"",demat:"",broker:"",amc:"",folio:"",notes:""}; S.holdings.push(H); if(!S.people.includes(H.owner))S.people.push(H.owner); added++; }
-    else{ H.price=p.it.prev; if(!H.isin) H.isin=p.it.isin; if(p.it.sec) H.sector=p.it.sec; if(p.it.exch&&!H.exchange) H.exchange=p.it.exch; }
-    if(p.kind==="ambiguous") continue;
+  const P=pendH; if(!P) return;
+  const date=($("#hdate")||{}).value||today();
+  let added=0, changed=0, price=0, sold=0, skippedAmbiguous=0;
+  // Process only non-ambiguous plan rows; never create holdings for ambiguous
+  for(const p of P.plan){
+    if(p.kind==="ambiguous"){ skippedAmbiguous++; continue; }
+    let H=p.H;
+    if(!H){
+      H={id:uid(),name:p.it.sym,type:"stock",cur:"INR",isin:p.it.isin,sector:p.it.sec,price:p.it.prev,owner:(P.owner||"Me"),symbol:p.it.sym,exchange:p.it.exch||"",demat:"",broker:"",amc:"",folio:"",notes:""};
+      S.holdings.push(H);
+      if(!S.people.includes(H.owner)) S.people.push(H.owner);
+      added++;
+    } else {
+      H.price=p.it.prev;
+      if(!H.isin && p.it.isin) H.isin=p.it.isin;
+      if(p.it.sec) H.sector=p.it.sec;
+      if(p.it.exch && !H.exchange) H.exchange=p.it.exch;
+    }
     if(p.kind==="new") addTxn({type:"open",date,note:"Imported opening position",hold:H.id,units:p.it.qty,cost:Math.round(p.it.qty*p.it.avg*100)/100,postings:[]},{skipSave:true});
-    else if(p.kind==="changed"){ addTxn({type:"adjust",date,note:"Portfolio file sync",hold:H.id,units:p.du,cost:p.dc,postings:[]},{skipSave:true}); changed++; } else price++; }
-  if(killMissing) for(const h of P.missing){ const q=holdPos(h); addTxn({type:"adjust",date,note:"Not in portfolio file, treated as sold",hold:h.id,units:-q.u,cost:-q.c,postings:[]},{skipSave:true}); sold++; }
-  S.snaps=S.snaps||[]; S.snaps.push({date,inv:Math.round(P.items.reduce((a,x)=>a+x.qty*x.avg,0)),val:Math.round(P.items.reduce((a,x)=>a+x.qty*x.prev,0))});
-  pendH=null; save(); closeSheet(); render(); toast(added+" new, "+changed+" changed, "+price+" prices, "+sold+" sold");
+    else if(p.kind==="changed"){ addTxn({type:"adjust",date,note:"Portfolio file sync",hold:H.id,units:p.du,cost:p.dc,postings:[]},{skipSave:true}); changed++; }
+    else price++;
+  }
+  // Snapshot from non-ambiguous items only
+  const snapItems=(P.plan||[]).filter(p=>p.kind!=="ambiguous").map(p=>p.it);
+  S.snaps=S.snaps||[];
+  if(snapItems.length){
+    S.snaps.push({
+      date,
+      inv:Math.round(snapItems.reduce((a,x)=>a+(Number(x.qty)||0)*(Number(x.avg)||0),0)),
+      val:Math.round(snapItems.reduce((a,x)=>a+(Number(x.qty)||0)*(Number(x.prev)||0),0))
+    });
+  }
+  pendH=null;
+  save();
+  closeSheet();
+  render();
+  toast(added+" new, "+changed+" changed, "+price+" prices"+(skippedAmbiguous?", "+skippedAmbiguous+" ambiguous skipped":""));
 }
+
 const acctTypeLabel=a=>({bank:"Bank",cash:"Cash",card:"Card",demat:"Demat"}[a.type]||a.type||"Account");
 const accOpts=()=>S.accounts.filter(a=>!a.archived).map(a=>[a.id,`${a.name} · ${acctTypeLabel(a)} (${a.cur})`]);
 const expenseCats=()=> (S.expenseCats&&S.expenseCats.length?S.expenseCats:EXPENSE_CATS);
@@ -3960,8 +3988,12 @@ document.addEventListener("submit", e=>{
         const expId=document.getElementById("expiry")?"expiry":(document.getElementById("adexpiry")?"adexpiry":"");
         let expiry="";
         if(expId){ const expR=readExpiryField(expId,{allowPast:true}); if(!expR.ok){ alert(expR.error); return; } expiry=expR.value; }
-        if(last4||expiry){
-          a.debitCard={ last4, network:($("#network")?.value||$("#adnetwork")?.value||"").trim(), expiry };
+        if(last4||expiry||($("#network")?.value||$("#adnetwork")?.value||"").trim()){
+          a.cardMeta=Object.assign({}, a.cardMeta||{}, {
+            last4: last4||(a.cardMeta&&a.cardMeta.last4)||"",
+            network: ($("#network")?.value||$("#adnetwork")?.value||(a.cardMeta&&a.cardMeta.network)||"").trim(),
+            expiry: expiry||(a.cardMeta&&a.cardMeta.expiry)||""
+          });
         }
       }
     } else if(a.type==="card"){

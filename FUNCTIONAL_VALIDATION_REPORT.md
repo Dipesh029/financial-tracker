@@ -432,3 +432,16 @@ Lending principal/interest repayments set `pd` on transactions. `personPos()` su
 | 8 | Demat save no cardMeta/debit | COMPLETE | fcard demat branch only broker/id/invested |
 | 9 | Bank still supports debit | COMPLETE | bank branch keeps debitCard path |
 | 10 | node --check | COMPLETE | PASS |
+
+
+## Update 2.5.9 (2026-11-18)
+
+| Issue | Fix | Test |
+|-------|-----|------|
+| Ambiguous CSV created holdings | `doHolds` skips `kind==="ambiguous"` **before** create | `PASS ambiguous_skip_before_create` |
+| Snapshot included ambiguous | Snap from non-ambiguous plan rows only | assert snapItems |
+| Bank debit wrote `debitCard` | Writers use `a.cardMeta` | `PASS cardMeta_structure` |
+| Demat card fields | Create/edit demat paths have no card UI; save ignores cardMeta | code path + test |
+| Manual sort | unchanged | `PASS manual_sort` |
+
+Commands: `node tests/regression.mjs` → ALL_REGRESSION_PASS; `node --check` on extracted script → PASS
