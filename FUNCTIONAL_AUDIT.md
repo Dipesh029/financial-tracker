@@ -60,3 +60,7 @@ Balances are **derived** from opening + posted postings (not stored as a separat
 2. Prefer additive fields + `migrate()` defaults.
 3. Bump `APP_VERSION`, `RELEASES[]`, and service worker `CACHE` name together on each ship.
 4. Always recommend an encrypted backup before deploy.
+
+
+## 2.5.3 Critical fixes (2026-11-18)
+See FUNCTIONAL_VALIDATION_REPORT.md for detail.

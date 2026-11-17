@@ -303,8 +303,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.5.2";
+const APP_VERSION = "2.5.3";
 const RELEASES = [
+  {v:"2.5.3", d:"2026-11-18", notes:"Critical: sort containment, CSV import, premium schedule, independent NW loan prefs, legacy liabilities."},
   {v:"2.5.2", d:"2026-11-18", notes:"Sort order on all major lists; audit completion pass for pending scope items."},
   {v:"2.5.1", d:"2026-11-18", notes:"Fix liabilities double-count from lending pd; full premium schedule + paidThrough; due-date consistency."},
   {v:"2.5.0", d:"2026-11-18", notes:"NW prefs (4 toggles); CSV import fixed; MF units adjust; SIP-aware forecast; premiums paid; sort order; lending interest on cards."},
@@ -476,30 +477,21 @@ function migrate(){
 }
 
 function policyScheduleDates(p){
-  // All premium due dates from commencement through PPT end (inclusive of final), by frequency months
+  // Instalments: commencement + i*freq months, i = 0 .. n-1, n = PPT years in periods.
+  // Avoid month-end drift by always anchoring day-of-month via addM (clamps to month length).
+  // Do not include dates after PPT end.
   const out=[];
   if(!p||!p.start||!(Number(p.premium)>0)) return out;
   const freq=Math.max(1, Number(p.freq)||1);
+  const ppt=Number(p.ppt)||0;
   const end=policyPptEnd(p);
-  let d=p.start;
-  const guard=800;
-  for(let i=0;i<guard;i++){
+  let n;
+  if(ppt>0) n=Math.max(1, Math.round(ppt*12/freq));
+  else n=800; // open-ended until end/guard
+  for(let i=0;i<n;i++){
+    const d=i===0?p.start:addM(p.start, i*freq);
     if(end && d>end) break;
     out.push(d);
-    const next=addM(d, freq);
-    if(end && next>end){
-      // include final only if last date is exactly end or we haven't landed on end
-      if(d!==end && end>=d){ /* final may equal last pushed */ }
-      break;
-    }
-    d=next;
-    if(!d) break;
-  }
-  // Ensure PPT end is included as last due when it falls on schedule
-  if(end && out.length && out[out.length-1]!==end){
-    // if end is on the same day-of-month cadence after last, append end as final due
-    const last=out[out.length-1];
-    if(end>last) out.push(end);
   }
   return out;
 }
@@ -509,88 +501,66 @@ function policyPremiumsPaidToDate(p){
   const schedule=policyScheduleDates(p);
   const expectedCount=schedule.length;
   const expectedTotal=expectedCount*premium;
-  const paidThrough=(p.paidThrough||"").trim(); // user-confirmed historical paid-through date
-  const recorded=(p.payments||[]).filter(x=>x&&x.date).slice().sort((a,b)=>a.date.localeCompare(b.date));
-  // Mark schedule dates as paid if: date <= paidThrough, or a recorded payment covers that instalment month
-  const covered=new Set();
-  for(const d of schedule){
-    if(paidThrough && d<=paidThrough) covered.add(d);
+  const paidThrough=(p.paidThrough||"").trim();
+  const recorded=(p.payments||[]).filter(x=>x&&x.date).slice().sort((a,b)=>a.date.localeCompare(b.date)||a.amt-b.amt);
+  // Repayments dated before start still reduce principal but accrual starts at start
+  for(const t of prinTxns){ if(t.date<start) t.date=start; }
+  // Each schedule date can be covered once: by paidThrough OR by one recorded payment
+  const covered=new Map(); // date -> {source, amount}
+  if(paidThrough){
+    for(const d of schedule){
+      if(d<=paidThrough) covered.set(d,{source:"historical",amount:premium});
+    }
   }
-  // Match recorded payments to nearest unpaid schedule date on/before payment date or same month
-  let recordedSum=0, recordedCount=0;
+  let recordedSum=0, recordedMatched=0, recordedUnmatched=0;
   for(const pay of recorded){
     const amt=Number(pay.amount)||premium;
     recordedSum+=amt;
-    recordedCount++;
+    // Match to latest uncovered schedule date on or before payment date
     let matched=null;
+    for(const d of schedule){
+      if(covered.has(d) && covered.get(d).source==="recorded") continue;
+      if(covered.has(d) && covered.get(d).source==="historical"){
+        // already assumed historical — skip matching recorded on same slot
+        if(d<=pay.date) continue;
+      }
+      if(d<=pay.date) matched=d;
+      else break;
+    }
+    // Prefer uncovered dates only
+    matched=null;
     for(const d of schedule){
       if(covered.has(d)) continue;
       if(d<=pay.date) matched=d;
       else break;
     }
-    if(matched) covered.add(matched);
-  }
-  const assumedCount=[...covered].filter(d=>paidThrough && d<=paidThrough && !recorded.some(r=>r.date>=d && r.date<=addM(d,freq))).length;
-  // Simpler assumed: dates covered only via paidThrough
-  let histCount=0;
-  if(paidThrough){
-    for(const d of schedule){ if(d<=paidThrough) histCount++; }
-  }
-  // Total paid count = unique covered schedule dates
-  const paidCount=covered.size;
-  // Amount: hist portion at premium rate + recorded amounts, but avoid double: use max(paidCount*premium, recordedSum) carefully
-  // Prefer: assumed = histCount * premium (if no overlapping recorded before paidThrough)
-  // recorded after paidThrough add their amounts
-  let histAmount=0;
-  if(paidThrough){
-    const histDates=schedule.filter(d=>d<=paidThrough);
-    histAmount=histDates.length*premium;
-    // recorded payments on or before paidThrough are assumed already in histAmount — don't add again
-  }
-  const laterRecorded=recorded.filter(r=>!paidThrough||r.date>paidThrough);
-  const laterAmount=laterRecorded.reduce((s,x)=>s+(Number(x.amount)||premium),0);
-  const laterCount=laterRecorded.length;
-  // If no paidThrough, use covered size * premium or recorded sum if higher fidelity
-  let total, count, source;
-  if(paidThrough){
-    total=histAmount+laterAmount;
-    count=histCount+laterCount;
-    // if recorded matched more after, covered may exceed
-    count=Math.max(count, paidCount);
-    total=Math.max(total, paidCount*premium*0+histAmount+laterAmount);
-    source="mixed";
-  } else if(recorded.length){
-    total=recordedSum;
-    count=recordedCount;
-    source="recorded";
-  } else {
-    // schedule assumption: all due on or before today (and within PPT) that are before next unpaid
-    const next=policyNextUnpaidDue(p);
-    const paidDates=schedule.filter(d=>d<today() && (!next || d<next));
-    // if next is in the past (overdue), those overdue are NOT paid
-    count=schedule.filter(d=>d<today() && !(next && d>=next)).length;
-    if(next && next<today()){
-      count=schedule.filter(d=>d<next).length;
-    } else if(!next && p.finalPremiumPaid){
-      count=schedule.length;
-    } else if(!next){
-      // no next stored — assume paid through last schedule date <= today if still in PPT?
-      count=schedule.filter(d=>d<=today()).length;
+    if(matched){
+      covered.set(matched,{source:"recorded",amount:amt});
+      recordedMatched++;
+    } else {
+      recordedUnmatched++;
+      // Payment beyond schedule or duplicate — still count amount in recordedSum but not as extra instalment
     }
-    total=count*premium;
-    source="schedule";
   }
-  const remainingCount=Math.max(0, expectedCount-count);
-  const remaining=remainingCount*premium;
+  const histCount=[...covered.values()].filter(v=>v.source==="historical").length;
+  const recCount=[...covered.values()].filter(v=>v.source==="recorded").length;
+  const paidCount=covered.size;
+  // Amount: sum of covered amounts; historical at standard premium, recorded at actual
+  let total=0;
+  for(const v of covered.values()) total+=v.amount;
+  // If only recorded and some unmatched extras, add unmatched amounts once
+  // (already in recordedSum; total uses covered amounts only — good)
+  const remainingCount=Math.max(0, expectedCount-paidCount);
   return {
-    total, count, source,
-    histCount: paidThrough?histCount:0,
-    histAmount: paidThrough?histAmount:0,
+    total: Math.round(total*100)/100,
+    count: paidCount,
+    source: histCount && recCount ? "mixed" : histCount ? "historical" : recCount ? "recorded" : "none",
+    histCount, histAmount: histCount*premium,
     recordedCount: recorded.length,
-    recordedSum: recorded.reduce((s,x)=>s+(Number(x.amount)||premium),0),
+    recordedSum: Math.round(recordedSum*100)/100,
     expected: expectedTotal,
     expectedCount,
-    remaining,
+    remaining: remainingCount*premium,
     remainingCount,
     paidThrough: paidThrough||""
   };
@@ -773,6 +743,12 @@ function personPos(owner){
     if(owner&&t.owner&&t.owner!==owner) continue;
     if(t.loanId||t.lendingId||t.principalReduction||t.interestSettlement) continue;
     if(["lend","borrow","lendback","repay"].includes(t.type)) continue;
+    // Legacy records may lack loanId but use loan-related notes
+    const note=(t.note||"").toLowerCase();
+    if(/\b(loan|lending|interest on loan|principal repay|borrowed from|lent to)\b/.test(note) && (t.person)){
+      // Only skip if this person also appears in S.lending — avoid excluding ordinary transfers
+      if((S.lending||[]).some(L=>(L.person||"").toLowerCase()===(t.person||"").toLowerCase())) continue;
+    }
     m[t.person]=(m[t.person]||0)+toDisplayAt(t.pd,t.postings[0].cur,t.fxRate);
   }
   return m;
@@ -952,53 +928,79 @@ function wireSortableLists(){
   }catch(e){}
 }
 function enableListSort(rootSel, itemSel, onReorder){
-  // Long-press (400ms) then drag to reorder; saves via onReorder(ids)
+  // Sort only within each item's parent container. Require long-press on .drag-handle when present.
   const root=typeof rootSel==="string"?document.querySelector(rootSel):rootSel;
   if(!root) return;
-  let dragEl=null, startY=0, armed=false, timer=null;
-  root.querySelectorAll(itemSel).forEach(el=>{
-    if(el.dataset.sortBound) return;
+  const items=[...root.querySelectorAll(itemSel)];
+  // Group by parent so cards never leave their section
+  const byParent=new Map();
+  for(const el of items){
+    if(el.dataset.sortBound) continue;
     el.dataset.sortBound="1";
-    const clear=()=>{ if(timer){ clearTimeout(timer); timer=null; } armed=false; };
-    el.addEventListener("pointerdown", e=>{
-      if(e.button&&e.button!==0) return;
-      startY=e.clientY; armed=false;
-      timer=setTimeout(()=>{ armed=true; dragEl=el; el.classList.add("dragging"); try{ el.setPointerCapture(e.pointerId); }catch(err){} }, 420);
+    // Add drag handle if missing
+    if(!el.querySelector(".drag-handle")){
+      const h=document.createElement("button");
+      h.type="button"; h.className="drag-handle"; h.setAttribute("aria-label","Reorder");
+      h.textContent="⋮⋮";
+      el.style.position=el.style.position||"relative";
+      el.insertBefore(h, el.firstChild);
+    }
+    const p=el.parentElement;
+    if(!byParent.has(p)) byParent.set(p, []);
+    byParent.get(p).push(el);
+  }
+  byParent.forEach((list, parent)=>{
+    list.forEach(el=>{
+      const handle=el.querySelector(".drag-handle")||el;
+      let dragEl=null, startY=0, armed=false, timer=null, pointerId=null;
+      const clear=()=>{ if(timer){ clearTimeout(timer); timer=null; } armed=false; };
+      const onDown=(e)=>{
+        if(e.button&&e.button!==0) return;
+        // Only start from handle (or whole card if no handle - but we always add one)
+        if(handle!==el && e.target!==handle && !handle.contains(e.target)) return;
+        if(e.target.closest("button:not(.drag-handle), a, input, select, textarea, label")) return;
+        startY=e.clientY; armed=false; pointerId=e.pointerId;
+        timer=setTimeout(()=>{
+          armed=true; dragEl=el; el.classList.add("dragging");
+          try{ el.setPointerCapture(pointerId); }catch(err){}
+        }, 380);
+      };
+      const onMove=(e)=>{
+        if(timer && Math.abs(e.clientY-startY)>14){ clear(); return; } // scroll cancel
+        if(!armed||!dragEl) return;
+        e.preventDefault();
+        const y=e.clientY;
+        const siblings=[...parent.querySelectorAll(itemSel)].filter(x=>x!==dragEl);
+        let placed=false;
+        for(const s of siblings){
+          const r=s.getBoundingClientRect();
+          if(y < r.top+r.height/2){ parent.insertBefore(dragEl, s); placed=true; break; }
+        }
+        if(!placed) parent.appendChild(dragEl);
+      };
+      const onUp=()=>{
+        clear();
+        if(dragEl){
+          dragEl.classList.remove("dragging");
+          try{ dragEl.releasePointerCapture(pointerId); }catch(err){}
+          const ids=[...parent.querySelectorAll(itemSel)].map(x=>
+            x.getAttribute("data-acct")||x.getAttribute("data-hold")||x.getAttribute("data-contact")||
+            x.getAttribute("data-sip")||x.getAttribute("data-salary")||x.getAttribute("data-pol")||
+            x.getAttribute("data-lend")||""
+          ).filter(Boolean);
+          if(onReorder && ids.length) onReorder(ids);
+          dragEl=null;
+        }
+      };
+      handle.addEventListener("pointerdown", onDown);
+      el.addEventListener("pointermove", onMove, {passive:false});
+      el.addEventListener("pointerup", onUp);
+      el.addEventListener("pointercancel", onUp);
     });
-    el.addEventListener("pointermove", e=>{
-      if(!timer&&!armed) return;
-      if(!armed && Math.abs(e.clientY-startY)>12){ clear(); return; }
-      if(!armed||!dragEl) return;
-      e.preventDefault();
-      const y=e.clientY;
-      const siblings=[...root.querySelectorAll(itemSel)].filter(x=>x!==dragEl);
-      let placed=false;
-      for(const s of siblings){
-        const r=s.getBoundingClientRect();
-        if(y < r.top+r.height/2){ root.insertBefore(dragEl, s); placed=true; break; }
-      }
-      if(!placed) root.appendChild(dragEl);
-    });
-    el.addEventListener("pointerup", ()=>{
-      clear();
-      if(dragEl){
-        dragEl.classList.remove("dragging");
-        const ids=[...root.querySelectorAll(itemSel)].map(x=>x.getAttribute("data-acct")||x.getAttribute("data-hold")||x.getAttribute("data-contact")||x.getAttribute("data-sip")||x.id).filter(Boolean);
-        if(onReorder) onReorder(ids);
-        dragEl=null;
-      }
-    });
-    el.addEventListener("pointercancel", ()=>{ clear(); if(dragEl){ dragEl.classList.remove("dragging"); dragEl=null; } });
   });
 }
-(function bootSort(){
-  const start=()=>{ try{
-    const obs=new MutationObserver(()=>{ clearTimeout(window.__sortT); window.__sortT=setTimeout(wireSortableLists, 80); });
-    obs.observe(document.documentElement,{childList:true,subtree:true});
-  }catch(e){} };
-  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", start); else start();
-})();
 function sortedList(arr, key){
+
   // Stable display order using optional .sortOrder (number). Unset items keep relative order at end of numbered ones.
   if(!arr||!arr.length) return arr||[];
   return arr.slice().sort((a,b)=>{
@@ -1034,13 +1036,13 @@ function loansReceivable(owner){
     const prin=toDisplay(p.principalLeft, l.cur);
     const intL=toDisplay(p.interestLeft, l.cur);
     if(l.direction==="lent"){
-      if(!prefs.loansReceivable) continue;
-      receivable+=prin;
-      principalRecv+=prin;
+      // Principal and interest prefs are independent
+      if(prefs.loansReceivable){ receivable+=prin; principalRecv+=prin; }
       if(prefs.accruedInterest){ receivable+=intL; interestRecv+=intL; }
     } else {
+      // Borrowed amounts are always liabilities (not controlled by receivable prefs)
       payable+=prin;
-      if(prefs.accruedInterest) payable+=intL;
+      payable+=intL; // interest owed on money we borrowed
     }
   }
   return {receivable, payable, principalRecv, interestRecv};
@@ -1839,77 +1841,104 @@ ${h.notes?`<p class="muted">${esc(h.notes)}</p>`:""}
 <button class="btn alt" type="submit">Show forecast</button></form>
 <div id="fvOut" style="display:none;margin-top:12px"></div>
 <button class="btn alt" data-close style="margin-top:12px">Close</button>`);}
+function parseCsvRows(text){
+  // RFC-style CSV: quoted fields may contain commas and newlines
+  const rows=[]; let row=[]; let cur=""; let q=false;
+  const s=String(text||"").replace(/^\uFEFF/,"");
+  for(let i=0;i<s.length;i++){
+    const ch=s[i], next=s[i+1];
+    if(q){
+      if(ch==='"' && next==='"'){ cur+='"'; i++; }
+      else if(ch==='"'){ q=false; }
+      else cur+=ch;
+    } else {
+      if(ch==='"') q=true;
+      else if(ch===',' || ch==='\t'){ row.push(cur.trim()); cur=""; }
+      else if(ch==='\n' || (ch==='\r' && next==='\n')){
+        if(ch==='\r') i++;
+        row.push(cur.trim()); cur="";
+        if(row.some(c=>c!=="")) rows.push(row);
+        row=[];
+      } else if(ch==='\r'){
+        row.push(cur.trim()); cur="";
+        if(row.some(c=>c!=="")) rows.push(row);
+        row=[];
+      } else cur+=ch;
+    }
+  }
+  row.push(cur.trim());
+  if(row.some(c=>c!=="")) rows.push(row);
+  return rows;
+}
 function holdParse(text){
   if(!text||!String(text).trim()){ alert("Paste CSV data or choose a file first."); return; }
   const owner=($("#howner")&&$("#howner").value)||"Me";
-  const lines=String(text).replace(/^\uFEFF/,"").split(/\r?\n/).filter(l=>l.trim());
-  if(lines.length<2){ alert("Need a header row and at least one data row."); return; }
-  // Simple CSV split respecting quotes
-  const split=(line)=>{
-    const out=[]; let cur="", q=false;
-    for(let i=0;i<line.length;i++){
-      const ch=line[i];
-      if(ch==='"'){ if(q&&line[i+1]==='"'){ cur+='"'; i++; } else q=!q; }
-      else if((ch===","||ch==="\t")&&!q){ out.push(cur.trim()); cur=""; }
-      else cur+=ch;
-    }
-    out.push(cur.trim()); return out;
-  };
-  const headers=split(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z0-9]/g,""));
+  const rows=parseCsvRows(text);
+  if(rows.length<2){ alert("Need a header row and at least one data row."); return; }
+  const headers=rows[0].map(h=>String(h).toLowerCase().replace(/[^a-z0-9]/g,""));
   const col=(names)=>{ for(const n of names){ const i=headers.indexOf(n); if(i>=0) return i; } return -1; };
   const iSym=col(["symbol","sym","ticker","tradingsymbol","scrip","name","security","instrument"]);
-  const iQty=col(["qty","quantity","qty.","units","holding","freefloat","availableqty"]);
+  const iQty=col(["qty","quantity","qty","units","holding","availableqty","freefloat"]);
   const iAvg=col(["avg","average","avgprice","averageprice","buyavg","cost","buyprice","avgcost"]);
   const iPrice=col(["price","ltp","last","lastprice","close","prevclose","nav","marketprice","cmp"]);
   const iIsin=col(["isin"]);
   const iSec=col(["sector","industry"]);
+  const iExch=col(["exchange","exch"]);
   if(iSym<0||iQty<0){ alert("Could not find Symbol and Quantity columns. Include headers like Symbol, Qty, Avg, LTP."); return; }
-  const items=[];
-  let failed=0;
-  for(let r=1;r<lines.length;r++){
-    const cells=split(lines[r]); if(!cells.length||!cells[0]) continue;
+  const items=[]; const seenInFile=new Set();
+  let failed=0, fileDup=0;
+  for(let r=1;r<rows.length;r++){
+    const cells=rows[r]; if(!cells||!cells.length) continue;
     const sym=(cells[iSym]||"").trim(); if(!sym){ failed++; continue; }
-    const qty=parseFloat(String(cells[iQty]||"0").replace(/,/g,""))||0;
+    const qtyRaw=String(cells[iQty]||"").replace(/,/g,"").trim();
+    const qty=parseFloat(qtyRaw);
+    if(!(qty>0) || !isFinite(qty)){ failed++; continue; } // reject zero/invalid — do not silently treat as 0 position
     const avg=iAvg>=0?parseFloat(String(cells[iAvg]||"0").replace(/,/g,""))||0:0;
     const prev=iPrice>=0?parseFloat(String(cells[iPrice]||"0").replace(/,/g,""))||0:(avg||0);
     const isin=iIsin>=0?(cells[iIsin]||"").trim():"";
     const sec=iSec>=0?(cells[iSec]||"").trim():"";
-    if(!(qty>0)&&qty!==0){ failed++; continue; }
-    items.push({sym, qty, avg, prev:prev||avg, isin, sec});
+    const exch=iExch>=0?(cells[iExch]||"").trim():"";
+    const fileKey=(isin||(sym.toUpperCase()+"|"+exch.toUpperCase()+"|"+owner));
+    if(seenInFile.has(fileKey)){ fileDup++; continue; }
+    seenInFile.add(fileKey);
+    items.push({sym, qty, avg, prev:prev||avg, isin, sec, exch});
   }
-  if(!items.length){ alert("No valid rows found ("+failed+" skipped)."); return; }
-  const plan=[];
-  let dup=0;
+  if(!items.length){ alert("No valid rows found ("+failed+" failed, "+fileDup+" duplicate in file)."); return; }
+  const plan=[]; let existingMatch=0;
   for(const it of items){
-    let H=S.holdings.find(h=>(h.owner||"Me")===(owner||"Me") && (
-      (it.isin&&h.isin&&h.isin===it.isin) ||
-      (h.symbol&&h.symbol.toUpperCase()===it.sym.toUpperCase()) ||
-      (h.name&&h.name.toUpperCase()===it.sym.toUpperCase())
-    ));
+    let H=S.holdings.find(h=>{
+      if((h.owner||"Me")!==(owner||"Me")) return false;
+      if(it.isin && h.isin && h.isin===it.isin) return true;
+      if(h.symbol && h.symbol.toUpperCase()===it.sym.toUpperCase()){
+        if(it.exch && h.exchange && h.exchange.toUpperCase()!==it.exch.toUpperCase()) return false;
+        return true;
+      }
+      if(!h.symbol && h.name && h.name.toUpperCase()===it.sym.toUpperCase()) return true;
+      return false;
+    });
     if(H){
+      existingMatch++;
       const pos=holdPos(H);
       const du=Math.round((it.qty-pos.u)*1e6)/1e6;
       const newCost=Math.round(it.qty*it.avg*100)/100;
       const dc=Math.round((newCost-pos.c)*100)/100;
-      if(Math.abs(du)<1e-9 && Math.abs((H.price||0)-it.prev)<0.0001){ dup++; plan.push({H,it,kind:"price"}); }
-      else if(Math.abs(du)<1e-9) plan.push({H,it,kind:"price"});
+      if(Math.abs(du)<1e-9) plan.push({H,it,kind:"price"});
       else plan.push({H,it,kind:"changed",du,dc});
     } else {
       plan.push({H:null,it,kind:"new"});
     }
   }
-  pendH={owner, plan, items:items.length, failed, dup};
+  pendH={owner, plan, items:items.length, failed, fileDup, existingMatch};
   openSheet(`<h2 style="margin-top:0">Review import</h2>
-  <div class="muted">${items.length} rows · ${plan.filter(p=>p.kind==="new").length} new · ${plan.filter(p=>p.kind==="changed").length} qty changes · ${failed} failed</div>
+  <div class="muted">${items.length} valid · ${plan.filter(p=>p.kind==="new").length} new · ${plan.filter(p=>p.kind==="changed").length} qty changes · ${plan.filter(p=>p.kind==="price").length} price-only · ${fileDup} file dups · ${failed} failed</div>
   <label>As-of date</label><input type="date" id="hdate" value="${today()}">
-  <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="hmiss"> Mark holdings missing from file as sold (zero units)</label>
-  <div class="card" style="max-height:40vh;overflow:auto;margin:10px 0">${plan.slice(0,40).map(p=>`<div class="row"><span>${esc(p.it.sym)} · ${p.it.qty} @ ${p.it.avg}</span><b>${p.kind}</b></div>`).join("")}${plan.length>40?"<div class='muted'>…and more</div>":""}</div>
-  <p class="muted">Import sets positions only — no bank debit.</p>
+  <p class="muted">Import sets positions only — no bank debit. Holdings not in the file are left unchanged (nothing is marked sold).</p>
+  <div class="card" style="max-height:40vh;overflow:auto;margin:10px 0">${plan.slice(0,50).map(p=>`<div class="row"><span>${esc(p.it.sym)}${p.it.isin?" · "+esc(p.it.isin):""} · ${p.it.qty} @ ${p.it.avg}</span><b>${p.kind}</b></div>`).join("")}${plan.length>50?"<div class='muted'>…and more</div>":""}</div>
   <button class="btn" data-doholds>Apply import</button>
   <button class="btn alt" data-close>Cancel</button>`);
 }
 function doHolds(){
-  const P=pendH; if(!P) return; const date=($("#hdate")||{}).value||today(), killMissing=!!($("#hmiss")&&$("#hmiss").checked);
+  const P=pendH; if(!P) return; const date=($("#hdate")||{}).value||today(), killMissing=false; // sold-missing disabled — unsafe without explicit per-holding confirm
   let added=0, changed=0, price=0, sold=0;
   for(const p of P.plan){ let H=p.H;
     if(!H){ H={id:uid(),name:p.it.sym,type:"stock",cur:"INR",isin:p.it.isin,sector:p.it.sec,price:p.it.prev,owner:(P.owner||"Me"),symbol:p.it.sym,exchange:"",demat:"",broker:"",amc:"",folio:"",notes:""}; S.holdings.push(H); if(!S.people.includes(H.owner))S.people.push(H.owner); added++; }

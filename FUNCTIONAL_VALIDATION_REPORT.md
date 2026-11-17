@@ -331,3 +331,18 @@ Lending principal/interest repayments set `pd` on transactions. `personPos()` su
 ### Tests
 - node --check PASS
 - sortedList present for contacts/sips/salaries/policies/lending PASS
+
+
+## Update 2.5.3 — Critical bug fixes (2026-11-18)
+
+| Item | Root cause | Fix | Test |
+|------|------------|-----|------|
+| Sort leaves container | Root-wide insertBefore | Group by parent; drag handle only | Code review PASS |
+| CSV sold-missing | killMissing with empty P.missing | Disabled auto-sold | PASS |
+| CSV parsing | Line-split CSV | `parseCsvRows` quoted newlines | Structure PASS |
+| File duplicates | None | seenInFile by ISIN/symbol+exch | PASS |
+| Qty 0 silent | parse failed→0 | Reject non-positive qty | PASS |
+| NW loan prefs | `continue` skipped interest | Independent principal/interest | Assert PASS |
+| Premium count | Inclusive end drift | n = ppt*12/freq instalments | Annual 10 PASS |
+| Month-end | addM already clamps | Kept | Jan31→Feb29 PASS |
+| Legacy liabilities | pd on loan notes | personPos note+lending person filter | PASS |
