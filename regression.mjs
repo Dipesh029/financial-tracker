@@ -1,6 +1,6 @@
 /**
- * My Finance regression tests (v2.5.9)
- * Run: node tests/regression.mjs
+ * My Finance regression tests (v2.6.0)
+ * Run: node regression.mjs
  */
 function assert(cond, msg){ if(!cond) throw new Error(msg||"assert failed"); }
 
@@ -96,6 +96,51 @@ function planRow(holdings, it, owner){
   d.broker="Zerodha";
   assert(!d.cardMeta);
   console.log("PASS cardMeta_structure");
+}
+
+// --- live app source: amount parser and review fixes ---
+import fs from "fs";
+import vm from "vm";
+{
+  const src=fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const block=src.match(/\/\*PARSE_AMT_START\*\/([\s\S]*?)\/\*PARSE_AMT_END\*\//);
+  assert(block, "parseAmt markers");
+  const ctx={};
+  vm.createContext(ctx);
+  vm.runInContext(block[1]+"\nthis.parseAmt=parseAmt;", ctx);
+  const parseAmt=ctx.parseAmt;
+  const cases=[
+    ["1,00,000", 100000],
+    ["₹1,00,000.50", 100000.5],
+    ["1,000", 1000],
+    ["1,00", 100],
+    ["12,00", 1200],
+    ["10,50", 10.5],
+    ["10,5", 10.5],
+    ["1.234,56", 1234.56],
+    ["1,234.56", 1234.56],
+    ["-20", -20],
+    ["(20)", -20],
+    ["", 0],
+    ["abc", 0],
+    ["100000", 100000]
+  ];
+  for(const [raw, exp] of cases){
+    const got=parseAmt(raw);
+    assert(Math.abs(got-exp)<1e-9, "parseAmt "+JSON.stringify(raw)+" got "+got+" expected "+exp);
+  }
+  assert(src.includes("async function forgetBackupFolder"), "forgetBackupFolder");
+  assert(src.includes("async function chooseBackupFolder"), "chooseBackupFolder");
+  assert(src.includes("next >= end"), "final premium closes when next equals term end");
+  assert(src.includes("data-newsalary"), "salary add attribute");
+  assert(!src.includes("data-newsalaryary") && !/data-newsal["\s>]/.test(src), "broken salary attribute");
+  assert(src.includes("Could not save"), "save errors are surfaced");
+  assert(src.includes("function renamePerson"), "rename updates records");
+  assert(src.includes("data-paycard"), "pay card action");
+  assert(src.includes("data-locknow"), "lock now");
+  assert(!src.includes('prompt("Enter your current finance-app passphrase'), "passphrase not via prompt");
+  assert(!src.includes('prompt("Passphrase for this backup:') , "restore passphrase not via prompt");
+  console.log("PASS app_source_fixes");
 }
 
 console.log("ALL_REGRESSION_PASS");

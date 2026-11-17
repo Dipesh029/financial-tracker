@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.5.10
+**Current version:** 2.6.0
 
 ---
 
@@ -122,6 +122,15 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.6.0 — 2026-11-18
+- **Fix:** Indian amount entry (`1,00,000`) no longer collapses to 1. The entry sheet shows the number that will be saved.
+- **Fix:** “Forget folder” works. Saves that fail (including a full phone) are shown, not only logged.
+- **Fix:** Salary “Add” button. Weekly salaries and missing-price SIPs no longer skip or double-advance the wrong way.
+- **Fix:** Renaming a person updates accounts, holdings, salaries, lending, and activity. Final insurance premium closes on the term end date.
+- **Fix:** Net-worth tiles add up to the hero. Demat cash is not treated as the stock portfolio.
+- **Security:** Passphrase entry for fingerprint, restore, and erase no longer uses the browser prompt. Plain backups need the current passphrase. CSV export warns that it is not encrypted. Record ids are escaped in the page.
+- **UI:** Pay this card, Lock now, archive/delete confirms, clearer privacy mask, blue hero in dark mode.
 
 ### 2.5.7 — 2026-11-18
 - Removed Reorder/Move controls; sort-only (incl. Manual Order); Contacts render fix; CSV key includes exchange; Demat sort bar.

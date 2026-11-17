@@ -62,8 +62,8 @@ html[data-theme="dark"]{
   --overlay:rgba(0,0,0,.55);
   --input:#2c2c2e;
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
-  --hero-from:#2a2a2e;
-  --hero-to:#1a1a1c;
+  --hero-from:#1d4ed8;
+  --hero-to:#1e3a8a;
 }
 @media (prefers-color-scheme: dark){
   html[data-theme="system"], html:not([data-theme]){
@@ -298,6 +298,12 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .drag-handle{display:none!important}
 .sort-bar{display:flex;flex-wrap:nowrap;gap:6px;margin:0 0 8px;align-items:center;justify-content:flex-end}
 .sort-chip{font-size:12px!important;padding:4px 10px!important;min-height:32px!important;font-weight:600}
+.section-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:14px 0 6px}
+.section-hd h2{margin:0}
+.seg.wrap{flex-wrap:wrap}
+.seg.wrap button{flex:1 1 40%;min-width:72px}
+.amt-preview{text-align:center;min-height:1.2em;font-size:13px;margin-top:2px}
+.more-kicker{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:18px 0 0}
 </style>
 </head>
 <body>
@@ -309,8 +315,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.5.10";
+const APP_VERSION = "2.6.0";
 const RELEASES = [
+  {v:"2.6.0", d:"2026-11-18", notes:"Amount parsing, backup-folder forget, save errors, SIP/salary schedules, rename, net-worth tiles, card pay, lock, and restore checks."},
   {v:"2.5.10", d:"2026-11-18", notes:"acctSheet gates card UI by type; production regression tests."},
   {v:"2.5.9", d:"2026-11-18", notes:"CSV ambiguous skip-before-create; cardMeta for bank debit; demat no card fields."},
   {v:"2.5.8", d:"2026-11-18", notes:"Manual Order = array order (no sortOrder); CSV strict ISIN/exchange; demat no debit paths."},
@@ -405,6 +412,15 @@ async function backupDestinationStatus(){
     node.textContent="Could not read folder preference. Download backup still works.";
   }
 }
+async function forgetBackupFolder(){
+  try{
+    await backupHandleForget();
+    await backupDestinationStatus();
+    toast("Backup folder forgotten. Downloads will be used instead.");
+  }catch(e){
+    alert("Could not forget that folder: "+(e&&e.message?e.message:e));
+  }
+}
 async function chooseBackupFolder(){
   if(!("showDirectoryPicker" in window)){
     toast("Folder picker not supported in this browser. Use Save backup file (Downloads).");
@@ -434,16 +450,27 @@ async function chooseBackupFolder(){
 const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],salaries:[],policies:[],purchases:[],snaps:[],history:[],lending:[],bankContacts:[],contacts:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null,autoSip:true,autoSalary:true,hideBalances:false,onboardingDone:false});
 const LBL={adjust:"Portfolio sync · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to "};
 const isSecureContext = window.isSecureContext === true;
-function b64(u){let t=""; for(const x of new Uint8Array(u)) t+=String.fromCharCode(x); return btoa(t);}
+function b64(u){
+  const bytes=u instanceof Uint8Array?u:new Uint8Array(u);
+  let t="";
+  const CHUNK=0x8000;
+  for(let i=0;i<bytes.length;i+=CHUNK){
+    t+=String.fromCharCode.apply(null, bytes.subarray(i, i+CHUNK));
+  }
+  return btoa(t);
+}
 const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
 async function deriveKey(p, salt, iterations=KDF_ITER, extractable=false){
   const m = await crypto.subtle.importKey("raw", new TextEncoder().encode(p), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey({name:"PBKDF2", salt, iterations, hash:"SHA-256"}, m, {name:"AES-GCM", length:256}, extractable, ["encrypt","decrypt"]);
 }
-async function seal(o){
+async function seal(o, key, salt, iter, bio){
+  key=key||CK; salt=salt||SALT; iter=iter||KDF_ITER;
+  if(bio===undefined) bio=BIO;
+  if(!key) throw new Error("No encryption key");
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({name:"AES-GCM", iv}, CK, new TextEncoder().encode(JSON.stringify(o)));
-  return JSON.stringify({enc:2, salt:b64(SALT), iterations:KDF_ITER, iv:b64(iv), data:b64(ct), bio:BIO||null});
+  const ct = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, new TextEncoder().encode(JSON.stringify(o)));
+  return JSON.stringify({enc:2, salt:b64(salt), iterations:iter, iv:b64(iv), data:b64(ct), bio:bio||null});
 }
 async function unseal(env, key){
   const ct = await crypto.subtle.decrypt({name:"AES-GCM", iv:unb64(env.iv)}, key, unb64(env.data));
@@ -451,12 +478,26 @@ async function unseal(env, key){
 }
 function save(){
   if(!CK||!S) return Promise.resolve(false);
-  chain=chain.then(async()=>{ try{ await store.set(await seal(S)); return true; } catch(err){ console.warn("save failed",err); throw err; } })
-    .catch(err=>{ console.warn("save chain",err); return false; });
+  const snap=S, key=CK, salt=SALT, iter=KDF_ITER, bio=BIO;
+  chain=chain.then(async()=>{
+    try{
+      store.set(await seal(snap, key, salt, iter, bio));
+      return true;
+    }catch(err){
+      console.warn("save failed", err);
+      const full=err&&(err.name==="QuotaExceededError"||/quota/i.test(String(err.message||"")));
+      const msg=full
+        ? "Could not save — storage for this app is full. Export a backup, then remove old records."
+        : "Could not save. Your latest change may not be stored on this phone yet.";
+      try{ toast(msg); }catch(e){}
+      throw err;
+    }
+  }).catch(err=>{ console.warn("save chain", err); return false; });
   return chain;
 }
 function migrate(){
   for(const k of ["accounts","holdings","sips","salaries","policies","purchases","snaps","history","lending","bankContacts","contacts","people","txns","audit"]) S[k]=S[k]||[];
+  if(S.audit.length>500) S.audit=S.audit.slice(-500);
   S.v=2;
   if(S.rate==null) S.rate=104.16;
   if(!S.display) S.display="INR";
@@ -665,7 +706,10 @@ function nextDue(day){
 }
 
 function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2)); }
-function log(action, id){ S.audit.push({ts:new Date().toISOString(), action, id}); }
+function log(action, id){
+  S.audit.push({ts:new Date().toISOString(), action, id});
+  if(S.audit.length>500) S.audit.splice(0, S.audit.length-500);
+}
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const today = () => { const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
 
@@ -674,7 +718,31 @@ const fmt = (n,cur) => new Intl.NumberFormat(cur==="INR"?"en-IN":"nl-NL",{style:
 const fmtHide = (n,cur) => { if(!(S&&S.hideBalances)) return fmt(n,cur); return (cur==="INR"||(!cur&&S.display==="INR")?"₹":"")+"••••••"; };
 const toDisplay = (n,cur) => cur===S.display ? n : (cur==="EUR" ? n*S.rate : n/S.rate);
 const toDisplayAt = (n,cur,rate) => cur===S.display ? n : (cur==="EUR" ? n*(rate||S.rate) : n/(rate||S.rate));
-const parseAmt = v => { const n = parseFloat(String(v).replace(/,/g,".").replace(/[^0-9.]/g,"")); return isFinite(n)?n:0; };
+/*PARSE_AMT_START*/
+function parseAmt(v){
+  if(v==null) return 0;
+  let s=String(v).trim();
+  if(!s) return 0;
+  const neg=/^-/.test(s) || /^\(.*\)$/.test(s);
+  s=s.replace(/[₹€$\s]/g,"");
+  const lastComma=s.lastIndexOf(","), lastDot=s.lastIndexOf(".");
+  if(lastComma>=0 && lastDot>=0){
+    if(lastComma>lastDot) s=s.replace(/\./g,"").replace(",",".");
+    else s=s.replace(/,/g,"");
+  }else if(lastComma>=0){
+    const parts=s.split(",");
+    const tail=parts[parts.length-1];
+    const head=parts.slice(0,-1).join("");
+    if(parts.length>2 || tail.length===3 || (tail.length===2 && tail==="00")) s=parts.join("");
+    else if(parts.length===2 && tail.length<=2 && head.length<=3) s=head+"."+tail;
+    else s=parts.join("");
+  }
+  s=s.replace(/[^0-9.]/g,"");
+  const n=parseFloat(s);
+  if(!isFinite(n)) return 0;
+  return neg?-Math.abs(n):n;
+}
+/*PARSE_AMT_END*/
 const acct = id => S.accounts.find(a=>a.id===id);
 
 function contactById(id){ return (S.contacts||[]).find(c=>c.id===id); }
@@ -683,6 +751,24 @@ function ensureContactByName(name){
   let c=(S.contacts||[]).find(x=>x.name.toLowerCase()===name.toLowerCase());
   if(!c){ c={id:uid(),name,notes:"",methods:[]}; S.contacts.push(c); }
   return c;
+}
+function renamePerson(oldName, newName){
+  if(!oldName||!newName||oldName===newName) return;
+const hit=(a)=>a===oldName || String(a||"").toLowerCase()===String(oldName).toLowerCase();
+  for(const a of S.accounts||[]) if(hit(a.owner)) a.owner=newName;
+  for(const h of S.holdings||[]) if(hit(h.owner)) h.owner=newName;
+  for(const p of S.policies||[]) if(hit(p.owner)) p.owner=newName;
+  for(const c of S.contacts||[]) if(hit(c.name)) c.name=newName;
+  for(const b of S.bankContacts||[]) if(hit(b.person)) b.person=newName;
+  for(const l of S.lending||[]) if(hit(l.person)) l.person=newName;
+  for(const s of S.salaries||[]) if(hit(s.person)) s.person=newName;
+  for(const t of S.txns||[]){
+    if(hit(t.owner)) t.owner=newName;
+    if(hit(t.person)) t.person=newName;
+  }
+  for(const h of S.history||[]) if(hit(h.owner)) h.owner=newName;
+  for(const p of S.purchases||[]) if(hit(p.owner)) p.owner=newName;
+  if(Array.isArray(S.people)) S.people=S.people.map(n=>hit(n)?newName:n);
 }
 function allPersonNames(){
   const set=new Set();
@@ -743,7 +829,24 @@ function balance(a){
   for(const t of S.txns){ if(t.status!=="posted") continue; for(const p of t.postings) if(p.acct===a.id) b += p.amt; }
   return Math.round(b*100)/100;
 }
-function holdPos(h){let u=0,c=0;for(const t of S.txns){if(t.status!=="posted"||t.hold!==h.id)continue;if(t.type==="buy"||t.type==="open"||t.type==="adjust"){u+=t.units;c+=t.cost;}else if(t.type==="sell"){const f=u?Math.min(1,t.units/u):0;c-=c*f;u-=t.units;}}return{u:Math.round(u*1e6)/1e6,c:Math.round(c*100)/100,v:Math.round(u*(h.price||0)*100)/100};}
+function holdPos(h){
+  let u=0,c=0;
+  for(const t of S.txns){
+    if(t.status!=="posted"||t.hold!==h.id) continue;
+    if(t.type==="buy"||t.type==="open"||t.type==="adjust"){
+      u+=Number(t.units)||0;
+      c+=Number(t.cost)||0;
+    }else if(t.type==="sell"){
+      const units=Math.max(0, Number(t.units)||0);
+      const f=u>0?Math.min(1, units/u):0;
+      c-=c*f;
+      u-=units;
+    }
+  }
+  if(u<1e-9){ u=0; c=Math.max(0,c); }
+  if(c<0) c=0;
+  return {u:Math.round(u*1e6)/1e6, c:Math.round(c*100)/100, v:Math.round(u*(h.price||0)*100)/100};
+}
 function personPos(owner){
   // Informal IOUs from transfers only. Lending module uses loansReceivable/lendingPosition —
   // never mix loanId/lendingId/principalReduction/interestSettlement or lend/borrow types here
@@ -751,9 +854,10 @@ function personPos(owner){
   const m={};
   for(const t of S.txns){
     if(t.status!=="posted"||!t.person||!t.pd||!t.postings?.[0]) continue;
-    if(owner&&t.owner&&t.owner!==owner) continue;
     if(t.loanId||t.lendingId||t.principalReduction||t.interestSettlement) continue;
     if(["lend","borrow","lendback","repay"].includes(t.type)) continue;
+    // No owner: count only in the family total, not on every member card.
+    if(owner && (t.owner||"")!==owner) continue;
     // Legacy records may lack loanId but use loan-related notes
     const note=(t.note||"").toLowerCase();
     if(/\b(loan|lending|interest on loan|principal repay|borrowed from|lent to)\b/.test(note) && (t.person)){
@@ -793,7 +897,7 @@ function unvoid(id){ const t=S.txns.find(x=>x.id===id); if(t){ t.status="posted"
 let S=null, CK=null, BIO=null, SALT=null, KDF_ITER=250000, chain=Promise.resolve();
 
 /* ---------- UI state ---------- */
-let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family", xferMode="self", moneySeg="accounts", moneyAcctFilter="all", moneyHoldFilter="all", planSeg="sips", homeNwFilter="all", actLimit=40, filterType="";
+let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family", xferMode="self", moneySeg="accounts", moneyAcctFilter="all", moneyHoldFilter="all", planSeg="sips", homeNwFilter="all", actLimit=40, filterType="", xferPrefill=null, passWait=null, unlockNotice="";
 function getThemePref(){try{return localStorage.getItem("myfinance.theme")||"system";}catch(e){return "system";}}
 function applyTheme(pref){
   const p = (pref==="light"||pref==="dark"||pref==="system") ? pref : getThemePref();
@@ -859,13 +963,25 @@ function processDueAutomations(){
       let guard=0;
       while(x.next && daysTo(x.next)<=0 && guard++<MAX_EACH){
         const a=acct(x.acct);
-        if(!a||a.archived){ skipped++; x.next=addM(x.next,x.freq||1); continue; }
         const h=S.holdings.find(v=>v.id===x.hold)||{};
         const price=h.price>0?h.price:0;
-        const units=price>0?Math.round((x.amt/price)*1e6)/1e6:0;
+        if(!(price>0)){
+          skipped++;
+          x.needsPrice=true;
+          break;
+        }
+        x.needsPrice=false;
+        if(!a||a.archived){
+          skipped++;
+          x.history=x.history||[];
+          x.history.push({date:x.next,status:"missed",units:0,amount:x.amt,auto:true,note:"Account unavailable"});
+          x.next=addM(x.next,x.freq||1);
+          continue;
+        }
+        const units=Math.round((x.amt/price)*1e6)/1e6;
         const payDate=x.next;
         const n=S.txns.length;
-        addTxn({type:"buy",date:payDate,note:price?"SIP (auto)":"SIP (auto · set price for units)",hold:x.hold,units,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]},{skipSave:true});
+        addTxn({type:"buy",date:payDate,note:"SIP (auto)",hold:x.hold,units,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]},{skipSave:true});
         if(S.txns.length===n){ x.next=addM(x.next,x.freq||1); continue; }
         x.history=x.history||[]; x.history.push({date:payDate,status:"paid",units,amount:x.amt,auto:true});
         x.next=addM(x.next,x.freq||1); sips++;
@@ -878,17 +994,23 @@ function processDueAutomations(){
       let guard=0;
       while(x.next && daysTo(x.next)<=0 && guard++<MAX_EACH){
         const a=acct(x.acct);
-        if(!a||a.archived){ skipped++; x.next=addM(x.next,x.freq||1); continue; }
         const payDate=x.next;
+        if(!a||a.archived){
+          skipped++;
+          x.history=x.history||[];
+          x.history.push({date:payDate,status:"missed",amount:x.amt,auto:true,note:"Account unavailable"});
+          x.next=advanceSalaryNext(x, payDate);
+          continue;
+        }
         const n=S.txns.length;
         addTxn({type:"income",date:payDate,note:x.label||"Salary (auto)",cat:"Salary",person:x.person||"",owner:x.person||a.owner||"Me",salaryId:x.id,postings:[{acct:x.acct,amt:x.amt,cur:x.cur}]},{skipSave:true});
-        if(S.txns.length===n){ x.next=addM(x.next,x.freq||1); continue; }
+        if(S.txns.length===n){ x.next=advanceSalaryNext(x, payDate); continue; }
         x.history=x.history||[]; x.history.push({date:payDate,status:"received",amount:x.amt,auto:true});
         x.next=advanceSalaryNext(x, payDate); salaries++;
       }
     }
   }
-  if(sips||salaries) save();
+  if(sips||salaries||skipped) save();
   return {sips, salaries, skipped};
 }
 
@@ -1038,25 +1160,35 @@ function insuranceValues(owner){
 }
 
 function wealthBreakdown(owner){
-  let cash=0,bank=0,dematCash=0,cardLiab=0,holdings=0;
+  let cash=0, bank=0, dematCash=0, cardLiab=0, cardAsset=0, overdraft=0, holdings=0;
   for(const a of S.accounts){
-    if(a.archived||(owner&&a.owner!==owner))continue;
+    if(a.archived||(owner&&a.owner!==owner)) continue;
     const b=toDisplay(balance(a),a.cur);
-    if(a.type==="cash") cash+=Math.max(0,b);
-    else if(a.type==="bank") bank+=Math.max(0,b);
-    else if(a.type==="demat") dematCash+=Math.max(0,b); // cash/settlement balance in demat — not holdings
-    else if(a.type==="card"&&b<0) cardLiab+=-b;
+    if(a.type==="cash"){ if(b>=0) cash+=b; else overdraft+=-b; }
+    else if(a.type==="bank"){ if(b>=0) bank+=b; else overdraft+=-b; }
+    else if(a.type==="demat"){ if(b>=0) dematCash+=b; else overdraft+=-b; }
+    else if(a.type==="card"){ if(b<0) cardLiab+=-b; else cardAsset+=b; }
+    else { if(b>=0) bank+=b; else overdraft+=-b; }
   }
   for(const h of S.holdings){ if(!(owner&&h.owner!==owner)) holdings+=toDisplay(holdPos(h).v,h.cur); }
+  let iouIn=0, iouOut=0;
+  for(const v of Object.values(personPos(owner))){ if(v>=0) iouIn+=v; else iouOut+=-v; }
   const loans=loansReceivable(owner);
   const ins=insuranceValues(owner);
-  // Investments subset: demat cash + security holdings + insurance cash/fund values (once)
-  const invested=dematCash+holdings+ins.cashValue;
+  const liquid=cash+bank+dematCash+cardAsset;
+  const invested=holdings+ins.cashValue;
+  const owedToYou=loans.receivable+iouIn;
+  const youOwe=cardLiab+overdraft+loans.payable+iouOut;
+  const assets=liquid+invested+owedToYou;
+  const liabilities=youOwe;
   return {
-    cash, bank, demat:dematCash, holdings, invested,
-    cardLiab, loansReceivable:loans.receivable, loansPayable:loans.payable,
+    cash, bank, demat:dematCash, holdings, invested, liquid,
+    cardLiab, cardAsset, overdraft,
+    loansReceivable:loans.receivable, loansPayable:loans.payable,
     loanPrincipal:loans.principalRecv, loanInterest:loans.interestRecv,
-    insuranceCoverage:ins.coverage, insuranceCash:ins.cashValue
+    iouIn, iouOut, owedToYou, youOwe,
+    insuranceCoverage:ins.coverage, insuranceCash:ins.cashValue,
+    assets, liabilities, total:assets-liabilities
   };
 }
 function personalAssetsValue(owner){
@@ -1065,57 +1197,29 @@ function personalAssetsValue(owner){
 }
 
 function netWorthBreakdown(owner){
-  const parts={accounts:0,accountLiab:0,holdings:0,personAssets:0,personLiab:0,loansRecv:0,loansPay:0,insCash:0};
-  for(const a of S.accounts){
-    if(a.archived||(owner&&a.owner!==owner)) continue;
-    const b=toDisplay(balance(a),a.cur);
-    if(b>=0) parts.accounts+=b; else parts.accountLiab+=-b;
-  }
-  for(const h of S.holdings){ if(!(owner&&h.owner!==owner)) parts.holdings+=toDisplay(holdPos(h).v,h.cur); }
-  for(const v of Object.values(personPos(owner))){ if(v>=0) parts.personAssets+=v; else parts.personLiab+=-v; }
-  const loans=loansReceivable(owner);
-  parts.loansRecv=loans.receivable; parts.loansPay=loans.payable;
-  parts.insCash=insuranceValues(owner).cashValue;
-  parts.assets=parts.accounts+parts.holdings+parts.personAssets+parts.loansRecv+parts.insCash;
-  parts.liabilities=parts.accountLiab+parts.personLiab+parts.loansPay;
-  parts.total=parts.assets-parts.liabilities;
-  return parts;
+  const w=wealthBreakdown(owner);
+  return {
+    accounts:w.liquid, accountLiab:w.cardLiab+w.overdraft, holdings:w.holdings,
+    personAssets:w.iouIn, personLiab:w.iouOut,
+    loansRecv:w.loansReceivable, loansPay:w.loansPayable, insCash:w.insuranceCash,
+    assets:w.assets, liabilities:w.liabilities, total:w.total
+  };
 }
 function netWorth(owner){
-  let assets=0, owed=0;
-  for(const a of S.accounts){
-    if(a.archived||(owner&&a.owner!==owner)) continue;
-    const b=toDisplay(balance(a),a.cur);
-    if(b>=0) assets+=b; else owed+=-b;
-  }
-  // Security holdings (stocks/funds) — not included in account balances
-  for(const h of S.holdings){
-    if(owner&&h.owner!==owner) continue;
-    assets+=toDisplay(holdPos(h).v,h.cur);
-  }
-  // Legacy person balances from marked transfers (pd)
-  for(const v of Object.values(personPos(owner))){
-    if(v>=0) assets+=v; else owed+=-v;
-  }
-  const loans=loansReceivable(owner);
-  assets+=loans.receivable;
-  owed+=loans.payable;
-  // Insurance: cash/fund/surrender only — never sum assured
+  const w=wealthBreakdown(owner);
   const ins=insuranceValues(owner);
-  assets+=ins.cashValue;
-  assets+=personalAssetsValue(owner);
-  const actual=assets-owed;
+  const actual=w.total;
   const adjusted=actual+(ins.coverageForAdjusted||0);
   return {
-    assets, owed, total:actual, actual,
+    assets:w.assets, owed:w.liabilities, total:actual, actual,
     adjusted, adjustedNetWorth:adjusted,
-    loansReceivable:loans.receivable, loansPayable:loans.payable,
-    insuranceCoverage:ins.coverage, insuranceCash:ins.cashValue,
+    loansReceivable:w.loansReceivable, loansPayable:w.loansPayable,
+    insuranceCoverage:w.insuranceCoverage, insuranceCash:w.insuranceCash,
     coverageInAdjusted:!!getNwPrefs().insuranceCoverage
   };
 }
 
-function historyHtml(owner){const hs=(S.history||[]).filter(x=>owner?x.owner===owner:!x.owner).slice(-12).reverse();return `<h2>Net worth history</h2><div class="card">${hs.length?hs.map(x=>`<div class="row"><span>${esc(x.date)}</span><b class="num">${fmt(toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate),S.display)}</b></div>`).join(""):`<div class="muted">No saved snapshots yet for this view.</div>`}<button class="btn alt" data-snapshot>Save this month's snapshot</button></div><button class="btn alt" data-tab="activity">See all activity</button>`;}
+function historyHtml(owner){const hs=(S.history||[]).filter(x=>owner?x.owner===owner:!x.owner).slice(-12).reverse();return `<h2>Net worth history</h2><div class="card">${hs.length?hs.map(x=>`<div class="row"><span>${esc(x.date)}</span><b class="num">${fmtHide(toDisplayAt(x.value,x.cur||S.display,x.fxRate||S.rate),S.display)}</b></div>`).join(""):`<div class="muted">No saved snapshots yet for this view.</div>`}<button class="btn alt" data-snapshot>Save this month's snapshot</button></div><button class="btn alt" data-tab="activity">See all activity</button>`;}
 function investSummaryHtml(owner){
   let cost=0,val=0,n=0;
   for(const h of S.holdings){
@@ -1128,9 +1232,9 @@ function investSummaryHtml(owner){
   const bar=cost>0?Math.min(100,Math.max(0,Math.round(val/Math.max(cost,val)*100))):0;
   return `<h2>Investments</h2><div class="card">
   <div class="row"><span>Holdings</span><b>${n}</b></div>
-  <div class="row"><span>Invested (cost)</span><b class="num">${fmt(cost,S.display)}</b></div>
-  <div class="row"><span>Current value</span><b class="num">${fmt(val,S.display)}</b></div>
-  <div class="row"><span>Unrealized P/L</span><b class="num ${pl<0?"out":"in"}">${fmt(pl,S.display)} · ${pct}%</b></div>
+  <div class="row"><span>Invested (cost)</span><b class="num">${fmtHide(cost,S.display)}</b></div>
+  <div class="row"><span>Current value</span><b class="num">${fmtHide(val,S.display)}</b></div>
+  <div class="row"><span>Unrealized P/L</span><b class="num ${pl<0?"out":"in"}">${fmtHide(pl,S.display)} · ${pct}%</b></div>
   <div class="bar" style="margin-top:10px"><i style="width:${bar}%"></i></div>
   <div class="muted" style="margin-top:6px">Bar shows current value vs cost. Prices are manual unless updated from a portfolio import.</div>
   </div>`;
@@ -1202,7 +1306,7 @@ function viewSettings(){
   </div>
   <div class="card"><b>Privacy</b>
   <div class="row"><span>Hide balances on Home</span><button type="button" class="chip ${S.hideBalances?"on":""}" data-togglehide>${S.hideBalances?"On":"Off"}</button></div>
-  <div class="muted">Masks net worth on the dashboard. Details remain visible in Money.</div></div>
+  <div class="muted">Masks amounts on Home, Money, Plan, and Activity. Open a record if you still need the figure. Turn this off before sharing the screen.</div></div>
   <div class="card"><b>Appearance</b>
   <label>Theme</label>
   <select id="themePref"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
@@ -1217,7 +1321,10 @@ function viewSettings(){
   ${bioOn
     ?`<button class="btn alt" data-bio-disable style="margin-top:8px">Disable fingerprint unlock</button>`
     :`<button class="btn alt" data-bio-enable style="margin-top:8px">Enable fingerprint unlock</button>`}
-  <button class="btn alt" data-change-pass>Change passphrase</button></div>
+  <button class="btn alt" data-change-pass>Change passphrase</button>
+  <button class="btn alt" data-locknow>Lock now</button></div>
+
+  <h2 class="more-kicker">Backup</h2>
 
   <div class="card"><b>Backup</b>
   <div class="muted" id="backupFolderStatus">Checking backup folder…</div>
@@ -1227,6 +1334,7 @@ function viewSettings(){
   <label class="btn alt" style="display:block;text-align:center;margin-top:8px">Restore backup<input type="file" id="file" accept=".enc,application/octet-stream,*/*" hidden></label>
   <div class="muted" style="margin-top:8px">Backups are encrypted with your passphrase. Prefer a verified backup before updates.</div></div>
 
+  <h2 class="more-kicker">Danger zone</h2>
   <div class="card"><b>Maintenance</b>
   <button class="btn alt" data-check>Integrity check</button>
   <button class="btn alt" data-csv>Export CSV</button>
@@ -1252,7 +1360,8 @@ function chartHtml(owner){
   const rows=ms.map(m=>({m,...monthTotals(m,owner)}));const max=Math.max(1,...rows.map(x=>Math.max(x.inc,x.exp)));
   const w=320,h=138,base=105,barW=13,gap=35,startX=22;
   const bars=rows.map((x,i)=>{const x0=startX+i*gap;const hi=Math.max(1,x.inc/max*72),he=Math.max(1,x.exp/max*72);return `<rect x="${x0}" y="${base-hi}" width="11" height="${hi}" rx="3" fill="var(--in)"/><rect x="${x0+13}" y="${base-he}" width="11" height="${he}" rx="3" fill="var(--out)"/><text x="${x0+12}" y="126" text-anchor="middle" font-size="8" fill="var(--muted)">${esc(x.m.slice(5))}</text>`}).join("");
-  return `<h2>Cash flow · last 6 months</h2><div class="card"><svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Monthly income and spending bar chart"><line x1="10" y1="${base}" x2="310" y2="${base}" stroke="var(--line)"/>${bars}</svg><div class="chart-legend"><span><i class="dot" style="background:var(--in)"></i>Income</span><span><i class="dot" style="background:var(--out)"></i>Spending</span></div></div>`;
+  const topLbl=S.hideBalances?"":`<text x="12" y="16" font-size="9" fill="var(--muted)">${esc(fmt(max,S.display))}</text>`;
+  return `<h2>Cash flow · last 6 months</h2><div class="card"><svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Monthly income and spending bar chart"><line x1="10" y1="${base}" x2="310" y2="${base}" stroke="var(--line)"/>${topLbl}${bars}</svg><div class="chart-legend"><span><i class="dot" style="background:var(--in)"></i>Income</span><span><i class="dot" style="background:var(--out)"></i>Spending</span></div></div>`;
 }
 function netWorthChartHtml(owner){
   const hs=(S.history||[]).filter(x=>owner?x.owner===owner:!x.owner).slice(-6);
@@ -1261,19 +1370,19 @@ function netWorthChartHtml(owner){
   const lo=Math.min(...vals),hi=Math.max(...vals),span=Math.max(1,hi-lo),w=320,h=126;
   const pts=vals.map((v,i)=>`${18+i*(284/Math.max(1,vals.length-1))},${92-(v-lo)/span*68}`).join(' ');
   const labels=hs.map((x,i)=>`<text x="${18+i*(284/Math.max(1,hs.length-1))}" y="112" text-anchor="middle" font-size="8" fill="var(--muted)">${esc((x.date||'').slice(0,7))}</text>`).join('');
-  return `<h2>Net worth trend</h2><div class="card"><svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Net worth history line chart"><line x1="12" y1="92" x2="308" y2="92" stroke="var(--line)"/><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${vals.map((v,i)=>`<circle cx="${18+i*(284/Math.max(1,vals.length-1))}" cy="${92-(v-lo)/span*68}" r="3.5" fill="var(--accent)"/>`).join('')}${labels}</svg><div class="muted">${fmt(vals[vals.length-1],S.display)} latest saved snapshot</div></div>`;
+  return `<h2>Net worth trend</h2><div class="card"><svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Net worth history line chart"><line x1="12" y1="92" x2="308" y2="92" stroke="var(--line)"/><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${vals.map((v,i)=>`<circle cx="${18+i*(284/Math.max(1,vals.length-1))}" cy="${92-(v-lo)/span*68}" r="3.5" fill="var(--accent)"/>`).join('')}${labels}</svg><div class="muted">${S.hideBalances?"••••••":fmt(vals[vals.length-1],S.display)} latest · scale ${S.hideBalances?"hidden":fmt(lo,S.display)+" to "+fmt(hi,S.display)}</div></div>`;
 }
 function allocationHtml(owner){
+  const w=wealthBreakdown(owner);
   const parts=[];
-  let cash=0,invest=0,receivable=0;
-  for(const a of S.accounts){if(a.archived||(owner&&a.owner!==owner))continue;const v=toDisplay(balance(a),a.cur);if(v>0)cash+=v;}
-  for(const h of S.holdings){if(owner&&h.owner!==owner)continue;const v=toDisplay(holdPos(h).v,h.cur);if(v>0)invest+=v;}
-  for(const v of Object.values(personPos(owner)))if(v>0)receivable+=v;
-  if(cash>0)parts.push(['Cash & accounts',cash]);if(invest>0)parts.push(['Investments',invest]);if(receivable>0)parts.push(['Money lent',receivable]);
-  const total=parts.reduce((a,x)=>a+x[1],0);if(!total)return '';
-  const colors=['var(--accent)','var(--in)','var(--warn)'];let offset=0;
-  const seg=parts.map(([n,v],i)=>{const pct=v/total*100,el=`<span style="display:block;height:12px;width:${pct}%;background:${colors[i]}"></span>`;return {n,v,pct,el};});
-  return `<h2>Asset mix</h2><div class="card"><div style="display:flex;overflow:hidden;border-radius:8px;gap:2px">${seg.map(x=>x.el).join('')}</div>${seg.map((x,i)=>`<div class="row"><span><i class="dot" style="background:${colors[i]}"></i>${x.n}</span><b class="num">${fmt(x.v,S.display)} · ${Math.round(x.pct)}%</b></div>`).join('')}</div>`;
+  if(w.liquid>0) parts.push(["Cash & bank", w.liquid]);
+  if(w.holdings>0) parts.push(["Investments", w.holdings]);
+  if(w.insuranceCash>0) parts.push(["Insurance value", w.insuranceCash]);
+  if(w.owedToYou>0) parts.push(["Owed to you", w.owedToYou]);
+  const total=parts.reduce((a,x)=>a+x[1],0); if(!total) return "";
+  const colors=["var(--accent)","var(--in)","var(--warn)","#7c3aed"];
+  const seg=parts.map(([n,v],i)=>{const pct=v/total*100; return {n,v,pct,el:`<span style="display:block;height:12px;width:${pct}%;background:${colors[i%colors.length]}"></span>`};});
+  return `<h2>Asset mix</h2><div class="card"><div style="display:flex;overflow:hidden;border-radius:8px;gap:2px">${seg.map(x=>x.el).join("")}</div>${seg.map((x,i)=>`<div class="row"><span><i class="dot" style="background:${colors[i%colors.length]}"></i>${x.n}</span><b class="num">${fmtHide(x.v,S.display)} · ${Math.round(x.pct)}%</b></div>`).join("")}</div>`;
 }
 
 function viewHome0(){
@@ -1314,14 +1423,14 @@ function viewHome0(){
     ${nw.coverageInAdjusted?`<div class="muted" style="margin-top:10px;line-height:1.4">Adjusted position <b>${fmtHide(nw.adjusted,S.display)}</b><br><span style="font-size:11px">Includes insurance cover ${fmtHide(nw.insuranceCoverage,S.display)} (not cash you hold)</span></div>`:""}
   </div>
   <div class="wealth-grid nw-breakdown">
-    <div class="wealth-pill"><span>Cash</span><b class="num">${fmtHide(wb.cash,S.display)}</b></div>
-    <div class="wealth-pill"><span>Bank</span><b class="num">${fmtHide(wb.bank,S.display)}</b></div>
-    <div class="wealth-pill"><span>Investments</span><b class="num">${fmtHide(wb.invested,S.display)}</b></div>
-    <div class="wealth-pill"><span>Loans receivable</span><b class="num">${fmtHide(wb.loansReceivable,S.display)}</b></div>
-    <div class="wealth-pill"><span>Cards owed</span><b class="num out">${fmtHide(wb.cardLiab,S.display)}</b></div>
-    <div class="wealth-pill"><span>Insurance cover</span><b class="num">${fmtHide(wb.insuranceCoverage,S.display)}</b></div>
+    <div class="wealth-pill"><span>Cash & bank</span><b class="num">${fmtHide(wb.cash+wb.bank+wb.cardAsset,S.display)}</b></div>
+    <div class="wealth-pill"><span>Demat cash</span><b class="num">${fmtHide(wb.demat,S.display)}</b></div>
+    <div class="wealth-pill"><span>Investments</span><b class="num">${fmtHide(wb.holdings+wb.insuranceCash,S.display)}</b></div>
+    <div class="wealth-pill"><span>Owed to you</span><b class="num">${fmtHide(wb.owedToYou,S.display)}</b></div>
+    <div class="wealth-pill"><span>Cards & overdraft</span><b class="num out">${fmtHide(wb.cardLiab+wb.overdraft,S.display)}</b></div>
+    <div class="wealth-pill"><span>You owe</span><b class="num out">${fmtHide(wb.loansPayable+wb.iouOut,S.display)}</b></div>
   </div>
-  <p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Cover is protection only. Investments count once. Loans follow your net-worth preferences under More.</p>
+  <p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">These six tiles equal actual net worth. Demat cash is uninvested cash, not your stocks. Insurance cover ${fmtHide(wb.insuranceCoverage,S.display)} is protection only and is not included.</p>
 
   <div class="card">
     <div class="row"><span>Income this month</span><b class="num in">${fmtHide(t.inc,S.display)}</b></div>
@@ -1343,9 +1452,9 @@ function viewHome0(){
 function txnRow(t){
   const p=t.postings[0]||{amt:t.cost,cur:(S.holdings.find(h=>h.id===t.hold)||{}).cur||"INR"}, a=acct(p.acct);
   let amt, cls, title;
-  if(t.type==="transfer"){ const to=t.postings[1]; title=`${esc(a?a.name:"?")} → ${esc(acct(to.acct)?acct(to.acct).name:"?")}`; amt=fmt(-p.amt,p.cur); cls=""; }
-  else { title=t.type in LBL?LBL[t.type]+esc(t.person||(S.holdings.find(h=>h.id===t.hold)||{}).name||t.cat||""):esc(t.cat||t.type); amt=(p.amt<0?"−":"+")+fmt(Math.abs(p.amt),p.cur); cls=p.amt<0?"out":"in"; }
-  return `<div class="row ${t.status==="voided"?"void":""}" data-txn="${t.id}">
+  if(t.type==="transfer"){ const to=t.postings[1]; title=`${esc(a?a.name:"?")} → ${esc(acct(to.acct)?acct(to.acct).name:"?")}`; amt=fmtHide(-p.amt,p.cur); cls=""; }
+  else { title=t.type in LBL?LBL[t.type]+esc(t.person||(S.holdings.find(h=>h.id===t.hold)||{}).name||t.cat||""):esc(t.cat||t.type); amt=(p.amt<0?"−":"+")+fmtHide(Math.abs(p.amt),p.cur); cls=p.amt<0?"out":"in"; }
+  return `<div class="row ${t.status==="voided"?"void":""}" data-txn="${esc(t.id)}">
     <div><div>${title}</div><div class="muted">${esc(t.date)}${t.note?" · "+esc(t.note):""}${a&&t.type!=="transfer"?" · "+esc(a.name):""}${a&&a.owner&&a.owner!=="Me"?" · "+esc(a.owner):""}</div></div>
     <b class="${cls} num">${amt}</b></div>`;
 }
@@ -1365,7 +1474,7 @@ function viewActivity(){
   }
   return `<h2 style="margin-top:4px">Activity</h2>
   <input id="q" type="search" placeholder="Search note, category, person" value="${esc(q)}">
-  <select id="fa" style="margin-top:8px"><option value="">All accounts</option>${S.accounts.map(a=>`<option value="${a.id}" ${filterAcct===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
+  <select id="fa" style="margin-top:8px"><option value="">All accounts</option>${S.accounts.map(a=>`<option value="${esc(a.id)}" ${filterAcct===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
   <select id="ft" style="margin-top:8px"><option value="">All types</option>${["expense","income","transfer","buy","sell","lend","borrow","adjustment","open","refund"].map(t=>`<option value="${t}" ${filterType===t?"selected":""}>${t}</option>`).join("")}</select>
   <div class="row" style="margin-top:8px"><span class="muted">${list.length} match${list.length===1?"":"es"}</span>
   ${(filterAcct||filterType||q)?`<button type="button" class="chip" data-clearfilters>Clear filters</button>`:""}</div>
@@ -1393,7 +1502,7 @@ function viewAccounts(){
     if(banks) bits.push(banks+" bank");
     if(upis) bits.push(upis+" UPI");
     const inFam=(S.people||[]).includes(c.name);
-    return `<div class="card tap" data-contact="${c.id}"><div class="row"><div><b>${esc(c.name)}</b><div class="muted">${bits.join(" · ")}${inFam?" · Family view":""}</div></div><span class="muted">Open</span></div></div>`;
+    return `<div class="card tap" data-contact="${esc(c.id)}"><div class="row"><div><b>${esc(c.name)}</b><div class="muted">${bits.join(" · ")}${inFam?" · Family view":""}</div></div><span class="muted">Open</span></div></div>`;
   }).join("")||`<div class="empty"><div class="empty-title">No people yet</div><p>Register a friend once, then add multiple accounts or UPI IDs.</p></div>`}
   <button class="btn" data-newcontact>Add person</button>`;
   }
@@ -1423,24 +1532,24 @@ function viewAccounts(){
       <button type="button" class="chip ${f==="fund"?"on":""}" data-moneyholdf="fund">Funds</button>
     </div>`;
     const dematHtml=(f==="all"||f==="demat")?demats.map(a=>{
-      const b=balance(a); const cost=Number(a.invested)||0; const g=b-cost;
-      return `<div class="card tap rec-card" data-acct="${a.id}">
+      const b=balance(a);
+      return `<div class="card tap rec-card" data-acct="${esc(a.id)}">
         <div class="name">${esc(a.name)}</div>
         <div class="meta">Demat${a.broker?" · "+esc(a.broker):""} · ${esc(a.owner||"Me")}</div>
-        <div class="muted" style="font-size:11px;margin-top:6px">Cash / settlement balance</div>
-        <div class="amt num">${fmt(b,a.cur)}</div>
-        <div class="rec-foot"><span class="muted" style="font-size:12px">Invested cost ${fmt(cost,a.cur)} · <span class="${g>=0?"in":"out"}">${g>=0?"+":""}${fmt(g,a.cur)}</span></span></div>
+        <div class="muted" style="font-size:11px;margin-top:6px">Uninvested cash only</div>
+        <div class="amt num">${fmtHide(b,a.cur)}</div>
+        <div class="rec-foot"><span class="muted" style="font-size:12px">Holdings are counted separately. Do not put the portfolio value here.</span></div>
         
       </div>`;
     }).join(""):"";
     const holdHtml=(f!=="demat")?holds.map(h=>{
       const hp=holdPos(h); const g=hp.v-hp.c;
-      return `<div class="card tap rec-card" data-hold="${h.id}">
+      return `<div class="card tap rec-card" data-hold="${esc(h.id)}">
         <div class="name">${esc(h.name)}</div>
         <div class="meta">${h.type==="fund"?"Mutual fund":"Stock"}${h.folio?" · "+esc(h.folio):""} · ${esc(h.owner||"Me")}</div>
-        <div class="amt num">${fmt(hp.v,h.cur)}</div>
+        <div class="amt num">${fmtHide(hp.v,h.cur)}</div>
         <div class="rec-foot">
-          <span class="muted" style="font-size:12px">${hp.u} units · cost ${fmt(hp.c,h.cur)} · <span class="${g>=0?"in":"out"}">${g>=0?"+":""}${fmt(g,h.cur)}</span></span>
+          <span class="muted" style="font-size:12px">${hp.u} units · cost ${fmtHide(hp.c,h.cur)} · <span class="${g>=0?"in":"out"}">${g>=0?"+":""}${fmtHide(g,h.cur)}</span></span>
         </div>
         
       </div>`;
@@ -1448,13 +1557,14 @@ function viewAccounts(){
     return segBar+`<h2 style="margin-top:4px">Investments</h2>
   ${f==="demat"?sortBarHtml("demat",[{key:"name",label:"Name"},{key:"value",label:"Portfolio value"}]):sortBarHtml("holdings",[{key:"name",label:"Name"},{key:"value",label:"Value"},{key:"cost",label:"Invested"},{key:"pl",label:"P/L"},{key:"pct",label:"% return"}])}
   <div class="mod-hero">
-    <div class="muted">Current value</div>
-    <div class="big num">${fmt(invVal,S.display)}</div>
+    <div class="muted">Holdings + demat cash</div>
+    <div class="big num">${fmtHide(invVal,S.display)}</div>
     <div class="mod-metrics">
-      <div class="mod-metric"><span>Invested (cost)</span><b class="num">${fmt(invCost,S.display)}</b></div>
-      <div class="mod-metric"><span>Unrealized</span><b class="num ${gain>=0?"in":"out"}">${gain>=0?"+":""}${fmt(gain,S.display)}</b></div>
+      <div class="mod-metric"><span>Invested (cost)</span><b class="num">${fmtHide(invCost,S.display)}</b></div>
+      <div class="mod-metric"><span>Unrealized</span><b class="num ${gain>=0?"in":"out"}">${gain>=0?"+":""}${fmtHide(gain,S.display)}</b></div>
     </div>
   </div>
+  <p class="muted">Demat rows are cash at the broker. Stocks and funds are separate. The same value in both is counted twice.</p>
   ${filterBar}
   <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
     <button type="button" class="chip" data-newdemat>+ Demat</button>
@@ -1492,12 +1602,12 @@ function viewAccounts(){
     const used=a.type==="card"&&a.limit?Math.min(100,Math.round(Math.max(0,-b)/a.limit*100)):0;
     const typeLbl=a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank";
     const meta=[a.owner||"Me", typeLbl, a.bank||"", a.accountMasked||"", a.cardMeta?.last4?("•••• "+a.cardMeta.last4):""].filter(Boolean).join(" · ");
-    return `<div class="card tap rec-card" data-acct="${a.id}">
+    return `<div class="card tap rec-card" data-acct="${esc(a.id)}">
       <div class="name">${esc(a.name)}</div>
       <div class="meta">${esc(meta)}</div>
-      <div class="amt num ${b<0?"out":""}">${fmt(b,a.cur)}</div>
+      <div class="amt num ${b<0?"out":""}">${fmtHide(b,a.cur)}</div>
       ${a.type==="card"&&a.limit?`<div class="lend-progress ${used>=90?"full":""}" style="margin-top:8px"><i style="width:${used}%;background:${used>=90?"var(--out)":used>=70?"var(--warn)":"var(--accent)"}"></i></div>
-      <div class="muted" style="font-size:11px;margin-top:4px">${used}% of ${fmt(a.limit,a.cur)} limit</div>`:""}
+      <div class="muted" style="font-size:11px;margin-top:4px">${used}% of ${fmtHide(a.limit,a.cur)} limit</div>`:""}
       
     </div>`;
   }).join("");
@@ -1505,11 +1615,11 @@ function viewAccounts(){
   ${sortBarHtml("accounts",[{key:"name",label:"Name"},{key:"balance",label:"Balance"}])}
   <div class="mod-hero">
     <div class="muted">Bank + cash</div>
-    <div class="big num">${fmt(sumBank+sumCash,S.display)}</div>
+    <div class="big num">${fmtHide(sumBank+sumCash,S.display)}</div>
     <div class="mod-metrics">
-      <div class="mod-metric"><span>Bank</span><b class="num">${fmt(sumBank,S.display)}</b></div>
-      <div class="mod-metric"><span>Cash</span><b class="num">${fmt(sumCash,S.display)}</b></div>
-      <div class="mod-metric"><span>Cards owed</span><b class="num out">${fmt(sumCard,S.display)}</b></div>
+      <div class="mod-metric"><span>Bank</span><b class="num">${fmtHide(sumBank,S.display)}</b></div>
+      <div class="mod-metric"><span>Cash</span><b class="num">${fmtHide(sumCash,S.display)}</b></div>
+      <div class="mod-metric"><span>Cards owed</span><b class="num out">${fmtHide(sumCard,S.display)}</b></div>
       <div class="mod-metric"><span>Accounts</span><b>${list.length}</b></div>
     </div>
   </div>
@@ -1585,7 +1695,8 @@ function readmeHtml(){
 
 <div class="card"><b>8. Tips</b>
 <ul class="muted" style="margin:6px 0 0;padding-left:18px;line-height:1.5">
-<li>Transfers between your accounts are not income/expense.</li>
+<li>Transfers between your accounts are not income or expense. Paying a credit card is a transfer from bank to card, not an expense.</li>
+<li>A card purchase is an expense on the card. Paying the bill later only moves money.</li>
 <li>External send uses Contacts and is recorded as spending.</li>
 <li>SIPs/salaries can auto-post when you unlock (toggle in More).</li>
 <li>If the app looks old after an update, clear site cache and reopen.</li>
@@ -1685,7 +1796,58 @@ function openSheet(html){ $("#layer").innerHTML = `<div class="sheet-bg" data-cl
   // Wire card expiry widgets if present
   try{ ["adexpiry","cexpiry","expiry"].forEach(id=>{ if(document.getElementById(id)) wireExpiryField(id); }); }catch(e){}
 }
-function closeSheet(){ $("#layer").innerHTML=""; }
+function closeSheet(){
+  $("#layer").innerHTML="";
+  if(passWait){ const r=passWait; passWait=null; r(null); }
+}
+function askPassphrase(title, body){
+  return new Promise(resolve=>{
+    passWait=resolve;
+    openSheet(`<h2 style="margin-top:0">${esc(title)}</h2>
+      <p class="muted">${esc(body||"")}</p>
+      <form id="faskpass" autocomplete="off">
+        <label>Passphrase</label>
+        <input id="askPass" type="password" autocomplete="current-password" required>
+        <button class="btn" type="submit">Continue</button>
+      </form>
+      <button class="btn alt" type="button" id="askPassCancel">Cancel</button>`);
+    const c=$("#askPassCancel");
+    if(c) c.onclick=()=>{ const r=passWait; passWait=null; closeSheet(); if(r) r(null); };
+    setTimeout(()=>{ const i=$("#askPass"); if(i) i.focus(); }, 40);
+  });
+}
+function toastAutomations(auto){
+  if(!auto) return;
+  const bits=[];
+  if(auto.sips) bits.push(auto.sips+" SIP(s) posted");
+  if(auto.salaries) bits.push(auto.salaries+" salary posted");
+  if(auto.skipped) bits.push(auto.skipped+" schedule(s) skipped — set a fund price or restore the account");
+  if(bits.length) setTimeout(()=>toast(bits.join(" · ")), 450);
+}
+function backupTooLarge(text){ return String(text||"").length>6000000; }
+function vaultHasUnsafeId(v, depth){
+  if((depth||0)>14 || v==null) return false;
+  if(Array.isArray(v)){
+    if(v.length>80000) return true;
+    return v.some(x=>vaultHasUnsafeId(x, (depth||0)+1));
+  }
+  if(typeof v==="object"){
+    if(typeof v.id==="string" && /[<>"'&]/.test(v.id)) return true;
+    return Object.values(v).some(x=>vaultHasUnsafeId(x, (depth||0)+1));
+  }
+  return false;
+}
+function refreshAmtPreview(){
+  const prev=$("#amtPreview"), input=$("#amt");
+  if(!prev||!input) return;
+  const raw=String(input.value||"").trim();
+  if(!raw){ prev.textContent=""; return; }
+  const n=parseAmt(raw);
+  const a=acct($("#from")&&$("#from").value);
+  const cur=(a&&a.cur)||S.display;
+  if(n<0) prev.textContent="Interpreted as "+fmt(n, cur)+". Negative amounts are not saved.";
+  else prev.textContent="Will record "+fmt(n, cur);
+}
 function toast(msg, undo){
   const el=document.createElement("div"); el.className="toast"; el.innerHTML=`<span>${esc(msg)}</span>${undo?`<button>Undo</button>`:""}`;
   document.body.appendChild(el);
@@ -1711,14 +1873,18 @@ function addSheet(){
   const cats = sheetType==="income"?incomeCats():expenseCats();
   if(!chosenCat || !cats.includes(chosenCat)) chosenCat = cats[0];
   const def = S.lastAcct && acct(S.lastAcct) ? S.lastAcct : S.accounts[0].id;
-  const opts = (sel)=>S.accounts.filter(a=>!a.archived).map(a=>`<option value="${a.id}" ${a.id===sel?"selected":""}>${esc(a.name)} · ${acctTypeLabel(a)} (${a.cur})</option>`).join("");
+  const opts = (sel)=>S.accounts.filter(a=>!a.archived).map(a=>`<option value="${esc(a.id)}" ${a.id===sel?"selected":""}>${esc(a.name)} · ${acctTypeLabel(a)} (${a.cur})</option>`).join("");
   const other = S.accounts.find(a=>a.id!==def && a.type!=="card") || S.accounts.find(a=>a.id!==def);
+  const fromPref=(xferPrefill&&xferPrefill.from)||def;
+  const toPref=(xferPrefill&&xferPrefill.to)||(other?other.id:def);
+  xferPrefill=null;
   const chips = sheetType==="transfer" ? [500,1000,2000,5000,10000] : [50,100,200,500,1000,2000,5000];
   const catKind = sheetType==="income"?"income":"expense";
   openSheet(`
   <div class="seg" id="seg">${["expense","income","transfer","invest","lend"].map(k=>`<button data-type="${k}" class="${sheetType===k?"on":""}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}</div>
   <form id="f" autocomplete="off">
     <input class="amt" id="amt" inputmode="decimal" placeholder="0" aria-label="Amount" autofocus>
+    <div id="amtPreview" class="amt-preview muted"></div>
     <div class="amt-chips">${chips.map(n=>`<button type="button" class="chip" data-amtchip="${n}">${n>=1000?(n/1000)+"k":n}</button>`).join("")}</div>
     ${sheetType==="transfer"?`
       <div class="seg" id="xferModeSeg" style="margin-top:10px">
@@ -1731,14 +1897,14 @@ function addSheet(){
         <label>Recipient method</label>
         <select id="recipientBank">
           <option value="">Select person · account / UPI…</option>
-          ${(S.contacts||[]).flatMap(c=>(c.methods||[]).map(m=>`<option value="${c.id}::${m.id}">${esc(c.name)} · ${m.kind==="upi"?"UPI "+esc(m.upi||m.accountNumber||""):esc(m.bank||"Bank")+" "+esc(m.accountMasked||m.upi||"")}</option>`)).join("")}
+          ${(S.contacts||[]).flatMap(c=>(c.methods||[]).map(m=>`<option value="${esc(c.id)}::${esc(m.id)}">${esc(c.name)} · ${m.kind==="upi"?"UPI "+esc(m.upi||m.accountNumber||""):esc(m.bank||"Bank")+" "+esc(m.accountMasked||m.upi||"")}</option>`)).join("")}
         </select>
         ${(S.contacts||[]).some(c=>(c.methods||[]).length)?"":`<div class="muted">No payment methods yet. Add a person under Money → Contacts.</div>`}
         <div id="recvWrap"></div>
       `:`
         <p class="muted" style="margin:10px 0 0">Self-transfer: only <b>your</b> bank, cash, or cards. Not income or expense.</p>
-        <label>From (your account)</label><select id="from">${opts(def)}</select>
-        <label>To (your account)</label><select id="to">${opts(other?other.id:def)}</select>
+        <label>From (your account)</label><select id="from">${opts(fromPref)}</select>
+        <label>To (your account)</label><select id="to">${opts(toPref)}</select>
         <div id="recvWrap"></div>
       `}`:`
       <div class="row" style="margin-top:8px;align-items:center"><label style="margin:0">Category</label>
@@ -1746,7 +1912,7 @@ function addSheet(){
       <div class="chips" id="cats">${cats.map(c=>`<button type="button" class="chip ${c===chosenCat?"on":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}</div>
       <label>${sheetType==="income"?"Into account (bank or cash)":"Paid from (bank, cash, or card)"}</label>
       <select id="from">${opts(def)}</select>
-      <div class="muted" style="margin-top:6px">${sheetType==="income"?"Cash income: choose a Cash account. Salary to bank: choose that bank account.":"Cash spending: choose Cash. Card purchase: choose the credit card."}</div>`}
+      <div class="muted" style="margin-top:6px">${sheetType==="income"?"Cash income: choose a Cash account. Salary to bank: choose that bank account.":"A card purchase is spending on the card. Paying the card bill later is a transfer from bank to card, not another expense."}</div>`}
     <label>Date</label><input type="date" id="date" value="${today()}">
     <label>Note (optional)</label><input id="note" maxlength="80" placeholder="Optional">
     ${sheetType==="expense"?`<label class="row" style="align-items:center;gap:8px;margin-top:12px"><input type="checkbox" id="asPurchase" style="width:auto"> Also track as purchase / warranty</label>
@@ -1756,7 +1922,8 @@ function addSheet(){
     </div>`:""}
     <button class="btn" type="submit">Save</button>
   </form>`);
-  setTimeout(()=>{ const a=$("#amt"); if(a) a.focus();
+  setTimeout(()=>{ const a=$("#amt"); if(a){ a.focus(); a.addEventListener("input", refreshAmtPreview); refreshAmtPreview(); }
+    const from=$("#from"); if(from) from.addEventListener("change", refreshAmtPreview);
     const cb=$("#asPurchase"); if(cb){ cb.onchange=()=>{ const x=$("#purchaseExtra"); if(x) x.style.display=cb.checked?"block":"none"; }; }
   },50);
   updateRecv();
@@ -1768,10 +1935,10 @@ function updateRecv(){
 }
 
 function addSheet2(){
-  const opts=S.accounts.filter(x=>!x.archived).map(x=>`<option value="${x.id}" ${x.id===S.lastAcct?"selected":""}>${esc(x.name)} · ${acctTypeLabel(x)} (${x.cur})</option>`).join("");
+  const opts=S.accounts.filter(x=>!x.archived).map(x=>`<option value="${esc(x.id)}" ${x.id===S.lastAcct?"selected":""}>${esc(x.name)} · ${acctTypeLabel(x)} (${x.cur})</option>`).join("");
   const seg=`<div class="seg">${["expense","income","transfer","invest","lend"].map(k=>`<button data-type="${k}" class="${sheetType===k?"on":""}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}</div>`;
   let mid;
-  if(sheetType==="invest") mid=S.holdings.length?`<label>Action</label><select id="ia"><option value="buy">Buy</option><option value="sell">Sell</option></select><label>Holding</label><select id="ih">${S.holdings.map(h=>`<option value="${h.id}">${esc(h.name)} (${h.cur})</option>`).join("")}</select><label>Units or shares</label><input id="iu" inputmode="decimal">`:`<div class="empty">Add a fund or stock first, under Accounts.</div>`;
+  if(sheetType==="invest") mid=S.holdings.length?`<label>Action</label><select id="ia"><option value="buy">Buy</option><option value="sell">Sell</option></select><label>Holding</label><select id="ih">${S.holdings.map(h=>`<option value="${esc(h.id)}">${esc(h.name)} (${h.cur})</option>`).join("")}</select><label>Units or shares</label><input id="iu" inputmode="decimal">`:`<div class="empty">Add a fund or stock first, under Accounts.</div>`;
   else mid=`<label>What happened</label><select id="la"><option value="lend">I lent money</option><option value="lendback">They paid me back</option><option value="borrow">I borrowed</option><option value="repay">I repaid</option><option value="intin">Interest I received</option><option value="intout">Interest I paid</option></select><label>Person</label><input id="lp" list="pl" required><datalist id="pl">${Object.keys(personPos()).map(n=>`<option value="${esc(n)}">`).join("")}</datalist>`;
   openSheet(`${seg}<form id="f2" autocomplete="off"><input class="amt" id="amt" inputmode="decimal" placeholder="0" aria-label="Amount">${mid}<label>Account</label><select id="from">${opts}</select><label>Date</label><input type="date" id="date" value="${today()}"><label>Note (optional)</label><input id="note" maxlength="80"><button class="btn" type="submit">Save</button></form>`);
 }
@@ -1821,13 +1988,13 @@ openSheet(`<h2 style="margin-top:0">${esc(h.name)}</h2>
 <div class="bar" style="margin-top:10px"><i style="width:${barW}%"></i></div>
 </div>
 ${h.notes?`<p class="muted">${esc(h.notes)}</p>`:""}
-<form id="fp"><input type="hidden" id="hid" value="${h.id}">
+<form id="fp"><input type="hidden" id="hid" value="${esc(h.id)}">
 <label>Current price per unit (${h.cur})</label><input id="hp" inputmode="decimal" value="${h.price||""}">
 <button class="btn" type="submit">Update price</button></form>
 <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
 <h2 style="margin:0 0 6px;font-size:16px">Future value forecast</h2>
 <p class="muted" style="margin:0 0 10px">Projects from today’s market value with optional monthly top-ups. Illustration only — not advice.</p>
-<form id="ffv"><input type="hidden" id="fvid" value="${h.id}">
+<form id="ffv"><input type="hidden" id="fvid" value="${esc(h.id)}">
 <label>Expected annual return (%)</label><input id="fvr" inputmode="decimal" value="${h.type==="fund"?"12":"10"}">
 <label>Years to project</label><input id="fvy" inputmode="decimal" value="5">
 <label>Monthly SIP / top-up</label><input id="fvs" inputmode="decimal" value="${(S.sips||[]).filter(x=>x.hold===h.id&&(x.status||'active')==='active').reduce((s,x)=>s+(Number(x.amt)||0)/((x.freq||1)),0)||0}" placeholder="0">
@@ -2203,7 +2370,7 @@ function newLendingSheet(){
       <label>Their account / UPI (optional)</label>
       <select id="lrecv">
         <option value="">— Not specified —</option>
-        ${(S.contacts||[]).flatMap(c=>(c.methods||[]).map(m=>`<option value="${c.id}::${m.id}">${esc(c.name)} · ${m.kind==="upi"?"UPI "+esc(m.upi||m.accountNumber||""):esc(m.bank||"Bank")+" "+esc(m.accountMasked||"")}</option>`)).join("")}
+        ${(S.contacts||[]).flatMap(c=>(c.methods||[]).map(m=>`<option value="${esc(c.id)}::${esc(m.id)}">${esc(c.name)} · ${m.kind==="upi"?"UPI "+esc(m.upi||m.accountNumber||""):esc(m.bank||"Bank")+" "+esc(m.accountMasked||"")}</option>`)).join("")}
       </select>
       <div class="muted">Optional recipient method. Add bank/UPI under Money → Contacts if needed.</div>
     </div>
@@ -2282,7 +2449,7 @@ function lendingDetailSheet(id){
   </div>
 
   <form id="flendedit" class="lend-form">
-    <input type="hidden" id="leid" value="${l.id}">
+    <input type="hidden" id="leid" value="${esc(l.id)}">
     <div class="form-section">
       <div class="form-section-title">Edit details</div>
       <label>Lending amount (${esc(l.cur)})</label>
@@ -2294,8 +2461,8 @@ function lendingDetailSheet(id){
     <button class="btn" type="submit">Save Details</button>
   </form>
   <div class="lend-detail-actions">
-    <button class="btn" data-lendrec="${l.id}">Record repayment</button>
-    <button class="btn alt" data-lendadj="${l.id}">Adjust interest / round off</button>
+    <button class="btn" data-lendrec="${esc(l.id)}">Record repayment</button>
+    <button class="btn alt" data-lendadj="${esc(l.id)}">Adjust interest / round off</button>
     <button class="btn alt" data-close>Close</button>
   </div>`);
 }
@@ -2311,7 +2478,7 @@ function lendingAdjustSheet(id){
     <div class="row"><span>Outstanding interest now</span><b class="num">${fmt(p.interestLeft,l.cur)}</b></div>
   </div>
   <form id="fladj">
-    <input type="hidden" id="la_id" value="${l.id}">
+    <input type="hidden" id="la_id" value="${esc(l.id)}">
     <label>Adjustment type</label>
     <select id="la_type">
       <option value="set">Set agreed interest outstanding to…</option>
@@ -2340,7 +2507,7 @@ function lendingPaymentSheet(id){
     <div class="row"><span>Interest outstanding</span><b class="num">${fmt(p.interestLeft,l.cur)}</b></div>
     <div class="row"><span>Total outstanding</span><b class="num">${fmt(p.totalOutstanding,l.cur)}</b></div>
   </div>
-  <form id="flr"><input type="hidden" id="lrid" value="${l.id}">
+  <form id="flr"><input type="hidden" id="lrid" value="${esc(l.id)}">
   <label>Apply payment to</label><select id="lrtype"><option value="principal">Principal only</option><option value="interest">Interest only</option></select>
   <label>Amount</label><input id="lramt" inputmode="decimal" required>
   <label>Account</label><select id="lracct">${accOpts().map(([v,n])=>`<option value="${v}">${esc(n)}</option>`).join("")}</select>
@@ -2351,8 +2518,7 @@ function lendingPaymentSheet(id){
 function viewPlan(){
   const dl=d=>d<0?`${-d}d overdue`:d===0?"due today":`in ${d}d`;
   const seg = planSeg||"sips";
-  const segBar = `<div class="seg" style="margin:4px 0 12px">
-    <button type="button" data-planseg="sips" class="${seg==="sips"?"on":""}">SIPs</button>
+  const segBar = `<div class="seg wrap" style="margin:4px 0 12px"> class="${seg==="sips"?"on":""}">SIPs</button>
     <button type="button" data-planseg="salaries" class="${seg==="salaries"?"on":""}">Salaries</button>
     <button type="button" data-planseg="lending" class="${seg==="lending"?"on":""}">Lending</button>
     <button type="button" data-planseg="cover" class="${seg==="cover"?"on":""}">Cover</button>
@@ -2362,8 +2528,9 @@ function viewPlan(){
     for(const x of S.salaries){
       const st=x.status||"active";
       if(st==="active"){ active++; const unit=x.freqUnit||"month";
-        if(unit==="month") monthly+=toDisplay(x.amt,x.cur)/(x.freq||1);
-        else if(unit==="week") monthly+=toDisplay(x.amt,x.cur)*52/12/(x.freq===2?2:1);
+        if(unit==="month") monthly+=toDisplay(x.amt,x.cur)/Math.max(1,x.freq||1);
+        else if(unit==="week") monthly+=toDisplay(x.amt,x.cur)*(52/12)/Math.max(1,x.freq||1);
+        else if(unit==="day") monthly+=toDisplay(x.amt,x.cur)*(365.25/12)/Math.max(1,x.freq||1);
         else monthly+=toDisplay(x.amt,x.cur);
       }
     }
@@ -2376,10 +2543,10 @@ function viewPlan(){
       const freqLbl=unit==="week"?(x.freq===2?"Biweekly":"Weekly"):unit==="day"?"Every "+x.freq+" days":(x.freq===1?"Monthly":x.freq===3?"Quarterly":"Every "+x.freq+" months");
       const stClass=st==="active"?(d!=null&&d<=0?"warn":"ok"):"out";
       const dueTxt=st==="stopped"||st==="ended"?lab:(d==null?"—":dl(d));
-      return `<div class="card tap rec-card" data-salary="${x.id}">
+      return `<div class="card tap rec-card" data-salary="${esc(x.id)}">
         <div class="name">${esc(x.label||"Salary")}</div>
         <div class="meta">${esc(x.person||"Me")} · ${esc(a.name||"account")} · ${freqLbl}</div>
-        <div class="amt num">${fmt(x.amt,x.cur)}</div>
+        <div class="amt num">${fmtHide(x.amt,x.cur)}</div>
         <div class="rec-foot">
           <span class="status-pill ${stClass}">${esc(lab)}</span>
           <span class="muted" style="font-size:12px">Next ${esc(x.next||"—")} · ${dueTxt}</span>
@@ -2391,7 +2558,7 @@ function viewPlan(){
   ${sortBarHtml("salaries",[{key:"name",label:"Name"},{key:"amt",label:"Amount"},{key:"next",label:"Next credit"}])}
   <div class="mod-hero">
     <div class="muted">Expected monthly inflow</div>
-    <div class="big num in">${fmt(monthly,S.display)}</div>
+    <div class="big num in">${fmtHide(monthly,S.display)}</div>
     <div class="mod-metrics">
       <div class="mod-metric"><span>Active schedules</span><b>${active}</b></div>
       <div class="mod-metric"><span>Total schedules</span><b>${S.salaries.length}</b></div>
@@ -2399,9 +2566,9 @@ function viewPlan(){
   </div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 8px">
     <h2 style="margin:0;font-size:15px">Schedules</h2>
-    <button type="button" class="chip" data-newsal>+ Add</button>
+    <button type="button" class="chip" data-newsalary>+ Add</button>
   </div>
-  ${cards||`<div class="empty"><div class="empty-title">No salary schedules</div><p>Add a schedule for Me or a family member. Past payments stay when you edit amounts.</p><button class="btn" data-newsal>Add salary schedule</button></div>`}`;
+  ${cards||`<div class="empty"><div class="empty-title">No salary schedules</div><p>Add a schedule for Me or a family member. Past payments stay when you edit amounts.</p><button class="btn" data-newsalary>Add salary schedule</button></div>`}`;
   }
   if(seg==="lending"){
     let outstandingLent=0, outstandingBorrowed=0, originalLent=0, repaidLent=0, active=0, interestLent=0;
@@ -2430,11 +2597,11 @@ function viewPlan(){
         : st==="Partially Repaid"?"Partial"
         : st==="Interest Partially Paid"?"Interest partial"
         : "Unpaid";
-      return `<div class="card tap lend-card" data-lend="${l.id}" title="${esc(st)}">
+      return `<div class="card tap lend-card" data-lend="${esc(l.id)}" title="${esc(st)}">
         <div class="name">${esc(l.person)}</div>
         <div class="meta">${dir} · ${esc(l.start||"—")}${recv?` · ${esc(recv.trim())}`:""}</div>
         <div class="lend-amt-label">Outstanding</div>
-        <div class="lend-amt num ${out>0?(l.direction==="lent"?"in":"out"):""}">${fmt(out,l.cur)}</div>
+        <div class="lend-amt num ${out>0?(l.direction==="lent"?"in":"out"):""}">${fmtHide(out,l.cur)}</div>
         <div class="lend-stats">
           <div class="lend-stat">
             <span class="lbl">Principal</span>
@@ -2443,13 +2610,13 @@ function viewPlan(){
           </div>
           <div class="lend-stat">
             <span class="lbl">Interest</span>
-            <span class="val">${p.interestLeft<=0.0001?(p.accrued>0||p.interestPaid>0?"Cleared":"None") : fmt(p.interestLeft,l.cur)}</span>
+            <span class="val">${p.interestLeft<=0.0001?(p.accrued>0||p.interestPaid>0?"Cleared":"None") : fmtHide(p.interestLeft,l.cur)}</span>
             <div class="lend-progress total ${p.interestLeft<=0.0001&&(p.accrued>0||p.interestPaid>0)?"full":(p.interestPaid>0?"":"none")}"><i style="width:${p.accrued>0?Math.min(100,Math.round((p.interestPaid/Math.max(p.accrued+Math.max(0,p.interestAdj),0.0001))*100)):0}%"></i></div>
           </div>
         </div>
         <div class="lend-foot">
           <span class="status-pill ${stClass}">${esc(shortSt)}</span>
-          <span class="muted" style="font-size:12px">${pct}% overall · interest ${fmt(p.interestPaid,l.cur)} paid / ${fmt(p.interestLeft,l.cur)} left</span>
+          <span class="muted" style="font-size:12px">${pct}% overall · interest ${fmtHide(p.interestPaid,l.cur)} paid / ${fmtHide(p.interestLeft,l.cur)} left</span>
         </div>
         ${l.note?`<div class="muted" style="margin-top:8px;font-size:12px;line-height:1.35">${esc(l.note)}</div>`:""}
         
@@ -2458,11 +2625,11 @@ function viewPlan(){
     return segBar+`${sortBarHtml("lending",[{key:"person",label:"Person"},{key:"prin",label:"Principal left"},{key:"interest",label:"Interest left"},{key:"total",label:"Total outstanding"},{key:"start",label:"Start date"}])}<h2 style="margin-top:4px">Lending</h2>
   <div class="lend-hero">
     <div class="muted">Outstanding (they owe you)</div>
-    <div class="outstanding num in">${fmt(outstandingLent,S.display)}</div>
+    <div class="outstanding num in">${fmtHide(outstandingLent,S.display)}</div>
     <div class="lend-metrics">
-      <div class="lend-metric"><span>Total lent</span><b class="num">${fmt(originalLent,S.display)}</b></div>
-      <div class="lend-metric"><span>Repaid</span><b class="num">${fmt(repaidLent,S.display)}</b></div>
-      <div class="lend-metric"><span>You owe</span><b class="num out">${fmt(outstandingBorrowed,S.display)}</b></div>
+      <div class="lend-metric"><span>Total lent</span><b class="num">${fmtHide(originalLent,S.display)}</b></div>
+      <div class="lend-metric"><span>Repaid</span><b class="num">${fmtHide(repaidLent,S.display)}</b></div>
+      <div class="lend-metric"><span>You owe</span><b class="num out">${fmtHide(outstandingBorrowed,S.display)}</b></div>
       <div class="lend-metric"><span>Active loans</span><b>${active}</b></div>
     </div>
   </div>
@@ -2482,11 +2649,11 @@ function viewPlan(){
     const d=open&&due?daysTo(due):null;
     const status=policyFullyPaidTerm(p)||!open?"No further premiums due":d===null?"—":(d<0?((-d)+"d overdue"):dl(d));
     const cls=open&&d!==null&&d<=30?"warn":"muted";
-    return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · next ${esc(due||"—")}</div></div><b class="${cls}">${status}</b></div></div>`;
+    return `<div class="card" data-pol="${esc(p.id)}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmtHide(p.premium,p.cur)} · next ${esc(due||"—")}</div></div><b class="${cls}">${status}</b></div></div>`;
   }).join("")||`<div class="empty"><div class="empty-title">No policies</div><p>Track premiums and due dates.</p></div>`}
   <button class="btn" data-newpol>Add policy</button>
   <h2>Purchases & warranties</h2>
-  ${S.purchases.map(p=>{const d=p.expiry?daysTo(p.expiry):null;return `<div class="card"><div class="row"><div><b>${esc(p.item)}</b><div class="muted">${p.date} · ${fmt(p.amt,p.cur)}</div></div><div style="text-align:right"><b class="${d!==null&&d<60?"warn":"muted"}">${d===null?"no warranty":d<0?"expired":d+"d left"}</b><div><button class="chip" data-delpur="${p.id}">Remove</button></div></div></div></div>`}).join("")||`<div class="muted">No purchases logged.</div>`}
+  ${S.purchases.map(p=>{const d=p.expiry?daysTo(p.expiry):null;return `<div class="card"><div class="row"><div><b>${esc(p.item)}</b><div class="muted">${p.date} · ${fmtHide(p.amt,p.cur)}</div></div><div style="text-align:right"><b class="${d!==null&&d<60?"warn":"muted"}">${d===null?"no warranty":d<0?"expired":d+"d left"}</b><div><button class="chip" data-delpur="${esc(p.id)}">Remove</button></div></div></div></div>`}).join("")||`<div class="muted">No purchases logged.</div>`}
   <button class="btn alt" data-newpur>Add purchase</button>`;
   }
   // sips default
@@ -2504,10 +2671,10 @@ function viewPlan(){
     const freqLbl={1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1]||"Custom";
     const a=acct(x.acct);
     const stClass=st==="stopped"?"out":(d!=null&&d<=0?"warn":"ok");
-    return `<div class="card tap rec-card" data-sip="${x.id}">
+    return `<div class="card tap rec-card" data-sip="${esc(x.id)}">
       <div class="name">${esc(h.name||"Fund")}</div>
       <div class="meta">${freqLbl}${h.folio?" · Folio "+esc(h.folio):""}${a?" · "+esc(a.name):""}</div>
-      <div class="amt num">${fmt(x.amt,x.cur)}</div>
+      <div class="amt num">${fmtHide(x.amt,x.cur)}</div>
       <div class="rec-foot">
         <span class="status-pill ${stClass}">${st==="stopped"?"Paused":(d!=null&&d<=0?"Due":"Active")}</span>
         <span class="muted" style="font-size:12px">Next ${esc(x.next||"—")}${paid||missed?` · ${paid} paid / ${missed} missed`:""}</span>
@@ -2519,7 +2686,7 @@ function viewPlan(){
   ${sortBarHtml("sips",[{key:"name",label:"Name"},{key:"amt",label:"Monthly amount"},{key:"next",label:"Next due"}])}
   <div class="mod-hero">
     <div class="muted">Monthly SIP commitment</div>
-    <div class="big num">${fmt(sipMonthly,S.display)}</div>
+    <div class="big num">${fmtHide(sipMonthly,S.display)}</div>
     <div class="mod-metrics">
       <div class="mod-metric"><span>Active SIPs</span><b>${sipActive}</b></div>
       <div class="mod-metric"><span>All SIPs</span><b>${S.sips.length}</b></div>
@@ -2541,7 +2708,8 @@ function dueHtml(){
     if(d<=14){
       const h=S.holdings.find(v=>v.id===x.hold)||{};
       const label=d<0?"Overdue SIP":d===0?"SIP due today":"SIP";
-      r.push([d, label+" · "+esc(h.name||"Fund")+(h.folio?" · Folio "+esc(h.folio):""), fmt(x.amt,x.cur), `data-sip="${x.id}"`, d<0?"warn":""]);
+      const priceNote=!(h.price>0)?" · set fund price":"";
+      r.push([d, label+" · "+esc(h.name||"Fund")+(h.folio?" · Folio "+esc(h.folio):"")+priceNote, fmtHide(x.amt,x.cur), `data-sip="${esc(x.id)}"`, d<0?"warn":""]);
     }
   }
   for(const x of S.salaries){
@@ -2549,7 +2717,7 @@ function dueHtml(){
     const d=daysTo(x.next);
     if(d<=14){
       const label=d<0?"Overdue salary":d===0?"Salary today":"Salary";
-      r.push([d, label+" · "+esc(x.person||"Me"), fmt(x.amt,x.cur), `data-salary="${x.id}"`, d<0?"warn":""]);
+      r.push([d, label+" · "+esc(x.person||"Me"), fmtHide(x.amt,x.cur), `data-salary="${esc(x.id)}"`, d<0?"warn":""]);
     }
   }
   for(const p of S.policies){
@@ -2557,14 +2725,14 @@ function dueHtml(){
     const due=policyPayableDate(p);
     if(!due) continue;
     const d=daysTo(due);
-    if(d<=30) r.push([d, "Premium · "+esc(p.name), fmt(p.premium,p.cur), `data-pol="${p.id}"`, d<0?"warn":""]);
+    if(d<=30) r.push([d, "Premium · "+esc(p.name), fmtHide(p.premium,p.cur), `data-pol="${esc(p.id)}"`, d<0?"warn":""]);
   }
   for(const a of S.accounts){
     if(a.type!=="card"||a.archived||!a.dueDay) continue;
     const b=balance(a);
     if(b>=0) continue;
     const d=daysTo(nextDue(a.dueDay));
-    if(d<=14) r.push([d, "Card due · "+esc(a.name), fmt(-b,a.cur), `data-acct="${a.id}"`, d<=3?"warn":""]);
+    if(d<=14) r.push([d, "Card due · "+esc(a.name), fmtHide(-b,a.cur), `data-acct="${esc(a.id)}"`, d<=3?"warn":""]);
   }
   for(const p of S.purchases){
     if(!p.expiry) continue;
@@ -2582,7 +2750,7 @@ function dueHtml(){
     if(d>=-31 && d<=60){
       const kind=a.type==="card"?"Credit card":"Debit card";
       const last=(a.cardMeta||{}).last4?(" ••••"+a.cardMeta.last4):"";
-      r.push([Math.max(0,d), kind+" expires · "+esc(a.name)+last, exp, `data-acct="${a.id}"`, d<=30?"warn":""]);
+      r.push([Math.max(0,d), kind+" expires · "+esc(a.name)+last, exp, `data-acct="${esc(a.id)}"`, d<=30?"warn":""]);
     }
   }
   if(!r.length) return "";
@@ -2636,7 +2804,7 @@ function newAcctSheet(){
     <label>Payment due day (1–31)</label><input id="cdue" inputmode="numeric" placeholder="e.g. 5">
     <label>Annual fee</label><input id="cfee" inputmode="decimal" placeholder="0">
     <label>Linked bank account (for bill payments)</label>
-    <select id="clinked"><option value="">— Not linked —</option>${S.accounts.filter(a=>!a.archived&&a.type==="bank").map(a=>`<option value="${a.id}">${esc(a.name)} (${a.cur})</option>`).join("")}</select>
+    <select id="clinked"><option value="">— Not linked —</option>${S.accounts.filter(a=>!a.archived&&a.type==="bank").map(a=>`<option value="${esc(a.id)}">${esc(a.name)} (${a.cur})</option>`).join("")}</select>
     <div class="muted" style="margin-top:6px">Optional. Bank account you usually pay this card from. CVV and PIN are never stored.</div>
   </div>
   <label id="obl">Current balance</label><input id="ao" inputmode="decimal" placeholder="0">
@@ -2662,7 +2830,7 @@ function txnSheet(id){
   <div class="muted">${esc(t.date)} · ${t.status}</div>
   <div class="big num" style="font-size:28px">${fmt(Math.abs(p.amt),p.cur)}</div>
   ${t.note?`<p>${esc(t.note)}</p>`:""}${t.recipientBank?`<div class="muted">Recipient: ${esc(t.recipientBank.person)} · ${esc(t.recipientBank.bank)} · ${esc(t.recipientBank.accountMasked||"")}${t.recipientBank.ifsc?" · IFSC "+esc(t.recipientBank.ifsc):""}</div>`:""}
-  ${t.status==="posted"?`${["income","expense","transfer"].includes(t.type)&&!t.loanId&&!t.hold&&!t.sip?`<button class="btn alt" data-edit="${t.id}">Edit transaction</button>`:""}${t.type==="expense"?`<button class="btn alt" data-refund="${t.id}">Record a refund</button>`:""}<button class="btn danger" data-void="${t.id}">Void this transaction</button><div class="muted" style="margin-top:6px">Voiding keeps the record but removes it from balances and reports.</div>`:`<button class="btn" data-restore="${t.id}">Restore</button>`}
+  ${t.status==="posted"?`${["income","expense","transfer"].includes(t.type)&&!t.loanId&&!t.hold&&!t.sip?`<button class="btn alt" data-edit="${esc(t.id)}">Edit transaction</button>`:""}${t.type==="expense"?`<button class="btn alt" data-refund="${esc(t.id)}">Record a refund</button>`:""}<button class="btn danger" data-void="${esc(t.id)}">Void this transaction</button><div class="muted" style="margin-top:6px">Voiding keeps the record but removes it from balances and reports.</div>`:`<button class="btn" data-restore="${esc(t.id)}">Restore</button>`}
   <button class="btn alt" data-close>Close</button>`);
 }
 
@@ -2671,14 +2839,14 @@ function acctSheet(id){
   openSheet(`<h2 style="margin-top:0">${esc(a.name)}</h2>
   <div class="big num" style="font-size:28px">${fmt(balance(a),a.cur)}</div>
   <div class="muted">${esc(a.owner||"Me")} ${a.bank?"· "+esc(a.bank):""}</div>
-  <form id="fcard"><input type="hidden" id="cid" value="${a.id}">
+  <form id="fcard"><input type="hidden" id="cid" value="${esc(a.id)}">
   <label>Account nickname</label><input id="anameEdit" value="${esc(a.name||"")}" required placeholder="e.g. HDFC Salary">
   <label>Owner</label><input id="aownerEdit" list="ownersEdit" value="${esc(a.owner||"Me")}"><datalist id="ownersEdit">${(S.people||[]).map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
   ${a.type==="demat"?`<b>Demat details</b>
   <label>Broker</label><input id="abrokerEdit" value="${esc(a.broker||"")}">
   <label>Demat / client ID</label><input id="adematEdit" value="${esc(a.dematId||"")}">
-  <label>Total invested (cost)</label><input id="ainvestedEdit" inputmode="decimal" value="${a.invested||""}">
-  <div class="muted">Current value is the balance above — use Set current balance to update standings.</div>`:""}
+  <label>Cost basis noted on this account (optional)</label><input id="ainvestedEdit" inputmode="decimal" value="${a.invested||""}">
+  <div class="muted">The balance above is uninvested cash only. Stocks and funds live under Investments. Do not type the portfolio value here or net worth counts it twice.</div>`:""}
   ${a.type==="bank"?`<b>Bank account details</b>
 <label>Bank / provider</label><input id="abankEdit" value="${esc(a.bank||"")}">
 <label>Account number / IBAN</label><input id="aacctnoEdit" inputmode="numeric" autocomplete="off" value="${esc(a.accountNumber||"")}" placeholder="Full account number">
@@ -2686,21 +2854,23 @@ function acctSheet(id){
 <label>IFSC code</label><input id="aifscEdit" autocapitalize="characters" value="${esc(a.ifsc||"")}">
 <label>Branch code</label><input id="abranchcodeEdit" value="${esc(a.branchCode||"")}">
 <div class="muted">Stored encrypted on this phone. Shown masked in lists.</div>
-<button type="button" class="btn alt" data-copyownbank="${a.id}" style="margin-top:10px">Copy account details</button>`:""}
+<button type="button" class="btn alt" data-copyownbank="${esc(a.id)}" style="margin-top:10px">Copy account details</button>`:""}
   ${acctSheetCardSectionHtml(a)}
-  ${a.type==="card"?`<label>Linked bank account</label><select id="alinked"><option value="">— Not linked —</option>${S.accounts.filter(x=>!x.archived&&x.type==="bank").map(x=>`<option value="${x.id}" ${a.linkedBankId===x.id?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("")}</select><div class="muted">Bank you usually pay this card from.</div>`:""}
+  ${a.type==="card"?`<button class="btn" data-paycard="${esc(a.id)}">Pay this card</button>
+  <p class="muted">Opens a transfer from the linked bank into this card. That pays the bill. It is not spending.</p>
+  <label>Linked bank account</label><select id="alinked"><option value="">— Not linked —</option>${S.accounts.filter(x=>!x.archived&&x.type==="bank").map(x=>`<option value="${esc(x.id)}" ${a.linkedBankId===x.id?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("")}</select><div class="muted">Bank you usually pay this card from.</div>`:""}
   <button class="btn alt" type="submit">Save details</button>
 </form>
-  <button class="btn" data-reconcile="${a.id}">Set current balance</button>
-  <button class="btn alt" data-filter="${a.id}">See transactions</button>
-  <button class="btn danger" data-archive="${a.id}">Archive account</button>
+  <button class="btn" data-reconcile="${esc(a.id)}">Set current balance</button>
+  <button class="btn alt" data-filter="${esc(a.id)}">See transactions</button>
+  <button class="btn danger" data-archive="${esc(a.id)}">Archive account</button>
   <button class="btn alt" data-close>Close</button>`);
 }
 
 function txnEditSheet(id){
   const t=S.txns.find(x=>x.id===id);if(!t||t.status!=="posted")return;
   const p=t.postings[0]||{},isTransfer=t.type==="transfer",a=acct(p.acct),to=isTransfer?acct(t.postings[1]?.acct):null;
-  const opts=(sel)=>S.accounts.filter(x=>!x.archived).map(x=>`<option value="${x.id}" ${x.id===sel?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("");
+  const opts=(sel)=>S.accounts.filter(x=>!x.archived).map(x=>`<option value="${esc(x.id)}" ${x.id===sel?"selected":""}>${esc(x.name)} (${x.cur})</option>`).join("");
   openSheet(`<h2 style="margin-top:0">Edit transaction</h2><form id="fedit"><input type="hidden" id="editId" value="${id}"><label>Date</label><input id="edDate" type="date" value="${esc(t.date)}" required>
   ${isTransfer?`<label>From account</label><select id="edFrom">${opts(p.acct)}</select><label>To account</label><select id="edTo">${opts(t.postings[1]?.acct)}</select><label>Amount sent</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}"><label>Amount received (only if currencies differ)</label><input id="edRecv" inputmode="decimal" value="${Math.abs(t.postings[1]?.amt||0)}">`:`<label>Category</label><input id="edCat" value="${esc(t.cat||"")}" required><label>Account</label><select id="edFrom">${opts(p.acct)}</select><label>Amount</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}" required>`}
   <label>Note</label><input id="edNote" maxlength="80" value="${esc(t.note||"")}"><button class="btn" type="submit">Save changes</button></form>`);
@@ -2715,7 +2885,7 @@ async function biometricPRF(bio){
 async function biometricWrapKey(prf){const master=await crypto.subtle.importKey("raw",prf,"HKDF",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"HKDF",salt:new Uint8Array(),hash:"SHA-256",info:new TextEncoder().encode("MyFinance biometric key wrap v1")},master,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);}
 async function enableBiometric(){
   if(!isSecureContext||!window.PublicKeyCredential||!navigator.credentials?.create)throw new Error("Fingerprint unlock requires the installed app to be served over HTTPS in a compatible browser.");
-  const pass=prompt("Enter your current finance-app passphrase to enable fingerprint unlock:");if(!pass)return;
+  const pass=await askPassphrase("Enable fingerprint unlock","Enter your current passphrase. It is used once to wrap the key and is not stored.");if(!pass)return;
   const rawKey=await deriveKey(pass,SALT,KDF_ITER,true);await unseal(JSON.parse(store.get()),rawKey);
   const rpId=location.hostname,challenge=crypto.getRandomValues(new Uint8Array(32)),userId=crypto.getRandomValues(new Uint8Array(16));
   const cred=await navigator.credentials.create({publicKey:{challenge,rp:{name:"My Finance",id:rpId},user:{id:userId,name:"local-user",displayName:"My Finance user"},pubKeyCredParams:[{type:"public-key",alg:-7},{type:"public-key",alg:-257}],authenticatorSelection:{authenticatorAttachment:"platform",residentKey:"preferred",userVerification:"required"},timeout:60000,attestation:"none",extensions:{prf:{}}}});
@@ -2744,7 +2914,7 @@ async function unlockBiometric(){
   try{ S=await unseal(env,CK); }
   catch(e){ S=null; CK=null; throw new Error("Vault would not decrypt with biometric key. Use passphrase, then re-enable fingerprint in More."); }
   try{ migrate(); }catch(e){ console.error(e); }
-  try{ const auto=processDueAutomations(); if(auto&&(auto.sips||auto.salaries)) setTimeout(()=>toast((auto.sips||0)+" SIP / "+(auto.salaries||0)+" salary posted"),400); }catch(e){ console.warn(e); }
+  try{ const auto=processDueAutomations(); toastAutomations(auto); }catch(e){ console.warn(e); }
   try{ save(); }catch(e){ console.warn(e); }
   document.body.classList.remove("locked");
   render();
@@ -2829,7 +2999,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -2904,12 +3074,7 @@ document.addEventListener("click", async e=>{
       const v=inp.value.trim(); if(!v) continue;
       if(!next.includes(v)) next.push(v);
       const old=inp.getAttribute("data-personold")||"";
-      if(old && old!==v){
-        for(const a of S.accounts) if(a.owner===old) a.owner=v;
-        for(const h of S.holdings) if(h.owner===old) h.owner=v;
-        for(const p of S.policies) if(p.owner===old) p.owner=v;
-        for(const c of (S.contacts||[])) if(c.name===old) c.name=v;
-      }
+      if(old && old!==v) renamePerson(old, v);
     }
     if(!next.includes("Me")) next.unshift("Me");
     S.people=next; save(); closeSheet(); render(); toast("Family members updated"); return;
@@ -2925,7 +3090,7 @@ document.addEventListener("click", async e=>{
   if("add" in d){ if(el.dataset.quick){sheetType=el.dataset.quick;chosenCat=null;} addSheet(); return; }
   if(d.type){ sheetType=d.type; addSheet(); return; }
   if(d.cat){ chosenCat=d.cat; document.querySelectorAll("#cats .chip").forEach(c=>c.classList.toggle("on",c.dataset.cat===chosenCat)); return; }
-  if(d.amtchip){ const a=$("#amt"); if(a){ const cur=parseAmt(a.value)||0; a.value=String(cur+parseAmt(d.amtchip)); a.focus(); } return; }
+  if(d.amtchip){ const a=$("#amt"); if(a){ const cur=parseAmt(a.value)||0; a.value=String(cur+parseAmt(d.amtchip)); refreshAmtPreview(); a.focus(); } return; }
   if(d.xfermode){ xferMode=d.xfermode; addSheet(); return; }
   if(d.editcats){ openCatsSheet(d.editcats); return; }
   if("catadd" in d){
@@ -2947,7 +3112,7 @@ document.addEventListener("click", async e=>{
   if(d.reconcile){const a=acct(d.reconcile);if(!a)return;const cur=balance(a);openSheet(`<h2 style="margin-top:0">Set current balance</h2>
 <div class="muted">${esc(a.name)} · recorded now: <b class="num">${fmt(cur,a.cur)}</b></div>
 <p class="muted" style="margin-top:8px">Enter the real balance from your bank app or statement. The difference is posted as a single adjustment so your history stays consistent.</p>
-<form id="frecon"><input type="hidden" id="raid" value="${a.id}">
+<form id="frecon"><input type="hidden" id="raid" value="${esc(a.id)}">
 <label>Actual balance</label><input id="ractual" inputmode="decimal" required placeholder="${cur}">
 <label>Date</label><input id="rdate" type="date" value="${today()}">
 <label>Note</label><input id="rnote" value="Balance adjustment">
@@ -2965,25 +3130,25 @@ document.addEventListener("click", async e=>{
     const methods=c.methods||[];
     openSheet(`<h2 style="margin-top:0">${esc(c.name)}</h2>
     <div class="muted" style="white-space:pre-wrap">${c.notes?esc(c.notes):"No notes yet"}</div>
-    <button class="btn alt" data-editcontact="${c.id}" style="margin-top:8px">Edit name & notes</button>
+    <button class="btn alt" data-editcontact="${esc(c.id)}" style="margin-top:8px">Edit name & notes</button>
     <h2 style="font-size:15px;margin:16px 0 8px">Accounts & UPI</h2>
     ${methods.map(m=>{
       const title=m.kind==="upi"?esc(m.nickname||m.label||"UPI"):esc(m.nickname||m.bank||"Bank");
       const sub=m.kind==="upi"?("UPI ID: "+esc(m.upi||m.accountNumber||"")):(esc(m.holder||"")+" · "+esc(m.accountMasked||m.accountNumber||"")+(m.ifsc?" · IFSC "+esc(m.ifsc):""));
       const note=m.notes?`<div class="muted">${esc(m.notes)}</div>`:"";
-      return `<div class="card tap method-card" data-editmethod="${c.id}::${m.id}">
+      return `<div class="card tap method-card" data-editmethod="${esc(c.id)}::${esc(m.id)}">
         <div class="row"><div><b>${title}</b><div class="muted">${sub}</div>${note}</div><span class="muted">Edit ›</span></div>
       </div>`;
     }).join("")||`<div class="muted">No bank or UPI yet.</div>`}
-    <button class="btn" data-addmethod="${c.id}">Add bank / UPI</button>
+    <button class="btn" data-addmethod="${esc(c.id)}">Add bank / UPI</button>
     ${!(S.people||[]).includes(c.name)?`<button class="btn alt" data-movetofamily="${esc(c.name)}">Move to Family view</button>`:`<div class="muted" style="margin-top:8px">Also in Family view</div>`}
-    <button class="btn alt" data-delcontact="${c.id}">Remove from Contacts</button>
+    <button class="btn alt" data-delcontact="${esc(c.id)}">Remove from Contacts</button>
     <button class="btn alt" data-close>Close</button>`); return;
   }
   if(d.editcontact){
     const c=contactById(d.editcontact); if(!c) return;
     openSheet(`<h2 style="margin-top:0">Edit contact</h2>
-    <form id="fcontactedit"><input type="hidden" id="ceid" value="${c.id}">
+    <form id="fcontactedit"><input type="hidden" id="ceid" value="${esc(c.id)}">
     <label>Name</label><input id="cename" value="${esc(c.name||"")}" required list="cpeople"><datalist id="cpeople">${allPersonNames().map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
     <label>Notes</label><textarea id="cenotes" rows="4" placeholder="Optional notes">${esc(c.notes||"")}</textarea>
     <button class="btn" type="submit">Save Details</button></form>
@@ -2993,7 +3158,7 @@ document.addEventListener("click", async e=>{
     const [cid,mid]=String(d.editmethod).split("::");
     const c=contactById(cid); const m=c&&(c.methods||[]).find(x=>x.id===mid); if(!c||!m) return;
     openSheet(`<h2 style="margin-top:0">Edit ${m.kind==="upi"?"UPI":"bank"} · ${esc(c.name)}</h2>
-    <form id="fmethodedit" autocomplete="off"><input type="hidden" id="meidc" value="${c.id}"><input type="hidden" id="meidm" value="${m.id}">
+    <form id="fmethodedit" autocomplete="off"><input type="hidden" id="meidc" value="${esc(c.id)}"><input type="hidden" id="meidm" value="${esc(m.id)}">
     <label>Type</label><select id="mekind"><option value="bank" ${m.kind!=="upi"?"selected":""}>Bank account</option><option value="upi" ${m.kind==="upi"?"selected":""}>UPI ID</option></select>
     <div id="mebankfields">
       <label>Nickname (optional)</label><input id="menick" value="${esc(m.nickname||"")}" placeholder="e.g. Salary account">
@@ -3011,8 +3176,8 @@ document.addEventListener("click", async e=>{
     <label>Currency</label><select id="mecur"><option ${m.cur==="INR"?"selected":""}>INR</option><option ${m.cur==="EUR"?"selected":""}>EUR</option></select>
     <button class="btn" type="submit">Save Details</button></form>
     <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">
-      <button type="button" class="btn alt" data-copymethod="${c.id}::${m.id}">Copy</button>
-      <button type="button" class="btn alt" data-delmethod="${c.id}::${m.id}" style="color:var(--out)">Delete</button>
+      <button type="button" class="btn alt" data-copymethod="${esc(c.id)}::${esc(m.id)}">Copy</button>
+      <button type="button" class="btn alt" data-delmethod="${esc(c.id)}::${esc(m.id)}" style="color:var(--out)">Delete</button>
     </div>
     <button class="btn alt" data-close>Cancel</button>`);
     const sync=()=>{const k=$("#mekind")?.value; if($("#mebankfields"))$("#mebankfields").style.display=k==="bank"?"block":"none"; if($("#meupifields"))$("#meupifields").style.display=k==="upi"?"block":"none";};
@@ -3022,7 +3187,7 @@ document.addEventListener("click", async e=>{
   if(d.addmethod){
     const c=contactById(d.addmethod); if(!c) return;
     openSheet(`<h2 style="margin-top:0">Add bank / UPI · ${esc(c.name)}</h2>
-    <form id="fmethod" autocomplete="off"><input type="hidden" id="midc" value="${c.id}">
+    <form id="fmethod" autocomplete="off"><input type="hidden" id="midc" value="${esc(c.id)}">
     <label>Type</label><select id="mkind"><option value="bank">Bank account</option><option value="upi">UPI ID</option></select>
     <div id="mbankfields">
       <label>Nickname (optional)</label><input id="mnick" placeholder="e.g. Salary account">
@@ -3055,8 +3220,10 @@ if(d.delmethod){
   if(d.delcontact){
     const c=contactById(d.delcontact);
     if(!c){ closeSheet(); return; }
-    if(!confirm("Remove “"+c.name+"” from Contacts? Saved bank/UPI rows remain available for restore on unlock. Transactions are not deleted.")) return;
+    if(!confirm("Remove “"+c.name+"” from Contacts? Their saved bank and UPI rows will be deleted too. Transactions stay.")) return;
+    const nm=String(c.name||"").toLowerCase();
     S.contacts=(S.contacts||[]).filter(x=>x.id!==d.delcontact);
+    S.bankContacts=(S.bankContacts||[]).filter(b=>String(b.person||b.holder||"").toLowerCase()!==nm);
     save(); closeSheet(); render(); toast("Removed from Contacts"); return;
   }
   if(d.copymethod){
@@ -3214,10 +3381,10 @@ if(d.delmethod){
       <div class="row"><span>Frequency</span><b>${esc(freqLbl)}</b></div>
       <div class="row"><span>Next credit</span><b>${esc(x.next||"—")}</b></div>
     </div>
-    <button class="btn" data-editsalary="${x.id}">Edit / update schedule</button>
-    <button class="btn alt" data-salaryrecv="${x.id}">Mark received now</button>
-    <button class="btn alt" data-salarystop="${x.id}">${(x.status||"active")==="stopped"?"Resume schedule":"Pause schedule"}</button>
-    <button class="btn alt" data-salarydel="${x.id}" style="color:var(--out)">Remove schedule</button>
+    <button class="btn" data-editsalary="${esc(x.id)}">Edit / update schedule</button>
+    <button class="btn alt" data-salaryrecv="${esc(x.id)}">Mark received now</button>
+    <button class="btn alt" data-salarystop="${esc(x.id)}">${(x.status||"active")==="stopped"?"Resume schedule":"Pause schedule"}</button>
+    <button class="btn alt" data-salarydel="${esc(x.id)}" style="color:var(--out)">Remove schedule</button>
     ${hist.length?`<h2 style="font-size:15px;margin:16px 0 8px">Payment history</h2><div class="card">${hist.slice(0,20).map(i=>`<div class="row"><span>${esc(i.date)}${i.auto?" · auto":""}</span><b class="num">${fmt(i.amount,x.cur)}</b></div>`).join("")}</div><p class="muted">Past payments stay linked to transactions even if you change the schedule.</p>`:""}
     ${revs.length?`<h2 style="font-size:15px;margin:16px 0 8px">Schedule changes</h2><div class="card">${revs.slice(0,10).map(r=>`<div class="muted" style="margin:6px 0">${esc(r.date)} · ${esc(r.note||"Updated")}</div>`).join("")}</div>`:""}
     <button class="btn alt" data-close style="margin-top:10px">Close</button>`);
@@ -3231,7 +3398,7 @@ if(d.delmethod){
     openSheet(`<h2 style="margin-top:0">Update salary schedule</h2>
     <p class="muted">Changes apply from the next credit date onward. Past payments are not modified.</p>
     <form id="fsaledit" autocomplete="off">
-      <input type="hidden" id="seid" value="${x.id}">
+      <input type="hidden" id="seid" value="${esc(x.id)}">
       <label>Member / person</label><select id="sep">${people.map(([v,n])=>`<option value="${esc(v)}" ${v===x.person?"selected":""}>${esc(n)}</option>`).join("")}</select>
       <label>Label</label><input id="sel" value="${esc(x.label||"Salary")}">
       <label>Credit account</label><select id="sea">${accOpts().map(([v,n])=>`<option value="${v}" ${v===x.acct?"selected":""}>${esc(n)}</option>`).join("")}</select>
@@ -3263,7 +3430,12 @@ if(d.delmethod){
     const x=S.salaries.find(v=>v.id===d.salaryrecv); if(!x) return;
     const a=acct(x.acct); if(!a) return;
     const payDate=x.next||today();
+    const before=S.txns.length;
     addTxn({type:"income",date:payDate,note:x.label||"Salary",cat:"Salary",person:x.person||"",owner:x.person||a.owner||"Me",salaryId:x.id,postings:[{acct:x.acct,amt:x.amt,cur:x.cur}]});
+    if(S.txns.length===before){
+      if((x.next||"")===payDate) x.next=advanceSalaryNext(x, payDate);
+      save(); closeSheet(); render(); toast("Already recorded for "+payDate+". Next date moved ahead."); return;
+    }
     x.history=x.history||[]; x.history.push({date:payDate,status:"received",amount:x.amt,auto:false});
     x.next=advanceSalaryNext(x, payDate); save(); closeSheet(); render(); toast("Salary recorded"); return;
   }
@@ -3284,12 +3456,12 @@ if(d.delmethod){
       <div class="row"><span>Status</span><b>${esc(x.status||"active")}</b></div>
       <div class="row"><span>Recorded paid / missed</span><b>${paid} / ${missed}</b></div>
     </div>
-    <p class="muted">Record a payment only if the money was actually debited from the bank.</p>
-    <form id="fsu"><input type="hidden" id="sid" value="${x.id}">
+    ${!(h.price>0)?`<p class="muted" style="color:var(--warn)">No price on this fund. Automatic SIP posting waits until you set one.</p>`:""}
+    <form id="fsu"><input type="hidden" id="sid" value="${esc(x.id)}">
     <label>Units allotted this installment</label><input id="su" inputmode="decimal" placeholder="e.g. 12.345">
     <button class="btn" type="submit">Mark as paid (debited)</button></form>
-    <button class="btn alt" data-sipfail="${x.id}">Mark as missed / skipped</button>
-    <button class="btn alt" data-sipstop="${x.id}">${(x.status||"active")==="stopped"?"Resume SIP":"Stop SIP"}</button>
+    <button class="btn alt" data-sipfail="${esc(x.id)}">Mark as missed / skipped</button>
+    <button class="btn alt" data-sipstop="${esc(x.id)}">${(x.status||"active")==="stopped"?"Resume SIP":"Stop SIP"}</button>
     ${histHtml}
     <button class="btn alt" data-close style="margin-top:10px">Close</button>`); return; }
   if(d.sipfail){ const x=S.sips.find(v=>v.id===d.sipfail); if(x){ const missDate=x.next||today(); x.history=x.history||[]; x.history.push({date:missDate,status:"missed",units:0,amount:x.amt}); x.next=addM(x.next,x.freq||1); log("sipfail",x.id); save(); } closeSheet(); render(); toast("Marked as missed / skipped"); return; }
@@ -3306,7 +3478,7 @@ if(d.delmethod){
     if(p.next&&end&&p.next>end) termNote+="Stored next due was "+esc(p.next)+" (after PPT) — final premium is treated as "+esc(end)+".";
     const overdueNote=(eff&&daysTo(eff)<0)?'<div class="muted" style="color:var(--warn)">Overdue — you can still record this premium.</div>':"";
     const payBlock=active
-      ?('<form id="fpay"><input type="hidden" id="pid" value="'+p.id+'"><label>Paid from</label><select id="pacc">'+accOpts().map(([v,n])=>'<option value="'+v+'">'+esc(n)+'</option>').join("")+'</select><button class="btn" type="submit">Mark premium paid · '+esc(eff||p.next||"due")+'</button></form>'+overdueNote)
+      ?('<form id="fpay"><input type="hidden" id="pid" value="'+esc(p.id)+'"><label>Paid from</label><select id="pacc">'+accOpts().map(([v,n])=>'<option value="'+esc(v)+'">'+esc(n)+'</option>').join("")+'</select><button class="btn" type="submit">Mark premium paid · '+esc(eff||p.next||"due")+'</button></form>'+overdueNote)
       :('<div class="muted" style="margin:10px 0">Premium-paying term is complete (no outstanding due inside PPT). You can still edit dates below if needed.</div>');
     const paidInfo=policyPremiumsPaidToDate(p);
     const paidLine=(p.paidThrough?"Paid through "+p.paidThrough+" · ":"")+(paidInfo.count
@@ -3330,7 +3502,7 @@ if(d.delmethod){
       (termNote?'<div class="muted" style="margin-top:8px">'+termNote+"</div>":"")+
       payBlock+
       (function(){const pays=(p.payments||[]).slice().reverse().slice(0,8); if(!pays.length) return '<div class="muted" style="margin:10px 0">No premium payments recorded yet.</div>'; return '<h2 style="font-size:15px;margin:16px 0 8px">Payment history</h2><div class="card">'+pays.map(function(x){return '<div class="row"><span>'+esc(x.date)+'</span><b class="num">'+fmt(x.amount,x.cur||p.cur)+'</b></div>';}).join('')+'</div>';})()+
-      '<form id="fpoledit"><input type="hidden" id="peid" value="'+p.id+'">'+
+      '<form id="fpoledit"><input type="hidden" id="peid" value="'+esc(p.id)+'">'+
       '<h2 style="font-size:15px;margin:16px 0 8px">Edit policy</h2>'+
       '<label>Name</label><input id="pen" value="'+esc(p.name||"")+'">'+
       '<label>Policy number</label><input id="peno" value="'+esc(p.policyNo||"")+'">'+
@@ -3347,13 +3519,20 @@ if(d.delmethod){
       '<label>Next due</label><input type="date" id="penext" value="'+esc(p.next||"")+'">'+
       '<label>Frequency (months)</label><input id="pefreq" inputmode="numeric" value="'+(p.freq||1)+'">'+
       '<button class="btn alt" type="submit">Save policy changes</button></form>'+
-      '<button class="btn danger" data-delpol="'+p.id+'">Remove policy</button>'+
+      '<button class="btn danger" data-delpol="'+esc(p.id)+'">Remove policy</button>'+
       '<button class="btn alt" data-close>Close</button>');
     return;
   }
-  if(d.delpol){ S.policies=S.policies.filter(v=>v.id!==d.delpol); save(); closeSheet(); render(); return; }
+  if(d.delpol){
+    const pol=S.policies.find(v=>v.id===d.delpol);
+    if(pol && !confirm("Remove policy “"+(pol.name||"")+"”? Recorded premium transactions stay in Activity.")) return;
+    S.policies=S.policies.filter(v=>v.id!==d.delpol); save(); closeSheet(); render(); return;
+  }
   if("newpur" in d){ fs("New purchase","fpur",[["un","Item","text"],["ua","Amount","num"],["ud","Date","date"],["uc","Paid from","select",accOpts()],["uw","Warranty in months (0 for none)","num"]],"Save purchase"); return; }
-  if(d.delpur){ S.purchases=S.purchases.filter(v=>v.id!==d.delpur); save(); render(); return; }
+  if(d.delpur){
+    if(!confirm("Remove this purchase reminder? The spending transaction stays.")) return;
+    S.purchases=S.purchases.filter(v=>v.id!==d.delpur); save(); render(); return;
+  }
   if(d.refund){ const o=S.txns.find(v=>v.id===d.refund); if(!o) return; const was=S.txns.filter(v=>v.refundOf===o.id&&v.status==="posted").reduce((a,v)=>a+v.postings[0].amt,0), left=Math.round((Math.abs(o.postings[0].amt)-was)*100)/100; if(left<=0){ alert("Already fully refunded."); return; } const v=parseAmt(prompt("Refund amount (up to "+left+")",left)); if(v>0&&v<=left){ addTxn({type:"refund",date:today(),cat:o.cat,note:o.note||"",refundOf:o.id,postings:[{acct:o.postings[0].acct,amt:v,cur:o.postings[0].cur}]}); } closeSheet(); render(); return; }
   if("holds" in d){ openSheet(`<h2 style="margin-top:0">Import stock holdings</h2>
 <p class="muted">Choose your broker file saved as CSV, or paste the table copied from Excel, including the heading row. Select the owner these holdings belong to.</p>
@@ -3384,7 +3563,12 @@ if(d.delmethod){
   if(d.void){ voidTxn(d.void); closeSheet(); render(); toast("Voided",()=>{unvoid(d.void);render();}); return; }
   if(d.restore){ unvoid(d.restore); closeSheet(); render(); return; }
   if(d.filter){ filterAcct=d.filter; tab="activity"; closeSheet(); render(); return; }
-  if(d.archive){ const a=acct(d.archive); if(a){ a.archived=true; log("archive",a.id); save(); } closeSheet(); render(); return; }
+  if(d.archive){
+    const a=acct(d.archive);
+    if(!a) return;
+    if(!confirm("Archive “"+a.name+"”? It leaves balances and pickers. Transactions stay.")) return;
+    a.archived=true; log("archive",a.id); save(); closeSheet(); render(); toast("Account archived"); return;
+  }
   if(d.edit){txnEditSheet(d.edit);return;}
   if("changePass" in d){passphraseSheet();return;}
   if("bioEnable" in d){enableBiometric().catch(e=>alert("Could not enable fingerprint unlock: "+(e.message||e)));return;}
@@ -3401,10 +3585,31 @@ if(d.delmethod){
   if("backupFolder" in d){await chooseBackupFolder();return;}
   if("backupForget" in d){await forgetBackupFolder();return;}
   if("export" in d){ exportJSON(); return; }
-  if("csv" in d){ exportCSV(); return; }
+  if(d.paycard){
+    const card=acct(d.paycard);
+    if(!card) return;
+    sheetType="transfer"; xferMode="self";
+    xferPrefill={from:card.linkedBankId||"", to:card.id};
+    closeSheet(); addSheet(); return;
+  }
+  if("locknow" in d){ chain=chain.then(()=>{ S=null; CK=null; boot(); }); return; }
+  if("csv" in d){
+    if(!confirm("This CSV is not encrypted. Notes and amounts will be saved as plain text. Continue?")) return;
+    exportCSV(); return;
+  }
   if("import" in d){ $("#file").click(); return; }
   if("check" in d){ runCheck(); return; }
-  if("wipe" in d){ if(confirm("Erase all data on this phone? This cannot be undone.")){ S=blank(); save(); render(); toast("All data erased"); } return; }
+  if("wipe" in d){
+    openSheet(`<h2 style="margin-top:0">Erase all data</h2>
+      <p class="muted">This deletes the vault on this phone. It cannot be undone. Enter your current passphrase to confirm.</p>
+      <form id="fwipe" autocomplete="off">
+        <label>Current passphrase</label>
+        <input id="wipePass" type="password" autocomplete="current-password" required>
+        <button class="btn danger" type="submit">Erase everything</button>
+      </form>
+      <button class="btn alt" data-close>Cancel</button>`);
+    return;
+  }
 });
 
 document.addEventListener("change", e=>{
@@ -3419,11 +3624,43 @@ document.addEventListener("change", e=>{
   if(e.target.id==="file"){
     const f=e.target.files[0]; if(!f) return;
     const rd=new FileReader();
-    rd.onload=async()=>{ try{ let d=JSON.parse(rd.result);
-        let importedKey=null, importedSalt=null, importedIter=KDF_ITER, importedBio=null, importedPassword=""; if(d&&d.enc){ const pw=prompt("Passphrase for this backup:"); if(!pw) return; importedPassword=pw; importedSalt=unb64(d.salt); importedIter=d.iterations||250000; importedKey=await deriveKey(pw,importedSalt,importedIter,false); const env=d; d=await unseal(env,importedKey); importedBio=env.bio||null; }
+    rd.onload=async()=>{ try{
+        const raw=String(rd.result||"");
+        if(backupTooLarge(raw)) throw new Error("too big");
+        let d=JSON.parse(raw);
+        let importedKey=null, importedSalt=null, importedIter=KDF_ITER, importedBio=null, importedPassword="";
+        if(d&&d.enc){
+          const pw=await askPassphrase("Backup passphrase","Enter the passphrase that encrypted this file.");
+          if(!pw) return;
+          importedPassword=pw; importedSalt=unb64(d.salt); importedIter=d.iterations||250000;
+          importedKey=await deriveKey(pw,importedSalt,importedIter,false);
+          const env=d; d=await unseal(env,importedKey); importedBio=env.bio||null;
+        }else{
+          const pw=await askPassphrase("Confirm restore","This file is not an encrypted backup. Enter your current passphrase to replace the data on this phone.");
+          if(!pw) return;
+          const k=await deriveKey(pw,SALT,KDF_ITER,false);
+          await unseal(JSON.parse(store.get()), k);
+        }
         if(!d||![1,2].includes(d.v)||!Array.isArray(d.accounts)||!Array.isArray(d.txns)) throw new Error("bad");
-        if(confirm(`Replace current data with this backup (${d.accounts.length} accounts, ${d.txns.length} transactions)?`)){ S=d; if(importedKey){CK=importedKey;SALT=importedSalt;KDF_ITER=importedIter;BIO=importedBio;if(KDF_ITER<600000){SALT=crypto.getRandomValues(new Uint8Array(16));KDF_ITER=600000;CK=await deriveKey(importedPassword,SALT,KDF_ITER,false);BIO=null;}} migrate(); save(); render(); toast("Backup restored"); }
-      }catch(err){ alert("Could not open that file. Check the passphrase and the file."); } };
+        if(vaultHasUnsafeId(d)) throw new Error("unsafe");
+        if(confirm(`Replace current data with this backup (${d.accounts.length} accounts, ${d.txns.length} transactions)?`)){
+          S=d;
+          if(importedKey){
+            CK=importedKey;SALT=importedSalt;KDF_ITER=importedIter;BIO=importedBio;
+            if(KDF_ITER<600000){
+              const hadBio=!!importedBio;
+              SALT=crypto.getRandomValues(new Uint8Array(16));KDF_ITER=600000;
+              CK=await deriveKey(importedPassword,SALT,KDF_ITER,false);BIO=null;
+              unlockNotice=hadBio
+                ? "Backup restored and re-encrypted. Fingerprint unlock was turned off — enable it again under More."
+                : "Backup restored and re-encrypted with a stronger key.";
+            }
+          }
+          migrate(); save(); render();
+          toast(unlockNotice||"Backup restored");
+          unlockNotice="";
+        }
+      }catch(err){ alert("Could not open that file. Check the passphrase, and that it is a My Finance backup under 6 MB."); } };
     rd.readAsText(f); e.target.value="";
   }
 });
@@ -3450,6 +3687,29 @@ document.addEventListener("submit", e=>{
       t.postings=[{acct:a.id,amt:-amt,cur:a.cur},{acct:to.id,amt:recv,cur:to.cur}];
     }else{if(t.postings[0]?.cur!==a.cur)t.fxRate=S.rate;t.postings=[{acct:a.id,amt:t.type==="income"?amt:-amt,cur:a.cur}];t.cat=$("#edCat").value.trim();}
     t.date=date;t.note=note;if(!t.fxRate)t.fxRate=S.rate;t.owner=a.owner||"Me";log("edit",t.id);save();closeSheet();render();toast("Transaction updated");return;
+  }
+  if(e.target.id==="faskpass"){
+    const v=$("#askPass").value;
+    const r=passWait; passWait=null;
+    closeSheet();
+    if(r) r(v||null);
+    return;
+  }
+  if(e.target.id==="fwipe"){
+    const p=$("#wipePass").value;
+    (async()=>{
+      try{
+        const k=await deriveKey(p,SALT,KDF_ITER,false);
+        await unseal(JSON.parse(store.get()), k);
+        S=blank(); BIO=null;
+        await save();
+        try{ await backupHandleForget(); }catch(e){}
+        closeSheet(); render(); toast("All data erased");
+      }catch(err){
+        alert("Passphrase did not match. Nothing was erased.");
+      }
+    })();
+    return;
   }
   if(e.target.id==="fpass"){
     (async()=>{try{const old=$("#oldPass").value,n1=$("#newPass").value,n2=$("#newPass2").value;if(n1.length<12)throw new Error("Use at least 12 characters for the new passphrase.");if(n1!==n2)throw new Error("The new passphrases do not match.");const oldKey=await deriveKey(old,SALT,KDF_ITER,false);await unseal(JSON.parse(store.get()),oldKey);const nextSalt=crypto.getRandomValues(new Uint8Array(16)),nextKey=await deriveKey(n1,nextSalt,KDF_ITER,false);await chain;SALT=nextSalt;CK=nextKey;BIO=null;const env=await seal(S);store.set(env);chain=Promise.resolve();toast("Passphrase changed. Fingerprint unlock was disabled; enable it again if desired.");closeSheet();render();}catch(err){alert("Passphrase not changed: "+(err.message||"verification failed"));}})();return;
@@ -3773,17 +4033,8 @@ document.addEventListener("submit", e=>{
     if(!name){ alert("Enter a name."); return; }
     const notes=($("#cenotes")?.value||"").trim(); // allow empty to clear
     const old=c.name;
-    c.name=name;
+    if(old!==name) renamePerson(old, name);
     c.notes=notes;
-    for(const b of (S.bankContacts||[])){
-      if((b.person||"").toLowerCase()===(old||"").toLowerCase()) b.person=name;
-    }
-    for(const l of (S.lending||[])){
-      if((l.person||"").toLowerCase()===(old||"").toLowerCase()) l.person=name;
-    }
-    if((S.people||[]).includes(old)){
-      S.people=S.people.map(n=>n===old?name:n);
-    }
     // methods stay on contact object by reference
     save(); closeSheet(); render(); toast("Details saved");
     setTimeout(()=>{ const el=document.querySelector('[data-contact="'+c.id+'"]'); if(el) el.click(); }, 40);
@@ -3910,7 +4161,12 @@ document.addEventListener("submit", e=>{
   }
   if(e.target.id==="fsu"){ const x=S.sips.find(v=>v.id===$("#sid").value), u=parseAmt($("#su").value); if(!x||u<=0){ $("#su").focus(); return; }
     const payDate=x.next||today();
+    const before=S.txns.length;
     addTxn({type:"buy",date:payDate,note:"SIP",hold:x.hold,units:u,cost:x.amt,sip:x.id,postings:[{acct:x.acct,amt:-x.amt,cur:x.cur}]});
+    if(S.txns.length===before){
+      if((x.next||"")===payDate) x.next=addM(x.next,x.freq||1);
+      save(); closeSheet(); render(); toast("Already recorded for "+payDate+". Next date moved ahead."); return;
+    }
     x.history=x.history||[]; x.history.push({date:payDate,status:"paid",units:u,amount:x.amt});
     x.next=addM(x.next,x.freq||1); x.status=x.status||"active";
     save(); closeSheet(); render(); toast("SIP payment recorded"); }
@@ -3994,7 +4250,7 @@ document.addEventListener("submit", e=>{
     const freq=Math.max(1, Number(p.freq)||1);
     let next=addM(due, freq);
     if(end){
-      if(due >= end || next > end){
+      if(due >= end || next >= end){
         // Final premium inside PPT recorded — move next past PPT so overdue clears
         p.next=addM(end, 1);
         p.finalPremiumPaid=true;
@@ -4131,10 +4387,14 @@ function boot(){
         }
         CK=k; BIO=env.bio||null;
         if(KDF_ITER<600000){
+          const hadBio=!!(env.bio||BIO);
           try{
             const ns=crypto.getRandomValues(new Uint8Array(16)),nk=await deriveKey(p,ns,600000);
             SALT=ns; CK=nk; KDF_ITER=600000; BIO=null;
             store.set(await seal(S));
+            unlockNotice=hadBio
+              ? "Security update: vault re-encrypted. Fingerprint unlock was turned off — enable it again under More."
+              : "Security update: vault re-encrypted with a stronger key.";
           }catch(upErr){ console.warn("kdf upgrade failed", upErr); }
         }
       }else{
@@ -4144,10 +4404,11 @@ function boot(){
         CK=await deriveKey(p,SALT,KDF_ITER); S=legacy||blank(); BIO=null;
       }
       try{ migrate(); }catch(mErr){ console.error(mErr); /* still allow in with partial migrate */ }
-      try{ const auto=processDueAutomations(); if(auto&&(auto.sips||auto.salaries)){ setTimeout(()=>toast((auto.sips?auto.sips+" SIP(s)":"")+(auto.sips&&auto.salaries?" · ":"")+(auto.salaries?auto.salaries+" salary":"")+" posted"), 400); } }catch(aErr){ console.warn(aErr); }
+      try{ const auto=processDueAutomations(); toastAutomations(auto); }catch(aErr){ console.warn(aErr); }
       try{ save(); }catch(sErr){ console.warn(sErr); }
       document.body.classList.remove("locked");
       render();
+      if(unlockNotice){ const note=unlockNotice; unlockNotice=""; setTimeout(()=>toast(note), 700); }
     }catch(x){
       S=null; CK=null; document.body.classList.add("locked");
       er("Could not unlock: "+(x&&x.message?x.message:"unknown error"));
