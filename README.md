@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.5.0
+**Current version:** 2.5.2
 
 ---
 
@@ -120,6 +120,13 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.5.2 — 2026-11-18
+- Sort order applied to contacts, SIPs, salaries, policies, lending; drag targets expanded.
+
+### 2.5.1 — 2026-11-18
+- Fix: lending repayments no longer create phantom liabilities via personPos.
+- Insurance: full premium schedule, historical paid-through date, consistent next-due status.
 
 ### 2.5.0 — 2026-11-18
 - Net worth prefs: four toggles only (no personal-use); CSV holdings import fixed (`holdParse`); MF units adjustment; SIP pre-fill on forecast; policy premiums paid + clearer detail; demat cash label; long-press reorder; lending interest on cards.

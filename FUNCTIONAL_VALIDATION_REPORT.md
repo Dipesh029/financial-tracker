@@ -292,3 +292,42 @@ Prior fixed issues (already in 2.2.x): contact notes, add person, UPI save, dema
 | Lending cards | Interest paid/left on summary | FIXED |
 | Sort | Long-press reorder + `sortOrder` persistence | FIXED (basic); multi-list device test recommended |
 | Data | No vault key change; additive fields only | PASS |
+
+
+## Update 2.5.1 — Liabilities & insurance schedule (2026-11-18)
+
+### Liabilities root cause
+Lending principal/interest repayments set `pd` on transactions. `personPos()` summed those into informal IOUs **and** `loansReceivable()` already counted outstanding loans → **negative `pd` after repayments appeared as liabilities**.
+
+**Fix:** `personPos` ignores any txn with `loanId`, `lendingId`, `principalReduction`, `interestSettlement`, or types `lend`/`borrow`/`lendback`/`repay`.
+
+### Insurance premiums
+- `policyScheduleDates` builds full instalment list from commencement + frequency through PPT end.
+- `paidThrough` on policy = user-confirmed historical paid-through date (no bank txns created).
+- `policyNextUnpaidDue` reconciles schedule + paidThrough + recorded payments.
+- Status: “No further premiums due” when PPT complete / all paid.
+
+### Tests executed
+- personPos exclusion asserts → PASS
+- PPT end 2016-04-28 + 10y → 2026-04-28 PASS
+- node --check → PASS
+
+
+## Update 2.5.2 — Pending-scope completion pass (2026-11-18)
+
+### Audit summary
+| Area | Status before 2.5.2 | Now |
+|------|---------------------|-----|
+| personPos / liabilities | FIXED 2.5.1 | OK |
+| Insurance schedule + paidThrough | FIXED 2.5.1 | OK |
+| NW 4 prefs | OK 2.5.0 | OK |
+| holdParse CSV | OK 2.5.0 | OK |
+| MF units adjust | OK 2.5.0 | OK |
+| SIP forecast prefill | OK 2.5.0 | OK |
+| Sort on accounts/holdings | Partial | **Expanded** to contacts, SIPs, salaries, policies, lending |
+| sortedList rendering | Partial | **All major lists** |
+| Full visual redesign Part 13 | Incomplete | Still limited (polish modules exist; not full redesign) |
+
+### Tests
+- node --check PASS
+- sortedList present for contacts/sips/salaries/policies/lending PASS

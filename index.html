@@ -303,8 +303,10 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.5.0";
+const APP_VERSION = "2.5.2";
 const RELEASES = [
+  {v:"2.5.2", d:"2026-11-18", notes:"Sort order on all major lists; audit completion pass for pending scope items."},
+  {v:"2.5.1", d:"2026-11-18", notes:"Fix liabilities double-count from lending pd; full premium schedule + paidThrough; due-date consistency."},
   {v:"2.5.0", d:"2026-11-18", notes:"NW prefs (4 toggles); CSV import fixed; MF units adjust; SIP-aware forecast; premiums paid; sort order; lending interest on cards."},
   {v:"2.4.3", d:"2026-11-18", notes:"Card expiry: only Month (MM) + Year (YY) fields; removed duplicate combined input."},
   {v:"2.4.2", d:"2026-11-17", notes:"UI polish: SIPs, Salaries, Accounts, Investments, Home NW, net-worth prefs."},
@@ -473,97 +475,206 @@ function migrate(){
   }
 }
 
-function policyPremiumsPaidToDate(p){
-  // Prefer recorded payments; else schedule assumption from start to min(today, ppt end)
-  const premium=Number(p.premium)||0;
-  const freq=Number(p.freq)||1; // months between premiums
-  const cur=p.cur||S.display||"INR";
-  const paidTx=(p.payments||[]).filter(x=>x&&x.date);
-  if(paidTx.length){
-    const total=paidTx.reduce((s,x)=>s+(Number(x.amount)||premium),0);
-    return {total, count:paidTx.length, source:"recorded", expected:null, remaining:null};
-  }
-  if(!p.start||!(premium>0)) return {total:0, count:0, source:"none", expected:null, remaining:null};
-  const end=policyPptEnd(p)||"";
-  const last=end&&end<today()?end:today();
-  // count instalments from start to last inclusive on frequency
-  let d=p.start, count=0;
-  const guard=600;
-  while(d && d<=last && count<guard){
-    count++;
-    d=addM(d, freq);
+function policyScheduleDates(p){
+  // All premium due dates from commencement through PPT end (inclusive of final), by frequency months
+  const out=[];
+  if(!p||!p.start||!(Number(p.premium)>0)) return out;
+  const freq=Math.max(1, Number(p.freq)||1);
+  const end=policyPptEnd(p);
+  let d=p.start;
+  const guard=800;
+  for(let i=0;i<guard;i++){
     if(end && d>end) break;
+    out.push(d);
+    const next=addM(d, freq);
+    if(end && next>end){
+      // include final only if last date is exactly end or we haven't landed on end
+      if(d!==end && end>=d){ /* final may equal last pushed */ }
+      break;
+    }
+    d=next;
+    if(!d) break;
   }
-  // if next due is still open and we counted past unpaid current period, adjust: if next > today, last paid is previous
-  const next=policyEffectiveNext(p);
-  if(next && next>today() && count>0){
-    // next is future → count is correct for paid up to previous
-  } else if(next && next<=today() && policyHasOpenPremium(p) && count>0){
-    // current period unpaid — don't count it
-    count=Math.max(0, count-1);
+  // Ensure PPT end is included as last due when it falls on schedule
+  if(end && out.length && out[out.length-1]!==end){
+    // if end is on the same day-of-month cadence after last, append end as final due
+    const last=out[out.length-1];
+    if(end>last) out.push(end);
   }
-  const total=count*premium;
-  const expectedEnd=end?Math.ceil((Number(p.ppt)||0)*12/freq)*premium:null;
-  const remaining=expectedEnd!=null?Math.max(0, expectedEnd-total):null;
-  return {total, count, source:"schedule", expected:expectedEnd, remaining};
+  return out;
+}
+function policyPremiumsPaidToDate(p){
+  const premium=Number(p.premium)||0;
+  const freq=Math.max(1, Number(p.freq)||1);
+  const schedule=policyScheduleDates(p);
+  const expectedCount=schedule.length;
+  const expectedTotal=expectedCount*premium;
+  const paidThrough=(p.paidThrough||"").trim(); // user-confirmed historical paid-through date
+  const recorded=(p.payments||[]).filter(x=>x&&x.date).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  // Mark schedule dates as paid if: date <= paidThrough, or a recorded payment covers that instalment month
+  const covered=new Set();
+  for(const d of schedule){
+    if(paidThrough && d<=paidThrough) covered.add(d);
+  }
+  // Match recorded payments to nearest unpaid schedule date on/before payment date or same month
+  let recordedSum=0, recordedCount=0;
+  for(const pay of recorded){
+    const amt=Number(pay.amount)||premium;
+    recordedSum+=amt;
+    recordedCount++;
+    let matched=null;
+    for(const d of schedule){
+      if(covered.has(d)) continue;
+      if(d<=pay.date) matched=d;
+      else break;
+    }
+    if(matched) covered.add(matched);
+  }
+  const assumedCount=[...covered].filter(d=>paidThrough && d<=paidThrough && !recorded.some(r=>r.date>=d && r.date<=addM(d,freq))).length;
+  // Simpler assumed: dates covered only via paidThrough
+  let histCount=0;
+  if(paidThrough){
+    for(const d of schedule){ if(d<=paidThrough) histCount++; }
+  }
+  // Total paid count = unique covered schedule dates
+  const paidCount=covered.size;
+  // Amount: hist portion at premium rate + recorded amounts, but avoid double: use max(paidCount*premium, recordedSum) carefully
+  // Prefer: assumed = histCount * premium (if no overlapping recorded before paidThrough)
+  // recorded after paidThrough add their amounts
+  let histAmount=0;
+  if(paidThrough){
+    const histDates=schedule.filter(d=>d<=paidThrough);
+    histAmount=histDates.length*premium;
+    // recorded payments on or before paidThrough are assumed already in histAmount — don't add again
+  }
+  const laterRecorded=recorded.filter(r=>!paidThrough||r.date>paidThrough);
+  const laterAmount=laterRecorded.reduce((s,x)=>s+(Number(x.amount)||premium),0);
+  const laterCount=laterRecorded.length;
+  // If no paidThrough, use covered size * premium or recorded sum if higher fidelity
+  let total, count, source;
+  if(paidThrough){
+    total=histAmount+laterAmount;
+    count=histCount+laterCount;
+    // if recorded matched more after, covered may exceed
+    count=Math.max(count, paidCount);
+    total=Math.max(total, paidCount*premium*0+histAmount+laterAmount);
+    source="mixed";
+  } else if(recorded.length){
+    total=recordedSum;
+    count=recordedCount;
+    source="recorded";
+  } else {
+    // schedule assumption: all due on or before today (and within PPT) that are before next unpaid
+    const next=policyNextUnpaidDue(p);
+    const paidDates=schedule.filter(d=>d<today() && (!next || d<next));
+    // if next is in the past (overdue), those overdue are NOT paid
+    count=schedule.filter(d=>d<today() && !(next && d>=next)).length;
+    if(next && next<today()){
+      count=schedule.filter(d=>d<next).length;
+    } else if(!next && p.finalPremiumPaid){
+      count=schedule.length;
+    } else if(!next){
+      // no next stored — assume paid through last schedule date <= today if still in PPT?
+      count=schedule.filter(d=>d<=today()).length;
+    }
+    total=count*premium;
+    source="schedule";
+  }
+  const remainingCount=Math.max(0, expectedCount-count);
+  const remaining=remainingCount*premium;
+  return {
+    total, count, source,
+    histCount: paidThrough?histCount:0,
+    histAmount: paidThrough?histAmount:0,
+    recordedCount: recorded.length,
+    recordedSum: recorded.reduce((s,x)=>s+(Number(x.amount)||premium),0),
+    expected: expectedTotal,
+    expectedCount,
+    remaining,
+    remainingCount,
+    paidThrough: paidThrough||""
+  };
+}
+function policyNextUnpaidDue(p){
+  // Consistent next unpaid instalment from schedule + paidThrough + payments + finalPremiumPaid
+  if(!p) return "";
+  if(p.finalPremiumPaid) return "";
+  if(!policyPremiumActive(p)) return "";
+  const schedule=policyScheduleDates(p);
+  if(!schedule.length){
+    const n=(p.next||"").trim();
+    return n||"";
+  }
+  const paidThrough=(p.paidThrough||"").trim();
+  const paidDates=new Set();
+  if(paidThrough){
+    for(const d of schedule) if(d<=paidThrough) paidDates.add(d);
+  }
+  for(const pay of (p.payments||[])){
+    if(!pay||!pay.date) continue;
+    // mark latest unpaid schedule date on or before payment
+    let matched=null;
+    for(const d of schedule){
+      if(paidDates.has(d)) continue;
+      if(d<=pay.date) matched=d;
+      else break;
+    }
+    if(matched) paidDates.add(matched);
+  }
+  for(const d of schedule){
+    if(!paidDates.has(d)) return d;
+  }
+  return ""; // all scheduled premiums paid
+}
+function policyHasOpenPremium(p){
+  if(!policyPremiumActive(p)) return false;
+  if(p.finalPremiumPaid) return false;
+  const next=policyNextUnpaidDue(p);
+  if(!next) return false;
+  const end=policyPptEnd(p);
+  if(end && next>end) return false;
+  return true;
+}
+function policyPayableDate(p){
+  return policyNextUnpaidDue(p)||"";
+}
+function policyEffectiveNext(p){
+  // Prefer computed next unpaid; fall back to stored p.next for display migration
+  const computed=policyNextUnpaidDue(p);
+  if(computed) return computed;
+  const stored=(p.next||"").trim();
+  if(stored && !p.finalPremiumPaid){
+    const end=policyPptEnd(p);
+    if(end && stored>end) return "";
+    return stored;
+  }
+  return "";
+}
+function policyFullyPaidTerm(p){
+  if(p.finalPremiumPaid) return true;
+  if(!policyPremiumActive(p)) return true;
+  return !policyNextUnpaidDue(p);
 }
 function policyPptEnd(p){
   if(!p||!p.start||!(Number(p.ppt)>0)) return "";
   // Last premium due date = commencement + PPT years (e.g. 2016-04-28 + 10y → 2026-04-28).
   return addM(p.start, Math.round(Number(p.ppt)*12));
 }
-function policyEffectiveNext(p){
-  // Source of truth is stored p.next (next unpaid due). Do not clamp past-PPT next back to PPT end
-  // — that caused permanent overdue after the final premium was recorded.
-  if(!p) return "";
-  const next=(p.next||"").trim();
-  if(next) return next;
-  return "";
-}
+
 function policyPremiumActive(p){
   if(!p) return false;
   if(p.status==="closed"||p.status==="stopped") return false;
   if(!(Number(p.premium)>0)) return false;
   return true;
 }
-function policyFullyPaidTerm(p){
-  if(p.finalPremiumPaid) return true;
-  const end=policyPptEnd(p);
-  const next=(p.next||"").trim();
-  // next past PPT only counts as complete after a recorded final payment
-  if(end && next && next > end && p.finalPremiumPaid) return true;
-  return false;
-}
-function policyHasOpenPremium(p){
-  // True when a premium can still be recorded.
-  if(!policyPremiumActive(p)) return false;
-  if(p.finalPremiumPaid) return false;
-  const next=policyEffectiveNext(p);
-  const end=policyPptEnd(p);
-  if(!next){
-    // No next stored: open if still inside PPT or PPT unknown
-    if(end && today() > end) return false;
-    return true;
-  }
-  if(end && next > end){
-    // Next drifted past PPT but final not flagged — still allow one final payment (payable date = PPT end)
-    return true;
-  }
-  if(p.maturity && next > p.maturity) return false;
-  return true;
-}
+
+
 function policyDueForReminder(p){
   if(!policyHasOpenPremium(p)) return false;
   const due=policyPayableDate(p);
   return !!due;
 }
-function policyPayableDate(p){
-  // Date to record for Mark paid: if next slipped past PPT end but final not marked, use PPT end once.
-  const next=policyEffectiveNext(p);
-  const end=policyPptEnd(p);
-  if(end && next && next > end && !p.finalPremiumPaid) return end;
-  return next || today();
-}
+
 function nextDue(day){
   const t=today();
   const mk=(ym,d)=>{const [y,m]=ym.split("-").map(Number); const last=new Date(y,m,0).getDate(); return y+"-"+String(m).padStart(2,"0")+"-"+String(Math.min(d,last)).padStart(2,"0");};
@@ -652,7 +763,20 @@ function balance(a){
   return Math.round(b*100)/100;
 }
 function holdPos(h){let u=0,c=0;for(const t of S.txns){if(t.status!=="posted"||t.hold!==h.id)continue;if(t.type==="buy"||t.type==="open"||t.type==="adjust"){u+=t.units;c+=t.cost;}else if(t.type==="sell"){const f=u?Math.min(1,t.units/u):0;c-=c*f;u-=t.units;}}return{u:Math.round(u*1e6)/1e6,c:Math.round(c*100)/100,v:Math.round(u*(h.price||0)*100)/100};}
-function personPos(owner){const m={};for(const t of S.txns){if(t.status==="posted"&&t.person&&t.pd&&t.postings?.[0]&&(!owner||t.owner===owner))m[t.person]=(m[t.person]||0)+toDisplayAt(t.pd,t.postings[0].cur,t.fxRate);}return m;}
+function personPos(owner){
+  // Informal IOUs from transfers only. Lending module uses loansReceivable/lendingPosition —
+  // never mix loanId/lendingId/principalReduction/interestSettlement or lend/borrow types here
+  // (that created phantom liabilities when repayments set negative pd).
+  const m={};
+  for(const t of S.txns){
+    if(t.status!=="posted"||!t.person||!t.pd||!t.postings?.[0]) continue;
+    if(owner&&t.owner&&t.owner!==owner) continue;
+    if(t.loanId||t.lendingId||t.principalReduction||t.interestSettlement) continue;
+    if(["lend","borrow","lendback","repay"].includes(t.type)) continue;
+    m[t.person]=(m[t.person]||0)+toDisplayAt(t.pd,t.postings[0].cur,t.fxRate);
+  }
+  return m;
+}
 function monthKey(d){ return d.slice(0,7); }
 function monthTotals(m,owner){
   let inc=0, exp=0;
@@ -820,8 +944,11 @@ function wireSortableLists(){
     const root=document.querySelector("#content")||document.querySelector("#app")||document.body;
     enableListSort(root, "[data-acct].card, [data-acct].rec-card", ids=>{ applySortOrder(S.accounts, ids); save(); });
     enableListSort(root, "[data-hold].card, [data-hold].rec-card", ids=>{ applySortOrder(S.holdings, ids); save(); });
-    enableListSort(root, "[data-contact].card", ids=>{ applySortOrder(S.contacts, ids); save(); });
-    enableListSort(root, "[data-sip].card, [data-sip].rec-card", ids=>{ applySortOrder(S.sips, ids); save(); });
+    enableListSort(root, "[data-contact].card, [data-contact]", ids=>{ applySortOrder(S.contacts, ids); save(); });
+    enableListSort(root, "[data-sip].card, [data-sip].rec-card, [data-sip]", ids=>{ applySortOrder(S.sips, ids); save(); });
+    enableListSort(root, "[data-salary].card, [data-salary].rec-card, [data-salary]", ids=>{ applySortOrder(S.salaries, ids); save(); });
+    enableListSort(root, "[data-pol].card, [data-pol]", ids=>{ applySortOrder(S.policies, ids); save(); });
+    enableListSort(root, "[data-lend].card, [data-lend].rec-card, [data-lend]", ids=>{ applySortOrder(S.lending, ids); save(); });
   }catch(e){}
 }
 function enableListSort(rootSel, itemSel, onReorder){
@@ -959,6 +1086,23 @@ function personalAssetsValue(owner){
   return 0;
 }
 
+function netWorthBreakdown(owner){
+  const parts={accounts:0,accountLiab:0,holdings:0,personAssets:0,personLiab:0,loansRecv:0,loansPay:0,insCash:0};
+  for(const a of S.accounts){
+    if(a.archived||(owner&&a.owner!==owner)) continue;
+    const b=toDisplay(balance(a),a.cur);
+    if(b>=0) parts.accounts+=b; else parts.accountLiab+=-b;
+  }
+  for(const h of S.holdings){ if(!(owner&&h.owner!==owner)) parts.holdings+=toDisplay(holdPos(h).v,h.cur); }
+  for(const v of Object.values(personPos(owner))){ if(v>=0) parts.personAssets+=v; else parts.personLiab+=-v; }
+  const loans=loansReceivable(owner);
+  parts.loansRecv=loans.receivable; parts.loansPay=loans.payable;
+  parts.insCash=insuranceValues(owner).cashValue;
+  parts.assets=parts.accounts+parts.holdings+parts.personAssets+parts.loansRecv+parts.insCash;
+  parts.liabilities=parts.accountLiab+parts.personLiab+parts.loansPay;
+  parts.total=parts.assets-parts.liabilities;
+  return parts;
+}
 function netWorth(owner){
   let assets=0, owed=0;
   for(const a of S.accounts){
@@ -1259,7 +1403,7 @@ function viewAccounts(){
     <button type="button" data-moneyseg="contacts" class="${seg==="contacts"?"on":""}">Contacts</button>
   </div>`;
   if(seg==="contacts"){
-    const list=S.contacts||[];
+    const list=sortedList(S.contacts||[]);
     return segBar+`<h2 style="margin-top:4px">People registry</h2>
   <p class="muted">One person, many bank accounts or UPI IDs. Older friend accounts are restored from saved data when you unlock. Same names work for lending and external transfers. Not balances — reference only.</p>
   ${list.map(c=>{
@@ -2061,7 +2205,7 @@ function viewPlan(){
         else monthly+=toDisplay(x.amt,x.cur);
       }
     }
-    const cards=S.salaries.map(x=>{
+    const cards=sortedList(S.salaries).map(x=>{
       const a=acct(x.acct)||{};
       const d=daysTo(x.next);
       const st=x.status||"active";
@@ -2106,7 +2250,7 @@ function viewPlan(){
       else outstandingBorrowed+=out;
       if(p.totalOutstanding>0.0001) active++;
     }
-    const cards=S.lending.map(l=>{
+    const cards=sortedList(S.lending).map(l=>{
       const p=lendingPosition(l);
       const orig=p.principalOrig;
       const out=p.totalOutstanding;
@@ -2165,11 +2309,11 @@ function viewPlan(){
   }
   if(seg==="cover"){
     return segBar+`<h2 style="margin-top:4px">Insurance</h2>
-  ${S.policies.map(p=>{
+  ${sortedList(S.policies).map(p=>{
     const open=policyHasOpenPremium(p);
     const due=open?(policyPayableDate(p)||p.next||""):(p.next||"");
     const d=open&&due?daysTo(due):null;
-    const status=policyFullyPaidTerm(p)?"Up to date":!open?"No due":d===null?"—":dl(d);
+    const status=policyFullyPaidTerm(p)||!open?"No further premiums due":d===null?"—":(d<0?((-d)+"d overdue"):dl(d));
     const cls=open&&d!==null&&d<=30?"warn":"muted";
     return `<div class="card" data-pol="${p.id}"><div class="row"><div><b>${esc(p.name)}</b><div class="muted">${esc(p.owner||"Me")} · ${esc(p.provider||"")} · ${fmt(p.premium,p.cur)} · next ${esc(due||"—")}</div></div><b class="${cls}">${status}</b></div></div>`;
   }).join("")||`<div class="empty"><div class="empty-title">No policies</div><p>Track premiums and due dates.</p></div>`}
@@ -2183,7 +2327,7 @@ function viewPlan(){
   for(const x of S.sips){
     if((x.status||"active")==="active"){ sipActive++; sipMonthly+=toDisplay(x.amt,x.cur)/((x.freq||1)); }
   }
-  const sipCards=S.sips.map(x=>{
+  const sipCards=sortedList(S.sips).map(x=>{
     const h=S.holdings.find(v=>v.id===x.hold)||{};
     const d=daysTo(x.next);
     const hist=x.history||[];
@@ -2979,9 +3123,9 @@ if(d.delmethod){
       ?('<form id="fpay"><input type="hidden" id="pid" value="'+p.id+'"><label>Paid from</label><select id="pacc">'+accOpts().map(([v,n])=>'<option value="'+v+'">'+esc(n)+'</option>').join("")+'</select><button class="btn" type="submit">Mark premium paid · '+esc(eff||p.next||"due")+'</button></form>'+overdueNote)
       :('<div class="muted" style="margin:10px 0">Premium-paying term is complete (no outstanding due inside PPT). You can still edit dates below if needed.</div>');
     const paidInfo=policyPremiumsPaidToDate(p);
-    const paidLine=paidInfo.count
+    const paidLine=(p.paidThrough?"Paid through "+p.paidThrough+" · ":"")+(paidInfo.count
       ?("Premiums paid to date: <b>"+fmt(paidInfo.total,p.cur)+"</b> · "+paidInfo.count+" instalment(s)"+(paidInfo.source==="schedule"?" (from schedule)":" (recorded)")+(paidInfo.remaining!=null?" · remaining ~"+fmt(paidInfo.remaining,p.cur):""))
-      :("No premiums counted yet.");
+      :("No premiums counted yet."));
     openSheet('<h2 style="margin-top:0">'+esc(p.name)+'</h2>'+
       '<div class="form-section"><div class="form-section-title">Policy</div>'+
       '<div class="row"><span>Provider</span><b>'+esc(p.provider||"—")+'</b></div>'+
@@ -3008,7 +3152,7 @@ if(d.delmethod){
       '<label>Owner</label><input id="peown" value="'+esc(p.owner||"Me")+'">'+
       '<label>Commencement</label><input type="date" id="pestart" value="'+esc(p.start||"")+'">'+
       '<label>Sum assured</label><input id="pesum" inputmode="decimal" value="'+(p.sum||"")+'">'+
-      '<label>Current fund / surrender value (in assets)</label><input id="pefund" inputmode="decimal" value="'+(p.fundValue||p.surrenderValue||'')+'" placeholder="0 if term-only">'+
+      '<label>Historical premiums paid through</label><input type="date" id="pepaidthrough" value="'+(p.paidThrough||'')+'">'+'<div class="muted">Assumes premiums from commencement through this date were paid (no bank txn).</div>'+'<label>Current fund / surrender value (in assets)</label><input id="pefund" inputmode="decimal" value="'+(p.fundValue||p.surrenderValue||'')+'" placeholder="0 if term-only">'+
       '<label>Bonus</label><input id="pebonus" inputmode="decimal" value="'+(p.bonus||"")+'">'+
       '<label>Premium</label><input id="peprem" inputmode="decimal" value="'+(p.premium||"")+'">'+
       '<label>PPT (years)</label><input id="peppt" inputmode="numeric" value="'+(p.ppt||"")+'">'+
@@ -3608,7 +3752,7 @@ document.addEventListener("submit", e=>{
     const p=S.policies.find(x=>x.id===$("#peid")?.value); if(!p) return;
     p.name=($("#pen")?.value||p.name).trim(); p.policyNo=($("#peno")?.value||"").trim();
     p.provider=($("#peprov")?.value||"").trim(); p.owner=($("#peown")?.value||"Me").trim();
-    p.start=$("#pestart")?.value||p.start||""; p.sum=parseAmt($("#pesum")?.value||p.sum); if($("#pefund")) p.fundValue=parseAmt($("#pefund").value||"0"); if($("#pekind")) p.policyKind=$("#pekind").value;
+    p.start=$("#pestart")?.value||p.start||""; p.sum=parseAmt($("#pesum")?.value||p.sum); if($("#pefund")) p.fundValue=parseAmt($("#pefund").value||"0"); if($("#pekind")) p.policyKind=$("#pekind").value; if($("#pepaidthrough")) p.paidThrough=($("#pepaidthrough").value||"").trim();
     p.bonus=parseAmt($("#pebonus")?.value||"0"); p.premium=parseAmt($("#peprem")?.value||p.premium);
     p.ppt=Math.round(parseAmt($("#peppt")?.value||"0"))||p.ppt||0;
     p.term=Math.round(parseAmt($("#peterm")?.value||"0"))||p.term||0;
