@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.7.2
+**Current version:** 2.7.3
 
 ---
 
@@ -22,6 +22,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 
 ### Money
 - Bank, cash, and **credit card** accounts (limit, statement/due days, last-4, network, expiry).
+- **Forex cards** under Cards, separate from credit and debit. Multiple currency wallets, last-4 only (no CVV or PIN), balances you update yourself. Net worth converts each wallet once using your rates.
 - Bank details: account number/IBAN, IFSC, branch; **copy** for own accounts and for saved recipients.
 - Optional **linked debit card** on a bank account (not a separate balance).
 - Income, expense, transfer, refund; **set current balance** (adjustment posting).

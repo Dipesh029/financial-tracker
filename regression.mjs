@@ -620,11 +620,118 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.7.2");
+  const versionAt = home.indexOf("v" + "2.7.3");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
   console.log("PASS pay-from-and-valuation");
+}
+
+{
+  const S = mf.getS();
+  S.display = "INR";
+  S.rate = 90;
+  S.fx = {USD:84, GBP:106, SGD:63};
+  S.people = ["Me", "Father"];
+  S.txns = [];
+  S.holdings = [];
+  S.policies = [];
+  S.lending = [];
+  S.sips = [];
+  S.salaries = [];
+  S.onboardingDone = true;
+  S.nwPrefs = {insuranceCoverage:false, insuranceCash:true, loansReceivable:true, accruedInterest:true};
+  const pan = mf.maskCardLast4("4111111111114242");
+  assert(pan.ok && pan.last4 === "4242", "full card number keeps only the last 4");
+  assert(mf.maskCardLast4("123").ok === false, "a short card number is rejected");
+  assert(mf.maskCardLast4("4242").last4 === "4242", "last 4 is accepted");
+  assert(mf.collectForexWallets([{cur:"USD", balance:10},{cur:"usd", balance:5}]).ok === false, "the same currency cannot be added twice");
+  assert(mf.collectForexWallets([{cur:"USD", balance:-1}]).ok === false, "a negative forex balance is rejected");
+  const wallets = mf.collectForexWallets([
+    {cur:"USD", balance:100},
+    {cur:"EUR", balance:40},
+    {cur:"INR", balance:500}
+  ]);
+  assert(wallets.ok && wallets.wallets.length === 3, "three currency wallets");
+  const card = {id:"fx1", type:"forex", name:"Niyo", owner:"Me", cur:"MULTI", opening:99999, accountNumber:"4111111111114242", archived:false, wallets:[], cardMeta:{}, bank:"Niyo"};
+  const credit = {id:"card1", name:"Axis", type:"card", owner:"Me", cur:"INR", opening:-20, archived:false, cardMeta:{cardType:"Credit", last4:"1188"}};
+  const bank = {id:"bank1", name:"HDFC", type:"bank", owner:"Me", cur:"INR", opening:500, archived:false};
+  S.accounts = [card, credit, bank];
+  mf.applyForexWallets(card, wallets.wallets);
+  assert(card.opening === 0, "the old opening is not kept as a second forex balance");
+  assert(card.accountNumber === "", "the full card number is not stored");
+  assert(card.cardMeta.cardType === "Forex", "card type is Forex");
+  assert(!JSON.stringify(card).includes("4111111111114242"), "the PAN is not stored on the account");
+  const first = mf.wealthBreakdown(null);
+  near(first.forex, 100*84 + 40*90 + 500, "each wallet converts on its own and the opening is ignored");
+  near(first.cardLiab, 20, "the credit card is still money owed");
+  near(first.bank, 500, "the bank balance is unchanged");
+  near(first.total, 500 - 20 + 100*84 + 40*90 + 500, "forex is added to net worth once");
+  const eur = card.wallets.find(w => w.cur === "EUR");
+  const usd = card.wallets.find(w => w.cur === "USD");
+  const inr = card.wallets.find(w => w.cur === "INR");
+  mf.applyForexWallets(card, [
+    {cur:"USD", balance:80, id:usd.id, asOf:usd.asOf},
+    {cur:"EUR", balance:40, id:eur.id, asOf:eur.asOf},
+    {cur:"INR", balance:500, id:inr.id, asOf:inr.asOf}
+  ]);
+  assert(card.wallets.find(w => w.cur === "EUR").balance === 40, "the euro wallet is unchanged");
+  assert(card.wallets.find(w => w.cur === "INR").balance === 500, "the rupee wallet is unchanged");
+  assert(card.wallets.find(w => w.cur === "USD").balance === 80, "only the dollar wallet changes");
+  assert(S.txns.length === 0 && S.holdings.length === 0, "updating a wallet creates no transaction or holding");
+  const moved = mf.wealthBreakdown(null);
+  near(moved.forex, 80*84 + 40*90 + 500, "net worth follows the updated dollar balance only");
+  assert(mf.payAccountAllowed(card, "out") === false, "a forex card is not a payment source");
+  assert(mf.payAccountAllowed(credit, "out") === true, "a credit card can still be used to pay");
+  const pay = mf.paySelectHtml("from", "bank1", "out");
+  assert(!pay.includes("Niyo"), "pay-from does not list the forex card");
+  assert(pay.includes("Axis"), "pay-from still lists the credit card");
+  const usdFmt = mf.fmt(80, "USD");
+  const eurFmt = mf.fmt(40, "EUR");
+  const inrFmt = mf.fmt(500, "INR");
+  assert((usdFmt.includes("$") || usdFmt.includes("USD")) && !usdFmt.includes("€") && !usdFmt.includes("₹"), "dollars are not shown as euros or rupees");
+  assert(eurFmt.includes("€") || eurFmt.includes("EUR"), "euros keep the euro symbol");
+  assert(inrFmt.includes("₹") || inrFmt.includes("INR"), "rupees keep the rupee symbol");
+  S.fx.GBP = 0;
+  mf.applyForexWallets(card, [{cur:"GBP", balance:10}]);
+  const gap = mf.forexDisplayValue(card);
+  assert(gap.missing === true && gap.value === 0, "a currency with no rate is not treated as INR or EUR");
+  S.fx.GBP = 106;
+  near(mf.forexDisplayValue(card).value, 1060, "pounds use the pound rate");
+  const dad = {id:"fxd", type:"forex", name:"Father forex", owner:"Father", archived:false, opening:0, wallets:[], cardMeta:{}};
+  mf.applyForexWallets(dad, [{cur:"USD", balance:1}]);
+  S.accounts.push(dad);
+  const fam = mf.wealthBreakdown(null);
+  const me = mf.wealthBreakdown("Me");
+  const father = mf.wealthBreakdown("Father");
+  near(me.total + father.total, fam.total, "forex balances stay with their owner");
+  near(father.forex, 84, "father's dollar wallet converts once");
+  S.accounts = S.accounts.filter(a => a.id !== "fx1");
+  near(mf.wealthBreakdown("Me").forex, 0, "deleting the card removes it from net worth");
+  mf.setMoneySeg("accounts");
+  mf.setTab("accounts");
+  S.accounts = [card, credit, bank];
+  const page = mf.viewAccounts();
+  assert(page.includes("Forex card") && page.includes("Niyo"), "forex cards appear in the accounts list");
+  assert(page.includes("Credit card") || page.includes("Axis"), "the credit card is still listed");
+  assert(page.indexOf('section-label">Forex cards') > page.indexOf("Axis"), "forex cards are grouped after credit cards");
+  assert(mf.vaultShapeOk({v:2, accounts:[{type:"forex", wallets:[{cur:"USD", balance:1}]}], txns:[]}), "a backup with a forex card is still a valid vault");
+  assert(mf.vaultShapeOk({v:2, accounts:[{type:"card", opening:-5}], txns:[]}), "an older card backup is still valid");
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await mf.deriveKey("correct horse battery", salt, 1000);
+  const sealed = await mf.seal({v:2, rate:90, display:"INR", accounts:[card], txns:[], fx:S.fx}, key, salt, 1000, null);
+  const env = JSON.parse(sealed);
+  assert(env.enc === 2 && env.salt && env.iv && env.data && !("wallets" in env), "the backup envelope is unchanged");
+  const opened = await mf.unseal(env, key);
+  assert(opened.accounts[0].wallets.find(w => w.cur === "GBP").balance === 10, "restore keeps the forex wallets");
+  assert(opened.accounts[0].accountNumber === "", "restore does not reveal a full card number");
+  const kept = {id:"c", type:"card", name:"Axis", owner:"Me", cur:"INR", opening:-20, archived:false, cardMeta:{cardType:"Credit", last4:"1188"}};
+  S.accounts = [kept];
+  S.fx = {};
+  mf.migrate();
+  assert(S.accounts.length === 1 && S.accounts[0].type === "card" && S.accounts[0].opening === -20, "migrate does not rewrite credit cards");
+  assert(Number(S.fx.USD) > 0 && Number(S.fx.GBP) > 0, "missing forex rates are filled without erasing the vault");
+  console.log("PASS forex-cards");
 }
 
 console.log("ALL_REGRESSION_PASS");

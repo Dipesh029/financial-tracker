@@ -252,6 +252,12 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 .val-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
 .val-row div{min-width:0}
 .val-row span{display:block;font-size:11px;color:var(--muted);font-weight:600}
+.fx-row{display:grid;grid-template-columns:minmax(88px,1fr) minmax(0,1.4fr) auto;gap:8px;align-items:center;margin:8px 0}
+.fx-row select,.fx-row input{min-width:0;min-height:44px}
+.fx-wallet{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:6px 0}
+.fx-wallet + .fx-wallet{border-top:1px solid var(--line)}
+.fx-wallet span{font-size:12px;font-weight:700;letter-spacing:.04em;color:var(--muted)}
+.section-label{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px}
 .val-row b{display:block;font-size:14px;font-variant-numeric:tabular-nums;word-break:break-word}
 @media (max-width:380px){
   .home-controls{gap:6px}
@@ -353,9 +359,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.7.2";
+const APP_VERSION = "2.7.3";
 const RELEASES = [
-  {v:"2.7.2", d:"2026-11-18", notes:"Pay-from lists exclude Demat and group bank, card, and cash, with the account you use most already selected. Demat accounts are valued from holdings or one manual current value — never both. A blank value stays an estimate. Plan headers and the home top row line up."},
+  {v:"2.7.3", d:"2026-11-18", notes:"Forex cards sit with Cards, separate from credit and debit. Each currency wallet has its own balance and symbol. Net worth converts those balances with your rates, once. Card numbers are stored as the last 4 digits only."},
   {v:"2.7.1", d:"2026-11-18", notes:"Failed saves stay in the session but never say Saved. Amounts keep real formats and reject junk. SIP frequency changes, premium term ends, and net worth tiles stay reconcilable."},
   {v:"2.7.0", d:"2026-11-18", notes:"Storage failures are no longer reported as saved. Amounts reject bad input. Schedules, lending day-count, premiums, net worth, and restore rollback are aligned."},
   {v:"2.6.1", d:"2026-11-18", notes:"Fix the broken Plan tabs, wide-screen navigation, checkboxes, and crowded home tiles."},
@@ -656,6 +662,36 @@ function migrate(){
       if(Math.abs(b-a.invested)>0.009) a.manualValue=Math.round(b*100)/100;
     }
   }
+  if(!S.fx || typeof S.fx!=="object" || Array.isArray(S.fx)) S.fx={};
+  for(const code of Object.keys(FX_DEFAULT_INR)){
+    if(!(Number(S.fx[code])>0)) S.fx[code]=FX_DEFAULT_INR[code];
+  }
+  for(const a of S.accounts){
+    if(a.type!=="forex") continue;
+    const rows=(Array.isArray(a.wallets)?a.wallets:[]).map(w=>({
+      id:w&&w.id||"",
+      cur:String(w&&w.cur||"").toUpperCase(),
+      balance:Math.max(0, Number(w&&w.balance)||0),
+      asOf:w&&w.asOf||""
+    })).filter(w=>fxKnown(w.cur));
+    const seen=new Set();
+    const wallets=[];
+    for(const w of rows){
+      if(seen.has(w.cur)) continue;
+      seen.add(w.cur);
+      wallets.push(w);
+    }
+    a.wallets=wallets.map(w=>({id:w.id||uid(), cur:w.cur, balance:Math.round(w.balance*100)/100, asOf:w.asOf||""}));
+    a.opening=0;
+    a.cur=a.wallets.length===1?a.wallets[0].cur:(a.wallets.length?"MULTI":"INR");
+    a.cardMeta=Object.assign({}, a.cardMeta||{}, {cardType:"Forex"});
+    const digits=String(a.accountNumber||"").replace(/\D/g,"");
+    if(digits.length>4) a.accountNumber="";
+    if(!a.cardMeta.last4){
+      const masked=String(a.accountMasked||"").replace(/\D/g,"");
+      if(masked.length>=4) a.cardMeta.last4=masked.slice(-4);
+    }
+  }
   for(const x of S.sips){ x.status=x.status||"active"; x.history=x.history||[]; x.revisions=x.revisions||[]; if(x.freq==null)x.freq=1; }
   for(const x of (S.lending||[])){ x.interestAdjustments=x.interestAdjustments||[]; }
   for(const x of S.salaries){ x.status=x.status||"active"; x.history=x.history||[]; x.revisions=x.revisions||[]; x.freqUnit=x.freqUnit||"month"; if(x.freq==null)x.freq=1; }
@@ -860,10 +896,154 @@ const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<"
 const today = () => { const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
 
 /* ---------- money ---------- */
-const fmt = (n,cur) => new Intl.NumberFormat(cur==="INR"?"en-IN":"nl-NL",{style:"currency",currency:cur,maximumFractionDigits:2}).format(n||0);
-const fmtHide = (n,cur) => { if(!(S&&S.hideBalances)) return fmt(n,cur); return (cur==="INR"||(!cur&&S.display==="INR")?"₹":"")+"••••••"; };
+const fmt = (n,cur) => {
+  const code = cur || (S && S.display) || "INR";
+  if(code==="INR" || code==="EUR") return new Intl.NumberFormat(code==="INR"?"en-IN":"nl-NL",{style:"currency",currency:code,maximumFractionDigits:2}).format(n||0);
+  const loc = {USD:"en-US",GBP:"en-GB",SGD:"en-SG",AED:"en-AE",AUD:"en-AU",CAD:"en-CA",CHF:"de-CH",JPY:"ja-JP",HKD:"en-HK",THB:"th-TH"}[code];
+  if(!loc){
+    try{ return new Intl.NumberFormat("en",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n)||0)+" "+code; }
+    catch(e){ return (Number(n)||0).toFixed(2)+" "+code; }
+  }
+  try{
+    const max = code==="JPY" ? 0 : 2;
+    return new Intl.NumberFormat(loc,{style:"currency",currency:code,minimumFractionDigits:max,maximumFractionDigits:max}).format(Number(n)||0);
+  }catch(e){
+    return (Number(n)||0).toFixed(2)+" "+code;
+  }
+};
+const fmtHide = (n,cur) => {
+  if(!(S&&S.hideBalances)) return fmt(n,cur);
+  const code = cur || (S.display||"INR");
+  if(code==="INR") return "₹••••••";
+  return code+" ••••••";
+};
 const toDisplay = (n,cur) => cur===S.display ? n : (cur==="EUR" ? n*S.rate : n/S.rate);
 const toDisplayAt = (n,cur,rate) => cur===S.display ? n : (cur==="EUR" ? n*(rate||S.rate) : n/(rate||S.rate));
+const FX_CURRENCIES = [
+  {code:"INR", name:"Indian rupee"},
+  {code:"EUR", name:"Euro"},
+  {code:"USD", name:"US dollar"},
+  {code:"GBP", name:"British pound"},
+  {code:"SGD", name:"Singapore dollar"},
+  {code:"AED", name:"UAE dirham"},
+  {code:"AUD", name:"Australian dollar"},
+  {code:"CAD", name:"Canadian dollar"},
+  {code:"CHF", name:"Swiss franc"},
+  {code:"JPY", name:"Japanese yen"},
+  {code:"HKD", name:"Hong Kong dollar"},
+  {code:"THB", name:"Thai baht"}
+];
+const FX_DEFAULT_INR = {USD:84, GBP:106, SGD:63, AED:23, AUD:55, CAD:61, CHF:95, JPY:0.56, HKD:10.8, THB:2.45};
+function fxKnown(code){ return FX_CURRENCIES.some(c=>c.code===code); }
+function maskCardLast4(raw){
+  const digits=String(raw==null?"":raw).replace(/\D/g,"");
+  if(!digits) return {ok:true, last4:""};
+  if(digits.length===4 || (digits.length>=12 && digits.length<=19)) return {ok:true, last4:digits.slice(-4)};
+  return {ok:false, error:"Enter the last 4 digits, or the full card number (12–19 digits). CVV and PIN are never stored."};
+}
+function collectForexWallets(rows){
+  if(!Array.isArray(rows) || !rows.length) return {ok:false, error:"Add at least one currency balance."};
+  const seen=new Set();
+  const wallets=[];
+  for(const row of rows){
+    const cur=String(row&&row.cur||"").trim().toUpperCase();
+    if(!fxKnown(cur)) return {ok:false, error:"Choose a supported currency."};
+    if(seen.has(cur)) return {ok:false, error:cur+" is already on this card. Update that balance instead of adding it twice."};
+    seen.add(cur);
+    const n=Number(row.balance);
+    if(!isFinite(n) || n<0) return {ok:false, error:"Enter a zero or positive "+cur+" balance."};
+    wallets.push({
+      id:row.id||"",
+      cur,
+      balance:Math.round(n*100)/100,
+      asOf:row.asOf||""
+    });
+  }
+  return {ok:true, wallets};
+}
+function forexWallets(a){
+  return (a && Array.isArray(a.wallets) ? a.wallets : []).filter(w=>w && fxKnown(String(w.cur||"").toUpperCase()));
+}
+function forexWalletInDisplay(amount, cur){
+  const n=Number(amount)||0;
+  const display=S.display||"INR";
+  if(!cur || cur===display) return {ok:true, value:n};
+  if(cur==="INR"){
+    if(display==="EUR" && Number(S.rate)>0) return {ok:true, value:n/Number(S.rate)};
+    return {ok:false, value:0};
+  }
+  if(cur==="EUR"){
+    if(!(Number(S.rate)>0)) return {ok:false, value:0};
+    if(display==="EUR") return {ok:true, value:n};
+    if(display==="INR") return {ok:true, value:n*Number(S.rate)};
+    return {ok:false, value:0};
+  }
+  const per=S.fx && Number(S.fx[cur]);
+  if(!(per>0)) return {ok:false, value:0};
+  const inr=n*per;
+  if(display==="INR") return {ok:true, value:inr};
+  if(display==="EUR") return {ok:true, value:inr/Number(S.rate)};
+  return {ok:false, value:0};
+}
+function forexDisplayValue(a){
+  let value=0, missing=false;
+  for(const w of forexWallets(a)){
+    const cur=String(w.cur).toUpperCase();
+    const part=forexWalletInDisplay(w.balance, cur);
+    if(!part.ok) missing=true;
+    else value+=part.value;
+  }
+  return {value:Math.round(value*100)/100, missing};
+}
+function applyForexWallets(a, wallets){
+  const prev=new Map(forexWallets(a).map(w=>[String(w.cur).toUpperCase(), w]));
+  a.type="forex";
+  a.wallets=wallets.map(w=>{
+    const cur=String(w.cur).toUpperCase();
+    const old=prev.get(cur);
+    const balance=Math.round(Number(w.balance)*100)/100;
+    const unchanged=old && Math.abs(Number(old.balance)-balance)<0.001;
+    return {id:(old&&old.id)||w.id||uid(), cur, balance, asOf:unchanged?(old.asOf||today()):today()};
+  });
+  a.opening=0;
+  a.cur=a.wallets.length===1?a.wallets[0].cur:"MULTI";
+  a.cardMeta=Object.assign({}, a.cardMeta||{}, {cardType:"Forex"});
+  const digits=String(a.accountNumber||"").replace(/\D/g,"");
+  if(digits.length>4) a.accountNumber="";
+}
+function fxRowHtml(cur, bal, id, asOf){
+  const options=FX_CURRENCIES.map(c=>`<option value="${c.code}" ${c.code===cur?"selected":""}>${c.code}</option>`).join("");
+  const shown=bal==null||bal===""?"":String(bal);
+  return `<div class="fx-row" data-fxid="${esc(id||"")}" data-fxasof="${esc(asOf||"")}"><select class="fx-cur" aria-label="Wallet currency">${options}</select><input class="fx-amt" inputmode="decimal" placeholder="Available" value="${esc(shown)}" aria-label="Available balance"><button type="button" class="chip" data-fxdelrow>Remove</button></div>`;
+}
+function readForexRows(root){
+  const rows=[...(root?root.querySelectorAll(".fx-row"):[])];
+  const draft=[];
+  for(const row of rows){
+    const cur=(row.querySelector(".fx-cur")||{}).value||"";
+    const raw=(row.querySelector(".fx-amt")||{}).value;
+    const amt=rejectAmt(raw==null||String(raw).trim()===""?"0":raw,{required:true,allowNegative:false,maxDecimals:2});
+    if(amt==null) return null;
+    draft.push({cur, balance:amt, id:row.getAttribute("data-fxid")||"", asOf:row.getAttribute("data-fxasof")||""});
+  }
+  const got=collectForexWallets(draft);
+  if(!got.ok){ alert(got.error); return null; }
+  return got.wallets.map(w=>{
+    const prev=draft.find(d=>String(d.cur).toUpperCase()===w.cur);
+    return {id:prev&&prev.id||"", cur:w.cur, balance:w.balance, asOf:prev&&prev.asOf||""};
+  });
+}
+function forexRatesInUse(){
+  const set=new Set();
+  for(const a of (S.accounts||[])){
+    if(a.archived||a.type!=="forex") continue;
+    for(const w of forexWallets(a)){
+      const cur=String(w.cur).toUpperCase();
+      if(cur!=="INR" && cur!=="EUR") set.add(cur);
+    }
+  }
+  return [...set];
+}
 /*PARSE_AMT_START*/
 function inspectAmt(v){
   if(v==null) return {ok:true, empty:true, value:0, decimals:0};
@@ -1513,10 +1693,14 @@ function investmentTotals(owner){
   return {dematValue, dematCost, holdValue, holdCost, skip, value:dematValue+holdValue, cost:dematCost+holdCost};
 }
 function wealthBreakdown(owner){
-  let cash=0, bank=0, cardLiab=0, cardAsset=0, overdraft=0;
+  let cash=0, bank=0, cardLiab=0, cardAsset=0, overdraft=0, forex=0;
   for(const a of S.accounts){
     if(a.archived||(owner&&(a.owner||"Me")!==owner)) continue;
     if(a.type==="demat") continue;
+    if(a.type==="forex"){
+      forex+=forexDisplayValue(a).value;
+      continue;
+    }
     const b=toDisplay(balance(a),a.cur);
     if(a.type==="cash"){ if(b>=0) cash+=b; else overdraft+=-b; }
     else if(a.type==="bank"){ if(b>=0) bank+=b; else overdraft+=-b; }
@@ -1530,14 +1714,14 @@ function wealthBreakdown(owner){
   for(const v of Object.values(personPos(owner))){ if(v>=0) iouIn+=v; else iouOut+=-v; }
   const loans=loansReceivable(owner);
   const ins=insuranceValues(owner);
-  const liquid=cash+bank+cardAsset;
+  const liquid=cash+bank+cardAsset+forex;
   const invested=holdings+dematValue+ins.cashValue;
   const owedToYou=loans.receivable+iouIn;
   const youOwe=cardLiab+overdraft+loans.payable+iouOut;
   const assets=liquid+invested+owedToYou;
   const liabilities=youOwe;
   return {
-    cash, bank, demat:dematValue, holdings, invested, liquid,
+    cash, bank, forex, demat:dematValue, holdings, invested, liquid,
     dematCost:inv.dematCost, holdCost:inv.holdCost,
     cardLiab, cardAsset, overdraft,
     loansReceivable:loans.receivable, loansPayable:loans.payable,
@@ -1569,14 +1753,30 @@ function valuationNotes(owner){
 }
 function valuationNoteHtml(owner){
   const n=valuationNotes(owner);
-  if(!n.missing && !n.undated && !n.old && !n.insUndated && !n.insOld) return "";
+  const gap=forexGapNote(owner);
+  if(!n.missing && !n.undated && !n.old && !n.insUndated && !n.insOld) return gap;
   const bits=[];
   if(n.missing) bits.push(n.missing+" holding"+(n.missing===1?"":"s")+" with no price (counted as zero)");
   if(n.old) bits.push(n.old+" investment price"+(n.old===1?"":"s")+" older than 45 days");
   if(n.undated) bits.push(n.undated+" investment price"+(n.undated===1?"":"s")+" with no recorded date");
   if(n.insOld) bits.push(n.insOld+" insurance value"+(n.insOld===1?"":"s")+" older than 45 days");
   if(n.insUndated) bits.push(n.insUndated+" insurance value"+(n.insUndated===1?"":"s")+" with no recorded date");
-  return `<p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Valuation check: ${bits.join(" · ")}. Investment prices and insurance values are what you last entered — not a live feed. Insurance cover is not part of actual net worth.</p>`;
+  return `<p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Valuation check: ${bits.join(" · ")}. Investment prices and insurance values are what you last entered — not a live feed. Insurance cover is not part of actual net worth.</p>${forexGapNote(owner)}`;
+}
+function forexGapNote(owner){
+  const missing=[];
+  for(const a of (S.accounts||[])){
+    if(a.archived||a.type!=="forex") continue;
+    if(owner && (a.owner||"Me")!==owner) continue;
+    for(const w of forexWallets(a)){
+      const cur=String(w.cur).toUpperCase();
+      const part=forexWalletInDisplay(w.balance, cur);
+      if(!part.ok) missing.push(cur);
+    }
+  }
+  const uniq=[...new Set(missing)];
+  if(!uniq.length) return "";
+  return `<p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Forex card ${uniq.join(", ")} ${uniq.length===1?"is":"are"} not in net worth until a rate is set under More. The card still shows that balance in its own currency.</p>`;
 }
 
 function netWorthBreakdown(owner){
@@ -1693,7 +1893,9 @@ function viewSettings(){
   <div class="card"><b>Display</b>
   <label>EUR → INR rate</label>
   <input id="rate" inputmode="decimal" value="${S.rate||104.16}">
-  <div class="muted">Used when converting for net-worth display.</div></div>
+  <div class="muted">Converts euro balances, including a euro wallet on a forex card. Not a live rate.</div>
+  ${forexRatesInUse().map(code=>`<label>1 ${esc(code)} → INR</label><input data-fxrate="${esc(code)}" inputmode="decimal" value="${esc(S.fx&&S.fx[code]!=null?S.fx[code]:"")}">`).join("")}
+  ${forexRatesInUse().length?`<div class="muted">Starter rates are filled in so net worth has a number. Change them to the rate you actually got. A forex balance is counted once, in its own currency, then converted.</div>`:""}</div>
 
   <div class="card"><b>Security</b>
   <div class="muted">Fingerprint unlock: ${bioOn?"enabled":"not enabled"}</div>
@@ -1753,7 +1955,8 @@ function netWorthChartHtml(owner){
 function allocationHtml(owner){
   const w=wealthBreakdown(owner);
   const parts=[];
-  if(w.liquid>0) parts.push(["Cash & bank", w.liquid]);
+  if(w.cash+w.bank+w.cardAsset>0) parts.push(["Cash & bank", w.cash+w.bank+w.cardAsset]);
+  if(w.forex>0) parts.push(["Forex cards", w.forex]);
   if((w.holdings+w.demat)>0) parts.push(["Investments", w.holdings+w.demat]);
   if(w.insuranceCash>0) parts.push(["Insurance value", w.insuranceCash]);
   if(w.owedToYou>0) parts.push(["Owed to you", w.owedToYou]);
@@ -1782,13 +1985,14 @@ function viewHome0(){
   const eye=hide?"Show balances":"Hide balances";
   const pills=[
     ["Cash & bank", wb.cash+wb.bank+wb.cardAsset, ""],
+    ["Forex cards", wb.forex, ""],
     ["Investments", wb.holdings+wb.demat, ""],
     ["Insurance value", wb.insuranceCash, ""],
     ["Owed to you", wb.owedToYou, ""],
     ["Cards & overdraft", wb.cardLiab+wb.overdraft, "out"],
     ["You owe", wb.loansPayable+wb.iouOut, "out"]
   ].filter((x)=>Math.abs(x[1])>0.004);
-  const tileNet=Math.round(((wb.cash+wb.bank+wb.cardAsset+wb.demat+wb.holdings+wb.insuranceCash+wb.owedToYou)-(wb.cardLiab+wb.overdraft+wb.loansPayable+wb.iouOut))*100)/100;
+  const tileNet=Math.round(((wb.cash+wb.bank+wb.cardAsset+wb.forex+wb.demat+wb.holdings+wb.insuranceCash+wb.owedToYou)-(wb.cardLiab+wb.overdraft+wb.loansPayable+wb.iouOut))*100)/100;
   const reconOk=Math.abs(tileNet-Math.round(nw.total*100)/100)<0.05;
   return `<div class="home-head">
     <div class="home-kicker">
@@ -1820,7 +2024,7 @@ function viewHome0(){
     ${pills.map(([label,val,cls])=>`<div class="wealth-pill"><span>${label}</span><b class="num ${cls}">${fmtHide(val,S.display)}</b></div>`).join("")}
     ${wb.insuranceCoverage>0?`<div class="wealth-pill"><span>Insurance cover</span><b class="num">Excluded</b></div>`:""}
   </div>
-  <p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Investments are holdings, or a demat account's manual value — not both for the same account. Insurance value is surrender / fund value only. Cover ${wb.insuranceCoverage>0?fmtHide(wb.insuranceCoverage,S.display)+" is shown separately and ":""}is not in actual net worth.${reconOk?"":" Tile totals do not match net worth — open More and run the check."}</p>
+  <p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Investments are holdings, or a demat account's manual value — not both for the same account. Forex cards are the balances you entered, converted once. Insurance value is surrender / fund value only. Cover ${wb.insuranceCoverage>0?fmtHide(wb.insuranceCoverage,S.display)+" is shown separately and ":""}is not in actual net worth.${reconOk?"":" Tile totals do not match net worth — open More and run the check."}</p>
   ${valuationNoteHtml(owner)}`:""}
 
   <div class="card">
@@ -1980,7 +2184,7 @@ function viewAccounts(){
   }
   // accounts segment
   const af = moneyAcctFilter||"all";
-  let list = S.accounts.filter(a=>!a.archived&&a.type!=="demat");
+  let list = S.accounts.filter(a=>!a.archived&&a.type!=="demat"&&a.type!=="forex");
   list = applySectionSort(list, "accounts", {
     name:a=>a.name||"",
     balance:a=>toDisplay(balance(a),a.cur)
@@ -1988,9 +2192,12 @@ function viewAccounts(){
   if(af==="bank") list = list.filter(a=>a.type==="bank");
   if(af==="cash") list = list.filter(a=>a.type==="cash");
   if(af==="card") list = list.filter(a=>a.type==="card");
-  let sumBank=0,sumCash=0,sumCard=0;
+  let forexList = (af==="all"||af==="card") ? S.accounts.filter(a=>!a.archived&&a.type==="forex") : [];
+  forexList = applySectionSort(forexList, "forex", {name:a=>a.name||"", balance:a=>forexDisplayValue(a).value});
+  let sumBank=0,sumCash=0,sumCard=0,sumForex=0;
   for(const a of S.accounts){
     if(a.archived||a.type==="demat") continue;
+    if(a.type==="forex"){ sumForex+=forexDisplayValue(a).value; continue; }
     const b=toDisplay(balance(a),a.cur);
     if(a.type==="bank") sumBank+=Math.max(0,b);
     else if(a.type==="cash") sumCash+=Math.max(0,b);
@@ -2005,7 +2212,7 @@ function viewAccounts(){
   const cards=list.map(a=>{
     const b=balance(a);
     const used=a.type==="card"&&a.limit?Math.min(100,Math.round(Math.max(0,-b)/a.limit*100)):0;
-    const typeLbl=a.type==="card"?"Credit card":a.type==="cash"?"Cash":"Bank";
+    const typeLbl=a.type==="card"?((a.cardMeta&&a.cardMeta.cardType)==="Debit"?"Debit card":"Credit card"):a.type==="cash"?"Cash":"Bank";
     const meta=[a.owner||"Me", typeLbl, a.bank||"", a.accountMasked||"", a.cardMeta?.last4?("•••• "+a.cardMeta.last4):""].filter(Boolean).join(" · ");
     return `<div class="card tap rec-card" data-acct="${esc(a.id)}">
       <div class="name">${esc(a.name)}</div>
@@ -2016,16 +2223,19 @@ function viewAccounts(){
       
     </div>`;
   }).join("");
+  const forexCards=forexList.map(forexCardHtml).join("");
+  const forexBlock=forexList.length?`<div class="section-label">Forex cards</div>${forexCards}`:"";
+  const creditLabel=af==="card"&&forexList.length?`<div class="section-label">Credit and debit cards</div>`:"";
   return segBar+`<h2 style="margin-top:4px">Accounts</h2>
   ${sortBarHtml("accounts",[{key:"name",label:"Name"},{key:"balance",label:"Balance"}])}
   <div class="mod-hero">
-    <div class="muted">Bank + cash</div>
-    <div class="big num">${fmtHide(sumBank+sumCash,S.display)}</div>
+    <div class="muted">${af==="card"?"Cards":"Bank + cash"}</div>
+    <div class="big num">${fmtHide(af==="card"?sumCard:sumBank+sumCash,S.display)}</div>
     <div class="mod-metrics">
       <div class="mod-metric"><span>Bank</span><b class="num">${fmtHide(sumBank,S.display)}</b></div>
       <div class="mod-metric"><span>Cash</span><b class="num">${fmtHide(sumCash,S.display)}</b></div>
       <div class="mod-metric"><span>Cards owed</span><b class="num out">${fmtHide(sumCard,S.display)}</b></div>
-      <div class="mod-metric"><span>Accounts</span><b>${list.length}</b></div>
+      <div class="mod-metric"><span>Forex cards</span><b class="num">${fmtHide(sumForex,S.display)}</b></div>
     </div>
   </div>
   ${filterBar}
@@ -2033,7 +2243,24 @@ function viewAccounts(){
     <h2 style="margin:0;font-size:15px">List</h2>
     <button type="button" class="chip" data-newacct>+ Add</button>
   </div>
-  ${cards||`<div class="empty"><div class="empty-title">No accounts here</div><p>Add a bank, cash or credit card account.</p><button class="btn" data-newacct>Add account</button></div>`}`;
+  ${creditLabel}${cards}${forexBlock}`+(cards||forexBlock?"":`<div class="empty"><div class="empty-title">No accounts here</div><p>Add a bank, cash, credit card, or forex card.</p><button class="btn" data-newacct>Add account</button></div>`);
+}
+
+function forexCardHtml(a){
+  const wallets=forexWallets(a);
+  const fv=forexDisplayValue(a);
+  const last=a.cardMeta&&a.cardMeta.last4?("•••• "+a.cardMeta.last4):"";
+  const meta=["Forex card", a.bank||"", last, a.owner||"Me"].filter(Boolean).join(" · ");
+  const lines=wallets.length?wallets.map(w=>`<div class="fx-wallet"><span>${esc(String(w.cur).toUpperCase())}</span><b class="num">${fmtHide(w.balance,w.cur)}</b></div>`).join(""):`<div class="muted">No currency wallets yet.</div>`;
+  const about=fv.missing
+    ? `<div class="muted" style="margin-top:6px">A currency without a rate stays on the card and is left out of net worth.</div>`
+    : `<div class="muted" style="margin-top:6px">About ${fmtHide(fv.value,S.display)} in net worth. Not a live balance.</div>`;
+  return `<div class="card tap rec-card" data-acct="${esc(a.id)}">
+    <div class="name">${esc(a.name)}</div>
+    <div class="meta">${esc(meta)}</div>
+    ${lines}
+    ${about}
+  </div>`;
 }
 
 function readmeHtml(){
@@ -2042,7 +2269,7 @@ function readmeHtml(){
 
 <div class="card"><b>1. Quick start</b>
 <ol class="muted" style="margin:8px 0 0;padding-left:18px;line-height:1.55">
-<li>Add accounts under <b>Money → Accounts</b> (bank, cash, card).</li>
+<li>Add accounts under <b>Money → Accounts</b> (bank, cash, credit card, or forex card).</li>
 <li>Use <b>+</b> for spending, income, transfers.</li>
 <li>Optional: add people under <b>Money → Contacts</b> and family names under <b>More → Family members</b>.</li>
 <li>Save encrypted backups from <b>More</b> regularly.</li>
@@ -2198,7 +2425,7 @@ function readExpiryField(idPrefix, opts){
 }
 
 function openSheet(html){ $("#layer").innerHTML = `<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`; try{if(navigator.vibrate)navigator.vibrate(8);}catch(e){}
-  try{ ["adexpiry","cexpiry","expiry"].forEach(id=>{ if(document.getElementById(id)) wireExpiryField(id); }); }catch(e){}
+  try{ ["adexpiry","cexpiry","expiry","fxexpiry"].forEach(id=>{ if(document.getElementById(id)) wireExpiryField(id); }); }catch(e){}
   requestAnimationFrame(()=>{
     document.querySelectorAll("#layer .pay-scroll").forEach(sc=>{
       const on=sc.querySelector(".pay-opt.on");
@@ -2709,6 +2936,8 @@ function assertPayAccount(a, purpose, allowId){
   if(payAccountAllowed(a, purpose)) return true;
   alert(a.type==="demat"
     ? "Demat accounts are for investments, not payments. Choose a bank, card, or cash account."
+    : a.type==="forex"
+    ? "Forex cards are tracked as balances you update, not as a payment source. Pay from a bank, credit card, or cash account."
     : "Choose a bank or cash account for this.");
   return false;
 }
@@ -3320,7 +3549,7 @@ function dueHtml(){
     // treat as due in the expiry month (1st); show within 60 days before
     const d=daysTo(end);
     if(d>=-31 && d<=60){
-      const kind=a.type==="card"?"Credit card":"Debit card";
+      const kind=a.type==="forex"?"Forex card":a.type==="card"?"Credit card":"Debit card";
       const last=(a.cardMeta||{}).last4?(" ••••"+a.cardMeta.last4):"";
       r.push([Math.max(0,d), kind+" expires · "+esc(a.name)+last, exp, `data-acct="${esc(a.id)}"`, d<=30?"warn":""]);
     }
@@ -3348,7 +3577,9 @@ function newAcctSheet(){
     <option value="bank">Bank account</option>
     <option value="cash">Cash</option>
     <option value="card">Credit card</option>
+    <option value="forex">Forex card</option>
   </select>
+  <div id="stdBal">
   <label>Currency</label><select id="ac"><option>INR</option><option>EUR</option></select>
   <div id="bankFields">
     <label>Bank / provider</label><input id="abank" placeholder="e.g. HDFC, SBI, ICICI">
@@ -3377,18 +3608,33 @@ function newAcctSheet(){
     <label>Annual fee</label><input id="cfee" inputmode="decimal" placeholder="0">
     <label>Linked bank account (for bill payments)</label>
     <select id="clinked"><option value="">— Not linked —</option>${S.accounts.filter(a=>!a.archived&&a.type==="bank").map(a=>`<option value="${esc(a.id)}">${esc(a.name)} (${a.cur})</option>`).join("")}</select>
-    <div class="muted" style="margin-top:6px">Optional. Bank account you usually pay this card from. CVV and PIN are never stored.</div>
+    <div class="muted" style="margin-top:6px">Optional. Bank account you usually pay this card from. CVV and PIN are never stored. For a travel card with currency wallets, choose Forex card instead.</div>
   </div>
   <label id="obl">Current balance</label><input id="ao" inputmode="decimal" placeholder="0">
   <div class="muted" id="oh" style="margin-top:6px"></div>
+  </div>
+  <div id="forexFields" style="display:none">
+    <label>Bank / provider</label><input id="fxbank" placeholder="e.g. Niyo, BookMyForex, HDFC">
+    <label>Card number</label><input id="fxpan" inputmode="numeric" maxlength="19" autocomplete="off" placeholder="Full number or last 4">
+    <div class="muted">Only the last 4 digits are saved. CVV and PIN are never asked for or stored.</div>
+    <label>Network</label><select id="fxnetwork"><option value="">—</option><option>Visa</option><option>Mastercard</option><option>RuPay</option><option>Amex</option><option>Other</option></select>
+    ${expiryPickerHtml("fxexpiry","")}
+    <label>Notes (optional)</label><input id="fxnotes" maxlength="160" placeholder="Optional">
+    <b style="font-size:13px">Currency wallets</b>
+    <p class="muted" style="margin:4px 0 8px">Add each currency the card holds. Update a balance when you spend or load that currency. This is not a live balance from the bank.</p>
+    <div id="fxRows">${fxRowHtml("USD","")}</div>
+    <button type="button" class="btn alt" data-fxaddrow>Add currency</button>
+  </div>
   <button class="btn" type="submit">Save account</button></form>
   <button class="btn alt" data-close>Cancel</button>`);
   const sync=()=>{
     const t=$("#at").value;
-    const isCard=t==="card", isCash=t==="cash", isBank=t==="bank";
-    const bf=$("#bankFields"), cf=$("#cardFields");
+    const isCard=t==="card", isCash=t==="cash", isBank=t==="bank", isForex=t==="forex";
+    const bf=$("#bankFields"), cf=$("#cardFields"), ff=$("#forexFields"), std=$("#stdBal");
     if(bf) bf.style.display=isBank?"block":"none";
     if(cf) cf.style.display=isCard?"block":"none";
+    if(ff) ff.style.display=isForex?"block":"none";
+    if(std) std.style.display=isForex?"none":"block";
     if($("#obl")) $("#obl").textContent=isCard?"Amount currently owed":"Current / opening balance";
     if($("#oh")) $("#oh").textContent=isCard?"Enter what you owe today as a positive number. It is stored as a liability.":isCash?"Cash on hand right now.":"Balance available in this account.";
   };
@@ -3406,12 +3652,23 @@ function txnSheet(id){
   <button class="btn alt" data-close>Close</button>`);
 }
 
+function forexHeadHtml(a){
+  const wallets=forexWallets(a);
+  const fv=forexDisplayValue(a);
+  const lines=wallets.map(w=>`<div class="fx-wallet"><span>${esc(String(w.cur).toUpperCase())}</span><b class="num">${fmt(w.balance, w.cur)}</b></div>`).join("");
+  return `<div class="muted">${esc(a.owner||"Me")}${a.bank?" · "+esc(a.bank):""} · Forex card</div>
+  <div class="card" style="margin-top:8px">${lines||`<div class="muted">No currency wallets yet.</div>`}
+  <div class="muted" style="margin-top:6px">${fv.missing?"A currency without a rate is left out of net worth.":("In net worth "+fmt(fv.value, S.display)+".")} This is the balance you entered, not a live feed from the provider.</div></div>`;
+}
 function acctSheet(id){
   const a=acct(id); if(!a) return;
   const demat=a.type==="demat";
+  const forex=a.type==="forex";
+  const head=forex?forexHeadHtml(a):demat?`<div class="muted">${esc(a.owner||"Me")}${a.broker?" · "+esc(a.broker):""} · Demat</div>${dematSummaryBlock(a)}`:`<div class="big num" style="font-size:28px">${fmt(balance(a),a.cur)}</div>
+  <div class="muted">${esc(a.owner||"Me")} ${a.bank?"· "+esc(a.bank):""}</div>`;
+  const cm=a.cardMeta||{};
   openSheet(`<h2 style="margin-top:0">${esc(a.name)}</h2>
-  ${demat?`<div class="muted">${esc(a.owner||"Me")}${a.broker?" · "+esc(a.broker):""} · Demat</div>${dematSummaryBlock(a)}`:`<div class="big num" style="font-size:28px">${fmt(balance(a),a.cur)}</div>
-  <div class="muted">${esc(a.owner||"Me")} ${a.bank?"· "+esc(a.bank):""}</div>`}
+  ${head}
   <form id="fcard"><input type="hidden" id="cid" value="${esc(a.id)}">
   <label>Account nickname</label><input id="anameEdit" value="${esc(a.name||"")}" required placeholder="e.g. HDFC Salary">
   <label>Owner</label><input id="aownerEdit" list="ownersEdit" value="${esc(a.owner||"Me")}"><datalist id="ownersEdit">${(S.people||[]).map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
@@ -3420,6 +3677,17 @@ function acctSheet(id){
   <label>Demat / client ID</label><input id="adematEdit" value="${esc(a.dematId||"")}">
   <label>Invested amount</label><input id="ainvestedEdit" inputmode="decimal" value="${a.invested||""}">
   <div class="muted">This is the historical amount invested. Updating the current value does not change it, and does not create a holding or a transaction.</div>`:""}
+  ${forex?`<b>Forex card</b>
+  <label>Bank / provider</label><input id="fxbank" value="${esc(a.bank||"")}">
+  <label>Card number</label><input id="fxpan" inputmode="numeric" maxlength="19" autocomplete="off" value="${esc(cm.last4||"")}" placeholder="Last 4, or paste the full number">
+  <div class="muted">Only the last 4 digits are saved. CVV and PIN are never stored.</div>
+  <label>Network</label><select id="fxnetwork"><option value="">—</option>${["Visa","Mastercard","RuPay","Amex","Other"].map(n=>`<option ${cm.network===n?"selected":""}>${n}</option>`).join("")}</select>
+  ${expiryPickerHtml("fxexpiry", cm.expiry||"")}
+  <label>Notes (optional)</label><input id="fxnotes" maxlength="160" value="${esc(a.notes||"")}">
+  <b style="font-size:13px">Currency wallets</b>
+  <p class="muted" style="margin:4px 0 8px">Change one balance without affecting the others. Nothing here contacts the card provider.</p>
+  <div id="fxRows">${forexWallets(a).map(w=>fxRowHtml(String(w.cur).toUpperCase(), w.balance, w.id, w.asOf)).join("")||fxRowHtml("USD","","","")}</div>
+  <button type="button" class="btn alt" data-fxaddrow>Add currency</button>`:""}
   ${a.type==="bank"?`<b>Bank account details</b>
 <label>Bank / provider</label><input id="abankEdit" value="${esc(a.bank||"")}">
 <label>Account number / IBAN</label><input id="aacctnoEdit" inputmode="numeric" autocomplete="off" value="${esc(a.accountNumber||"")}" placeholder="Full account number">
@@ -3434,9 +3702,9 @@ function acctSheet(id){
   <button type="button" class="btn" data-paycard="${esc(a.id)}">Pay this card</button>`:""}
   <button class="btn alt" type="submit">Save details</button>
 </form>
-  ${demat?"":`<button class="btn" data-reconcile="${esc(a.id)}">Set current balance</button>`}
+  ${demat||forex?"":`<button class="btn" data-reconcile="${esc(a.id)}">Set current balance</button>`}
   <button class="btn alt" data-filter="${esc(a.id)}">See transactions</button>
-  <button class="btn danger" data-archive="${esc(a.id)}">Archive account</button>
+  ${forex?`<button class="btn danger" data-forexdel="${esc(a.id)}">Delete forex card</button>`:`<button class="btn danger" data-archive="${esc(a.id)}">Archive account</button>`}
   <button class="btn alt" data-close>Close</button>`);
 }
 
@@ -3572,7 +3840,7 @@ function exportCSV(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-dematmode],[data-dematvalue],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -4238,6 +4506,41 @@ if(d.delmethod){
     <button class="btn alt" data-close>Cancel</button>`);
     return;
   }
+  if(d.forexdel){
+    const a=acct(d.forexdel);
+    if(!a||a.type!=="forex") return;
+    const posts=(S.txns||[]).some(t=>t.status==="posted"&&(t.postings||[]).some(p=>p.acct===a.id));
+    if(posts){
+      if(!confirm("“"+a.name+"” has transactions. Archive it instead so those records stay?")) return;
+      a.archived=true;
+      save(); closeSheet(); render(); toastSaved("Forex card archived");
+      return;
+    }
+    if(!confirm("Delete “"+a.name+"”? Its currency balances will be removed from this phone. This cannot be undone.")) return;
+    S.accounts=S.accounts.filter(x=>x.id!==a.id);
+    save(); closeSheet(); render(); toastSaved("Forex card deleted");
+    return;
+  }
+  if("fxaddrow" in d){
+    const host=document.getElementById("fxRows");
+    if(!host) return;
+    const used=new Set([...host.querySelectorAll(".fx-cur")].map(s=>s.value));
+    const next=(FX_CURRENCIES.find(c=>!used.has(c.code))||FX_CURRENCIES[0]).code;
+    host.insertAdjacentHTML("beforeend", fxRowHtml(next, ""));
+    return;
+  }
+  if("fxdelrow" in d){
+    const row=el.closest(".fx-row");
+    const host=document.getElementById("fxRows");
+    if(!row||!host) return;
+    if(host.querySelectorAll(".fx-row").length<=1){ alert("Keep at least one currency."); return; }
+    const cur=(row.querySelector(".fx-cur")||{}).value||"this currency";
+    const raw=(row.querySelector(".fx-amt")||{}).value||"";
+    const n=Number(String(raw).replace(/,/g,""));
+    if(n>0 && !confirm("Remove the "+cur+" wallet? Its balance will not be part of this card.")) return;
+    row.remove();
+    return;
+  }
   if(d.paycard){
     const card=acct(d.paycard);
     if(!card) return;
@@ -4322,7 +4625,17 @@ document.addEventListener("change", e=>{
   if(e.target.id==="hf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>holdParse(rd.result); rd.readAsText(fl); return; }
   if(e.target.id==="csvf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>importCSV(String(rd.result)); rd.readAsText(fl); e.target.value=""; return; }
   if(e.target.id==="themePref"){ applyTheme(e.target.value); return; }
-  if(e.target.id==="rate"){ const r=readAmt(e.target.value,{required:true,positive:true,maxDecimals:6}); if(!r.ok){ alert(r.error); return; } S.rate=r.value; save(); toastSaved("Rate saved"); }
+  if(e.target.id==="rate"){ const r=readAmt(e.target.value,{required:true,positive:true,maxDecimals:6}); if(!r.ok){ alert(r.error); return; } S.rate=r.value; save(); toastSaved("Rate saved"); render(); }
+  if(e.target.dataset && e.target.dataset.fxrate){
+    const code=e.target.dataset.fxrate;
+    const r=readAmt(e.target.value,{required:true,positive:true,maxDecimals:6});
+    if(!r.ok){ alert(r.error); e.target.value=S.fx&&S.fx[code]!=null?S.fx[code]:""; return; }
+    if(!S.fx || typeof S.fx!=="object") S.fx={};
+    S.fx[code]=r.value;
+    save();
+    toastSaved(code+" rate saved");
+    render();
+  }
   if(e.target.id==="from"||e.target.id==="to") updateRecv();
   if(e.target.id==="file"){
     const f=e.target.files[0]; if(!f) return;
@@ -5125,6 +5438,30 @@ document.addEventListener("submit", e=>{
       a.stmtDay=stmt.value;
       a.dueDay=due.value;
       if($("#alinked")) a.linkedBankId=$("#alinked").value||"";
+    } else if(a.type==="forex"){
+      const pan=maskCardLast4($("#fxpan")?.value||"");
+      if(!pan.ok){ alert(pan.error); return; }
+      const expR=readExpiryField("fxexpiry",{allowPast:true});
+      if(!expR.ok){ alert(expR.error); return; }
+      const rows=readForexRows(document.getElementById("fxRows"));
+      if(!rows) return;
+      const txnCount=(S.txns||[]).length;
+      const holdCount=(S.holdings||[]).length;
+      a.name=newName;
+      a.owner=newOwner;
+      if(!S.people.includes(newOwner)) S.people.push(newOwner);
+      a.bank=($("#fxbank")?.value||"").trim();
+      a.notes=($("#fxnotes")?.value||"").trim().slice(0,160);
+      a.cardMeta={
+        last4: pan.last4,
+        network: ($("#fxnetwork")?.value||"").trim(),
+        cardType: "Forex",
+        expiry: expR.value
+      };
+      a.accountMasked=pan.last4?("•••• "+pan.last4):"";
+      a.accountNumber="";
+      applyForexWallets(a, rows);
+      if((S.txns||[]).length!==txnCount || (S.holdings||[]).length!==holdCount){ alert("Update cancelled."); return; }
     } else {
       a.name=newName;
       a.owner=newOwner;
@@ -5160,9 +5497,28 @@ document.addEventListener("submit", e=>{
   }
   if(e.target.id==="fa2"){
     const name=$("#an").value.trim(); if(!name) return;
+    const type=$("#at").value;
+    if(type==="forex"){
+      const pan=maskCardLast4($("#fxpan")?.value||"");
+      if(!pan.ok){ alert(pan.error); return; }
+      const expR=readExpiryField("fxexpiry",{allowPast:true});
+      if(!expR.ok){ alert(expR.error); return; }
+      const rows=readForexRows(document.getElementById("fxRows"));
+      if(!rows) return;
+      const owner=($("#aowner").value||"").trim()||"Me";
+      const a={id:uid(), name, type:"forex", owner, bank:($("#fxbank")?.value||"").trim(), notes:($("#fxnotes")?.value||"").trim().slice(0,160),
+        accountNumber:"", accountMasked:pan.last4?("•••• "+pan.last4):"", opening:0, archived:false, cur:"MULTI", wallets:[],
+        cardMeta:{last4:pan.last4, network:($("#fxnetwork")?.value||"").trim(), cardType:"Forex", expiry:expR.value}};
+      applyForexWallets(a, rows);
+      if(!S.people.includes(owner)) S.people.push(owner);
+      S.accounts.push(a);
+      log("account", a.id);
+      save(); closeSheet(); render(); toastSaved("Forex card added");
+      return;
+    }
     const opening=readAmt($("#ao").value,{allowNegative:true,maxDecimals:2});
     if(!opening.ok){ alert(opening.error); return; }
-    let o=opening.value; const type=$("#at").value;
+    let o=opening.value;
     if(type==="card") o=-Math.abs(o);
     const rawNum=(type==="bank"?($("#aacctno")?.value||""):"").replace(/\s/g,"").trim();
     const a={id:uid(),name,
@@ -5279,9 +5635,11 @@ if(globalThis.__MF_TEST){
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
     wealthBreakdown, netWorth, valuationNotes, holdPos, balance, addTxn,
     dematPosition, investmentTotals, dematClaims, paymentAccounts, payAccountAllowed, paySelectHtml,
+    maskCardLast4, collectForexWallets, applyForexWallets, forexDisplayValue, fmt, viewAccounts,
     openBackupPayload, commitRestore, vaultShapeOk, buildHoldPlanRow, applySectionSort,
     getNwPrefs, forgetBackupFolder, viewPlan, viewHome,
     setPlanSeg(v){ planSeg=v; },
+    setMoneySeg(v){ moneySeg=v; },
     setTab(v){ tab=v; },
     getS(){ return S; }, setS(v){ S=v; },
     getCK(){ return CK; },
