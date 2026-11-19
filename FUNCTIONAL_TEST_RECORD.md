@@ -1,8 +1,8 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.8.1  
+**App version at last update:** 2.8.2  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
-**Last audit date:** 2026-11-17  
+**Last audit date:** 2026-11-19  
 
 Status legend: **OK** working · **PARTIAL** limited · **FIXED** was broken, repaired this cycle · **N/A** not in product scope
 
@@ -84,3 +84,15 @@ Several forms had UI but **no `submit` handler** for their `form id`.
 - Migration validates wallet rows before replacement.
 - Wallet reconciliation uses opening baseline plus posted movements.
 - `node regression.mjs` runs without `linkedom`; all included logic regression groups pass. See `FUNCTIONAL_VALIDATION_REPORT.md`.
+
+
+## 2.8.2 — wallet identity, warranty links and migration
+
+- PASS: a Forex wallet with posted or voided history cannot be removed or have its currency changed.
+- PASS: negative Forex wallet balances are accepted and retain two-decimal rounding.
+- PASS: editing a linked expense synchronises purchase amount, currency, account and date; inferred warranty duration is preserved when the date changes.
+- PASS: void/restore toggles linked warranty reminder suspension without deleting the purchase record.
+- PASS: legacy PAN migration removes punctuation and retains only last four digits.
+- PASS: integrity checks index refunds and wallet movements in one pass and inspect archived Forex cards.
+- Automated coverage: `node regression.mjs` (minimal DOM shim; production logic, not full browser rendering).
+- Not run: real Android device, WebAuthn biometric prompt, browser-level form dispatch, and real encrypted-vault restore on a personal dataset.

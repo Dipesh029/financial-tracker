@@ -1,6 +1,6 @@
 # Functional audit — My Finance PWA
 
-Last reviewed against app version **2.8.1**.
+Last reviewed against app version **2.8.2**.
 
 ## Architecture
 
@@ -88,3 +88,14 @@ Validation in this archive:
 - `regression.mjs` syntax: PASS.
 - `node regression.mjs`: PASS — production logic regression suite runs with a minimal DOM shim; no third-party DOM package required.
 - Real browser/device, WebAuthn, and real-vault upgrade tests: NOT RUN.
+
+
+## 2.8.2 — Wallet history protection and purchase synchronisation
+
+- Forex wallet IDs are stable. A wallet with any transaction history (including voided transactions) cannot be removed or have its currency changed. Keep it with a zero balance or archive the Forex card.
+- Negative wallet balances are accepted consistently with the existing explicit overspending confirmation.
+- Editing an expense updates linked purchase amount, currency, account and date in the same atomic save. Warranty expiry is shifted by the preserved warranty duration when the purchase date changes.
+- Voiding an expense suspends its linked warranty reminder; restoring the expense resumes it. Existing linked purchase flags are normalised during migration.
+- Legacy card-number migration now strips non-digits correctly before discarding a full PAN and retaining only last four digits.
+- Integrity checks include archived Forex cards and orphaned/mismatched purchase references. Refund and wallet movement totals are indexed in one pass rather than repeatedly scanning the transaction list.
+- The vault key, encrypted envelope, encryption algorithms and backup format are unchanged.

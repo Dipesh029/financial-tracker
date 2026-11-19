@@ -1,7 +1,7 @@
 # Functional validation report — My Finance
 
-**Application version:** 2.2.4  
-**Date:** 2026-11-17  
+**Application version:** 2.8.2  
+**Date:** 2026-11-19  
 **Environment:** Code-level + Node syntax/ledger simulation (no live browser vault session in CI)  
 **Storage model:** Encrypted JSON in `localStorage` key `myfinance.v1` (no remote API/backend)
 
@@ -486,3 +486,23 @@ Production tests via `node regression.mjs` (extracts real functions from index.h
 - Physical Android UI, WebAuthn fingerprint, and a real encrypted-vault upgrade/restore: NOT RUN.
 
 No claim is made that the full browser/device regression suite passed.
+
+
+## Update 2.8.2 — wallet identity and linked warranty integrity (2026-11-19)
+
+| Area | Change |
+|------|--------|
+| Forex wallet identity | Historical wallet IDs/currencies are immutable once any transaction (including voided) references them; removal/change is blocked with an explanation |
+| Negative balances | Wallet editing accepts negative values consistently with the explicit overspending confirmation in the expense flow |
+| Linked purchases | Expense edits synchronise purchase amount, currency, account and date; warranty duration is preserved when date changes |
+| Warranty lifecycle | Voiding a linked expense suspends its reminder; restoring resumes it without deleting the purchase |
+| Legacy card migration | Correct non-digit stripping ensures full card numbers are removed and last four digits retained |
+| Integrity checks | Archived Forex cards and linked purchase references are checked; refund totals and wallet movements are aggregated in one pass |
+| Compatibility | `myfinance.v1`, AES-256-GCM envelope, PBKDF2 fields and encrypted backup format remain unchanged |
+
+### Validation performed for 2.8.2
+- Application inline JavaScript syntax: PASS.
+- `regression.mjs` syntax: PASS.
+- `sw.js` syntax: PASS.
+- `node regression.mjs`: PASS — all production-logic regression groups pass using the no-dependency DOM shim.
+- Full browser UI, Android device, WebAuthn and real encrypted-vault upgrade/restore: NOT RUN.
