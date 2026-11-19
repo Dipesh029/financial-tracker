@@ -1,6 +1,6 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.2.3  
+**App version at last update:** 2.8.1  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
 **Last audit date:** 2026-11-17  
 
@@ -74,3 +74,13 @@ Status legend: **OK** working · **PARTIAL** limited · **FIXED** was broken, re
 ## Root-cause pattern (saves)
 Several forms had UI but **no `submit` handler** for their `form id`.  
 **Process:** after any new form, ensure `e.target.id==="…"` exists and calls `save()` only after state mutation.
+
+
+## 2.8.1 — Forex ledger
+- Forex cards are selectable only in the expense flow, not generic payment flows.
+- Legacy refunds recorded in v2.8.0 are linked to the original Forex wallet as history-only movements; migration preserves the current wallet balance and does not guess whether the user manually reflected old refunds.
+- New/edit expense and refund update the selected wallet.
+- Void/restore reverse/reapply Forex wallet movements.
+- Migration validates wallet rows before replacement.
+- Wallet reconciliation uses opening baseline plus posted movements.
+- `node regression.mjs` runs without `linkedom`; all included logic regression groups pass. See `FUNCTIONAL_VALIDATION_REPORT.md`.

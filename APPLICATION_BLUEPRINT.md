@@ -26,7 +26,7 @@ There is **no server, no cloud sync, and no bank API integration**. All durable 
 ### Core principles (as implemented)
 1. **Privacy:** Passphrase never stored; optional WebAuthn PRF biometric unlock.  
 2. **Offline-first:** Works without network after install (service worker caches shell).  
-3. **Postings-based ledger:** Account balances are derived from opening balance + posted transaction postings.  
+3. **Postings-based ledger:** Bank/cash/card balances are derived from opening balance + posted transaction postings. Forex wallets are separate per-currency balances reconciled from their opening baseline + tagged wallet movements.  
 4. **Family-aware labels:** Owner strings on accounts/holdings; Home can filter by person.  
 5. **Safe updates:** Same origin + storage key `myfinance.v1`; backups are encrypted `.enc` files.
 
@@ -92,7 +92,7 @@ There is **no server, no cloud sync, and no bank API integration**. All durable 
 ---
 
 ### 2.4 Money → Accounts
-**Account types:** `bank`, `cash`, `card` (credit). **`demat` accounts are shown under Investments**, not the Accounts list.
+**Account types:** `bank`, `cash`, `card` (credit), and `forex` (multi-currency wallets). **`demat` accounts are shown under Investments**, not the Accounts list.
 
 **Features:** Add/edit nickname & owner; bank number/IFSC/branch; credit limit & due days; linked debit meta on bank; linked **bank for bill pay** on cards; set current balance (adjustment txn); copy own bank details; archive (via handlers where present).
 
@@ -231,7 +231,7 @@ Cache name bumped per release (e.g. `myfinance-shell-v35`). HTML navigation inte
 ### 4.1 Root vault object (`S`)
 | Collection | Role |
 |------------|------|
-| `accounts` | bank / cash / card / demat |
+| `accounts` | bank / cash / card / Forex wallets / demat |
 | `txns` | ledger with `postings[]` |
 | `holdings` | stock / fund positions |
 | `sips` | recurring investments |

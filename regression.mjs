@@ -1,13 +1,11 @@
 /**
  * Exercises production functions from index.html.
  * Run from this folder: node regression.mjs
- * Needs the linkedom package (installed automatically is not required if
- * node_modules/linkedom or /tmp/ft-test/node_modules/linkedom is present).
+ * Uses a minimal DOM shim because these checks exercise production logic and
+ * HTML render strings, not browser layout or event dispatch.
  */
 import fs from "fs";
 import vm from "vm";
-import path from "path";
-import { pathToFileURL } from "url";
 
 function assert(cond, msg){
   if(!cond) throw new Error(msg || "assert failed");
@@ -16,19 +14,14 @@ function near(a, b, msg){
   if(!(Math.abs(a-b) < 1e-6)) throw new Error((msg||"near")+" got "+a+" expected "+b);
 }
 
-let parseHTML;
-const candidates = [
-  "linkedom",
-  pathToFileURL("/tmp/ft-test/node_modules/linkedom/esm/index.js").href
-];
-let lastErr;
-for(const spec of candidates){
-  try{ ({parseHTML} = await import(spec)); break; }
-  catch(e){ lastErr=e; }
-}
-if(!parseHTML) throw new Error("linkedom is required to load the app for tests: "+(lastErr&&lastErr.message));
-
-const {window, document} = parseHTML("<!doctype html><html><head></head><body><main id=\"app\"></main><nav id=\"nav\"></nav><div id=\"layer\"></div></body></html>");
+const window = { matchMedia: () => ({matches:false}), navigator: {} };
+const document = {
+  addEventListener(){},
+  getElementById(){ return null; },
+  createElement(){ return {setAttribute(){}, remove(){}, querySelector(){return null;}}; },
+  body: { appendChild(){}, classList:{add(){},remove(){}} },
+  documentElement: { setAttribute(){}, style:{} }
+};
 function makeStorage(){
   const data = new Map();
   const api = {
@@ -69,7 +62,10 @@ window.document = document;
 
 const html = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
-const src = blocks.sort((a,b)=>b.length-a.length)[0];
+const rawSrc = blocks.sort((a,b)=>b.length-a.length)[0];
+const bootAt = rawSrc.lastIndexOf("\nboot();");
+assert(bootAt >= 0, "application boot call found");
+const src = rawSrc.slice(0, bootAt); // Keep boot/UI event startup out of the logic harness.
 vm.runInThisContext(src, {filename:"index.html"});
 const mf = globalThis.__mf;
 assert(mf && mf.parseAmt, "production exports missing");
@@ -621,7 +617,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.8.0");
+  const versionAt = home.indexOf("v" + "2.8.1");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -660,6 +656,7 @@ console.log("PASS calendar-dst-end");
   S.accounts = [card, credit, bank];
   mf.applyForexWallets(card, wallets.wallets);
   assert(card.opening === 0, "the old opening is not kept as a second forex balance");
+  assert(card.wallets.every(w=>Number.isFinite(w.openingBalance)), "each Forex wallet stores an opening ledger baseline");
   assert(card.accountNumber === "", "the full card number is not stored");
   assert(card.cardMeta.cardType === "Forex", "card type is Forex");
   assert(!JSON.stringify(card).includes("4111111111114242"), "the PAN is not stored on the account");
@@ -682,11 +679,42 @@ console.log("PASS calendar-dst-end");
   assert(S.txns.length === 0 && S.holdings.length === 0, "updating a wallet creates no transaction or holding");
   const moved = mf.wealthBreakdown(null);
   near(moved.forex, 80*84 + 40*90 + 500, "net worth follows the updated dollar balance only");
-  assert(mf.payAccountAllowed(card, "out") === false, "a forex card is not a payment source");
+  assert(mf.payAccountAllowed(card, "out") === false, "a forex card is not a generic payment source");
+  assert(mf.payAccountAllowed(card, "expense") === true, "a forex card is allowed in the dedicated expense flow");
   assert(mf.payAccountAllowed(credit, "out") === true, "a credit card can still be used to pay");
   const pay = mf.paySelectHtml("from", "bank1", "out");
-  assert(!pay.includes("Niyo"), "pay-from does not list the forex card");
+  assert(!pay.includes("Niyo"), "generic pay-from does not list the forex card");
   assert(pay.includes("Axis"), "pay-from still lists the credit card");
+  const expensePay = mf.paySelectHtml("from", "bank1", "expense");
+  assert(expensePay.includes("Niyo") && expensePay.includes("Forex card"), "expense picker exposes Forex cards in their own group");
+  const getUsd=()=>card.wallets.find(w=>w.cur==="USD");
+  const walletBefore=getUsd().balance;
+  const fxExpense={id:"fx-exp-1",type:"expense",status:"posted",forexAcct:card.id,walletId:getUsd().id,walletCur:"USD",amount:10,postings:[{acct:card.id,amt:-10,cur:"USD"}]};
+  S.txns.push(fxExpense);
+  assert(mf.forexTxnMovement(fxExpense,false)===true,"Forex expense movement applies");
+  near(getUsd().balance,walletBefore-10,"Forex expense debits selected wallet");
+  near(mf.forexWalletNetMovement(card.id,getUsd().id),-10,"wallet ledger tracks posted expense");
+  const fxRefund={id:"fx-ref-1",type:"refund",status:"posted",forexAcct:card.id,walletId:getUsd().id,walletCur:"USD",amount:4,postings:[{acct:card.id,amt:4,cur:"USD"}]};
+  S.txns.push(fxRefund);
+  assert(mf.forexTxnMovement(fxRefund,false)===true,"Forex refund movement applies");
+  near(getUsd().balance,walletBefore-6,"Forex refund credits the original wallet");
+  near(mf.forexWalletNetMovement(card.id,getUsd().id),-6,"refund reduces net wallet outflow");
+  near(mf.forexWalletLedgerBalance(card.id,getUsd().id),walletBefore-6,"wallet ledger baseline reconciles posted expenses and refunds");
+  getUsd().balance+=1;
+  assert(Math.abs(mf.forexWalletLedgerBalance(card.id,getUsd().id)-getUsd().balance)>0.02,"wallet ledger helper detects balance drift");
+  getUsd().balance-=1;
+  assert(mf.forexTxnMovement(fxExpense,true)===true,"void reverses Forex expense");
+  near(getUsd().balance,walletBefore+4,"reversing an expense restores its debit");
+  assert(mf.forexTxnMovement(fxRefund,true)===true,"void reverses Forex refund");
+  near(getUsd().balance,walletBefore,"reversing refund restores prior wallet balance");
+  S.txns=[];
+  const parent={id:"parent",type:"expense",status:"posted",postings:[{acct:bank.id,amt:-10,cur:"INR"}]};
+  const linkedRefund={id:"linked-refund",type:"refund",status:"posted",refundOf:"parent",postings:[{acct:bank.id,amt:2,cur:"INR"}]};
+  S.txns=[parent,linkedRefund];
+  assert(await mf.voidTxn("parent")===false,"an expense with posted refunds cannot be voided first");
+  parent.status="voided";
+  assert(await mf.unvoid("linked-refund")===false,"a refund cannot be restored before its original expense");
+  S.txns=[];
   const usdFmt = mf.fmt(80, "USD");
   const eurFmt = mf.fmt(40, "EUR");
   const inrFmt = mf.fmt(500, "INR");
@@ -732,6 +760,34 @@ console.log("PASS calendar-dst-end");
   mf.migrate();
   assert(S.accounts.length === 1 && S.accounts[0].type === "card" && S.accounts[0].opening === -20, "migrate does not rewrite credit cards");
   assert(Number(S.fx.USD) > 0 && Number(S.fx.GBP) > 0, "missing forex rates are filled without erasing the vault");
+  const broken={id:"badfx",type:"forex",name:"Bad legacy card",wallets:[{id:"dup1",cur:"USD",balance:12},{id:"dup2",cur:"USD",balance:18}],cardMeta:{}};
+  S.accounts=[broken];S.txns=[];
+  const walletSnapshot=JSON.stringify(broken.wallets);
+  let migrationRejected=false;
+  try{mf.migrate();}catch(e){migrationRejected=true;}
+  assert(migrationRejected,"migration rejects duplicate Forex currencies");
+  assert(JSON.stringify(broken.wallets)===walletSnapshot,"failed migration leaves original wallet rows intact");
+  const legacyCard={id:"legacyfx",type:"forex",name:"Legacy travel card",wallets:[{id:"legacy-usd",cur:"USD",balance:90}],cardMeta:{}};
+  const legacyExpense={id:"legacy-exp",type:"expense",status:"posted",forexAcct:"legacyfx",walletId:"legacy-usd",walletCur:"USD",amount:10,postings:[{acct:"legacyfx",amt:-10,cur:"USD"}]};
+  const legacyRefund={id:"legacy-ref",type:"refund",status:"posted",refundOf:"legacy-exp",postings:[{acct:"legacyfx",amt:5,cur:"USD"}]};
+  S.accounts=[legacyCard];S.txns=[legacyExpense,legacyRefund];
+  mf.migrate();
+  assert(legacyRefund.forexAcct==="legacyfx"&&legacyRefund.walletId==="legacy-usd","legacy Forex refunds gain original wallet references");
+  near(legacyCard.wallets[0].balance,90,"migration preserves the current wallet balance for legacy refunds");
+  near(legacyCard.wallets[0].openingBalance,100,"migration baseline includes only movements already reflected in the current balance");
+  assert(legacyRefund.forexMovementApplied===false,"legacy refund history is linked without applying a possibly already-manual wallet credit");
+  near(mf.forexWalletNetMovement("legacyfx","legacy-usd"),-10,"legacy refund is excluded from wallet movement reconciliation");
+  assert(mf.forexTxnMovement(legacyRefund,false)===true,"restoring a legacy history-only refund does not move the wallet twice");
+  near(legacyCard.wallets[0].balance,90,"legacy history-only refund preserves the existing balance");
+  const stateBefore=JSON.stringify(mf.getS());
+  storage.failSet=true;
+  const failedCommit=await mf.commitForexAware(()=>{
+    mf.getS().txns.push({id:"must-rollback",type:"expense",status:"posted",postings:[]});
+    return true;
+  });
+  storage.failSet=false;
+  assert(failedCommit.ok===false,"failed Forex-aware save reports failure");
+  assert(JSON.stringify(mf.getS())===stateBefore,"failed Forex-aware save restores the entire in-memory state");
   console.log("PASS forex-cards");
 }
 

@@ -1,6 +1,6 @@
 # Functional audit — My Finance PWA
 
-Last reviewed against app version **2.6.0**.
+Last reviewed against app version **2.8.1**.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ Last reviewed against app version **2.6.0**.
 
 | Collection | Purpose |
 |------------|---------|
-| `accounts` | Bank / cash / card; opening; optional `accountNumber`, `cardMeta`, limits |
+| `accounts` | Bank / cash / card / demat / Forex; opening; optional `accountNumber`, `cardMeta`, limits, and Forex `wallets[]` |
 | `txns` | Postings-based ledger (`posted` / `voided`) |
 | `holdings` | Stock / fund positions; price manual |
 | `sips` | Recurring invest; `history[]`; auto on unlock if `autoSip` |
@@ -25,7 +25,7 @@ Last reviewed against app version **2.6.0**.
 | `history` | Net-worth snapshots |
 | `policies` / `purchases` | Premium / warranty due dates |
 
-Balances are **derived** from opening + posted postings (not stored as a separate running total).
+Bank/cash/card balances are **derived** from opening + posted postings. Forex wallet balances are stored per currency and reconciled from `openingBalance` + posted Forex wallet movements.
 
 ## Verified behaviours
 
@@ -69,3 +69,22 @@ See FUNCTIONAL_VALIDATION_REPORT.md for detail.
 ## 2.5.10
 - Card UI gated by account type in acctSheet.
 - Regression: `node regression.mjs`.
+
+
+## 2.8.1 — Forex ledger integrity and safe unlock
+
+- Expense payment picker includes Forex cards in a dedicated group; each expense records the selected wallet currency.
+- Editing a Forex expense reverses the old movement and applies the new account/wallet/amount movement.
+- Refunds credit the original Forex wallet; legacy refunds from v2.8.0 are linked to their original wallet as history-only movements while the current wallet balance is preserved; the app does not guess whether users manually reflected them. Void and restore reverse/reapply expense and refund movements.
+- Expense, purchase/warranty row, and wallet movement are persisted in one save operation. A failed save restores the in-memory state snapshot.
+- Forex wallets now carry `openingBalance`; posted expense/refund movements reconcile against the current wallet balance.
+- Wallet edits recalculate the baseline without rewriting transaction history.
+- Migration rejects malformed, duplicate-currency, duplicate-ID, unsupported-currency, and non-numeric wallet rows before replacing wallet data.
+- Biometric unlock now uses the same migration guard as passphrase unlock and does not run automations or save after a migration failure.
+- Vault key, AES-GCM envelope, PBKDF2 format, and backup envelope remain unchanged. `openingBalance` is an additive wallet field.
+
+Validation in this archive:
+- Inline application JavaScript syntax: PASS.
+- `regression.mjs` syntax: PASS.
+- `node regression.mjs`: PASS — production logic regression suite runs with a minimal DOM shim; no third-party DOM package required.
+- Real browser/device, WebAuthn, and real-vault upgrade tests: NOT RUN.

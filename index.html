@@ -359,8 +359,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.8.0";
+const APP_VERSION = "2.8.1";
 const RELEASES = [
+  {v:"2.8.1", d:"2026-11-19", notes:"Complete Forex ledger fixes: wallet picker, edit/refund/void/restore movements, atomic saves, migration preservation and wallet reconciliation. Biometric unlock now uses the same safe migration guard."},
   {v:"2.8.0", d:"2026-11-19", notes:"Fixed European/Indian amount parsing (12,00 → 12.00). Lending calculations ignore future-dated repayments. Demat valuation uses only holdings linked to that specific account. Safe migrations abort on failure and preserve the original vault. Forex cards can now be used for expenses: select the card, choose the currency wallet, amount is deducted in that currency with historical rate stored. Wallet movements reverse on void/restore. Integrity checks cover Forex wallets and references."},
   {v:"2.7.3", d:"2026-11-18", notes:"Forex cards sit with Cards, separate from credit and debit. Each currency wallet has its own balance and symbol. Net worth converts those balances with your rates, once. Card numbers are stored as the last 4 digits only."},
   {v:"2.7.1", d:"2026-11-18", notes:"Failed saves stay in the session but never say Saved. Amounts keep real formats and reject junk. SIP frequency changes, premium term ends, and net worth tiles stay reconcilable."},
@@ -669,40 +670,67 @@ function migrate(){
   }
   for(const a of S.accounts){
     if(a.type!=="forex") continue;
+    if(a.wallets!=null&&!Array.isArray(a.wallets)) throw new Error("Forex wallet data is not a list for "+(a.name||a.id)+"; original data was preserved.");
     const rawRows=Array.isArray(a.wallets)?a.wallets:[];
     const rows=[];
-    const seen=new Set();
-    const problems=[];
+    const seenCur=new Set(), seenIds=new Set(), problems=[];
+    const rawWalletIds=new Set(rawRows.filter(Boolean).map(w=>String(w.id||"")));
+    for(const refund of (S.txns||[])){
+      if(refund.type!=="refund"||!refund.refundOf||refund.forexAcct) continue;
+      const parent=(S.txns||[]).find(t=>t.id===refund.refundOf);
+      if(!parent||parent.forexAcct!==a.id) continue;
+      const walletId=parent.walletId;
+      if(!walletId||!rawWalletIds.has(String(walletId))||refund.postings?.[0]?.acct!==a.id){
+        problems.push("refund "+refund.id+" has no matching Forex wallet");
+        continue;
+      }
+      if(refund.status==="posted"&&parent.status!=="posted"){
+        problems.push("posted refund "+refund.id+" belongs to a voided Forex expense");
+        continue;
+      }
+      const parentWallet=rawRows.find(w=>w&&String(w.id)===String(walletId));
+      refund.forexAcct=a.id;
+      refund.walletId=walletId;
+      refund.walletCur=String(parentWallet.cur||"").toUpperCase();
+      refund.amount=Math.abs(Number(refund.postings?.[0]?.amt)||0);
+      if(!(refund.amount>0)){problems.push("refund "+refund.id+" has an invalid amount");continue;}
+      refund.fxRate=refund.fxRate||parent.fxRate||S.rate||1;
+      refund.forexMovementApplied=false;
+    }
     for(const w of rawRows){
-      if(!w) continue;
-      const cur=String(w.cur||"").toUpperCase();
+      if(!w){ problems.push("empty wallet row"); continue; }
+      const cur=String(w.cur||"").trim().toUpperCase();
+      const id=String(w.id||"").trim()||uid();
       const bal=Number(w.balance);
-      if(!cur || !fxKnown(cur)){
-        problems.push("unsupported currency "+cur);
-        continue;
+      if(!cur || !fxKnown(cur)) problems.push("unsupported currency "+cur);
+      else if(seenCur.has(cur)) problems.push("duplicate currency "+cur);
+      else if(!isFinite(bal)) problems.push("invalid balance for "+cur);
+      else if(seenIds.has(id)) problems.push("duplicate wallet id "+id);
+      else {
+        seenCur.add(cur); seenIds.add(id);
+        let net=0;
+        for(const t of (S.txns||[])){
+          if(t.status!=="posted" || t.forexAcct!==a.id || t.walletId!==id || t.forexMovementApplied===false) continue;
+          const amount=Math.abs(Number(t.amount||t.postings?.[0]?.amt)||0);
+          if(t.type==="expense") net-=amount;
+          else if(t.type==="refund") net+=amount;
+        }
+        const opening=w.openingBalance!=null && Number.isFinite(Number(w.openingBalance))
+          ? Number(w.openingBalance) : Number(bal)-net;
+        rows.push({id,cur,balance:Math.round(bal*100)/100,openingBalance:Math.round(opening*100)/100,asOf:w.asOf||""});
       }
-      if(seen.has(cur)){
-        problems.push("duplicate currency "+cur);
-        continue;
-      }
-      seen.add(cur);
-      // Preserve original balance (including negative) and id
-      rows.push({id:w.id||"", cur, balance:isFinite(bal)?bal:0, asOf:w.asOf||""});
     }
     if(problems.length){
-      console.warn("Forex migration issues for account "+(a.name||a.id)+": "+problems.join(", "));
-      // Keep original wallets if we cannot migrate cleanly — do not silently drop data
-      // Caller (safe migrate) will decide whether to abort
-      a._forexMigrateProblems=problems;
+      throw new Error("Forex wallet data could not be migrated safely for "+(a.name||a.id)+": "+problems.join(", "));
     }
-    a.wallets=rows.map(w=>({id:w.id||uid(), cur:w.cur, balance:Math.round(w.balance*100)/100, asOf:w.asOf||""}));
+    a.wallets=rows;
     a.opening=0;
     a.cur=a.wallets.length===1?a.wallets[0].cur:(a.wallets.length?"MULTI":"INR");
     a.cardMeta=Object.assign({}, a.cardMeta||{}, {cardType:"Forex"});
-    const digits=String(a.accountNumber||"").replace(/\D/g,"");
+    const digits=String(a.accountNumber||"").replace(/\\D/g,"");
     if(digits.length>4) a.accountNumber="";
     if(!a.cardMeta.last4){
-      const masked=String(a.accountMasked||"").replace(/\D/g,"");
+      const masked=String(a.accountMasked||"").replace(/\\D/g,"");
       if(masked.length>=4) a.cardMeta.last4=masked.slice(-4);
     }
   }
@@ -1009,15 +1037,27 @@ function forexDisplayValue(a){
   }
   return {value:Math.round(value*100)/100, missing};
 }
+function forexWalletNetMovement(acctId, walletId){
+  let net=0;
+  for(const t of (S.txns||[])){
+    if(t.status!=="posted" || t.forexAcct!==acctId || t.walletId!==walletId || t.forexMovementApplied===false) continue;
+    const amount=Math.abs(Number(t.amount||t.postings?.[0]?.amt)||0);
+    if(t.type==="expense") net-=amount;
+    else if(t.type==="refund") net+=amount;
+  }
+  return Math.round(net*100)/100;
+}
 function applyForexWallets(a, wallets){
   const prev=new Map(forexWallets(a).map(w=>[String(w.cur).toUpperCase(), w]));
   a.type="forex";
   a.wallets=wallets.map(w=>{
     const cur=String(w.cur).toUpperCase();
     const old=prev.get(cur);
+    const id=(old&&old.id)||w.id||uid();
     const balance=Math.round(Number(w.balance)*100)/100;
     const unchanged=old && Math.abs(Number(old.balance)-balance)<0.001;
-    return {id:(old&&old.id)||w.id||uid(), cur, balance, asOf:unchanged?(old.asOf||today()):today()};
+    const net=forexWalletNetMovement(a.id,id);
+    return {id,cur,balance,openingBalance:Math.round((balance-net)*100)/100,asOf:unchanged?(old.asOf||today()):today()};
   });
   a.opening=0;
   a.cur=a.wallets.length===1?a.wallets[0].cur:"MULTI";
@@ -1341,22 +1381,63 @@ function addTxn(t, opts){
 }
 
 function applyForexMovement(acctId, walletId, delta){
-  const a = acct(acctId);
-  if(!a || a.type!=="forex" || !Array.isArray(a.wallets)) return false;
-  const w = a.wallets.find(x=>x.id===walletId);
+  const a=acct(acctId);
+  if(!a||a.type!=="forex"||!Array.isArray(a.wallets)||!isFinite(Number(delta))) return false;
+  const w=a.wallets.find(x=>x.id===walletId);
   if(!w) return false;
-  w.balance = Math.round(((Number(w.balance)||0) + delta)*100)/100;
+  w.balance=Math.round((Number(w.balance||0)+Number(delta))*100)/100;
   return true;
 }
-function forexTxnMovement(t, reverse){
-  if(!t || !t.forexAcct || !t.walletId) return;
-  const sign = (t.type==="expense" ? -1 : (t.type==="refund" || t.type==="income" ? 1 : 0));
-  if(!sign) return;
-  const delta = (reverse ? -sign : sign) * Math.abs(Number(t.amount||t.postings?.[0]?.amt)||0);
-  applyForexMovement(t.forexAcct, t.walletId, delta);
+function forexTxnDelta(t){
+  if(!t||!t.forexAcct||!t.walletId||t.forexMovementApplied===false) return 0;
+  const amount=Math.abs(Number(t.amount||t.postings?.[0]?.amt)||0);
+  if(t.type==="expense") return -amount;
+  if(t.type==="refund") return amount;
+  return 0;
 }
-function voidTxn(id){ const t=S.txns.find(x=>x.id===id); if(t){ if(t.status==="posted") forexTxnMovement(t, true); t.status="voided"; log("void",id); save(); } }
-function unvoid(id){ const t=S.txns.find(x=>x.id===id); if(t){ if(t.status!=="posted") forexTxnMovement(t, false); t.status="posted"; log("restore",id); save(); } }
+function forexTxnMovement(t, reverse){
+  if(!t) return true;
+  if(t.forexMovementApplied===false) return true;
+  if(!t.forexAcct&&!t.walletId) return true;
+  if(!t.forexAcct||!t.walletId||!["expense","refund"].includes(t.type)) return false;
+  const delta=forexTxnDelta(t);
+  if(!delta) return false;
+  return applyForexMovement(t.forexAcct,t.walletId,reverse?-delta:delta);
+}
+function forexWalletLedgerBalance(acctId,walletId){
+  const a=acct(acctId),w=a&&a.type==="forex"&&(a.wallets||[]).find(x=>x.id===walletId);
+  if(!w||!Number.isFinite(Number(w.openingBalance))) return null;
+  let expected=Number(w.openingBalance);
+  for(const t of (S.txns||[])){
+    if(t.status!=="posted"||t.forexAcct!==acctId||t.walletId!==walletId) continue;
+    expected+=forexTxnDelta(t);
+  }
+  return Math.round(expected*100)/100;
+}
+async function commitForexAware(mutator){
+  const before=JSON.parse(JSON.stringify(S));
+  try{
+    const result=mutator();
+    const ok=await save();
+    if(!ok){ S=before; return {ok:false,result:null}; }
+    return {ok:true,result};
+  }catch(err){ S=before; console.warn("Forex-aware transaction was rolled back",err); return {ok:false,result:null,error:err}; }
+}
+async function voidTxn(id){
+  const t=S.txns.find(x=>x.id===id); if(!t||t.status!=="posted") return false;
+  if(t.type==="expense"&&S.txns.some(x=>x.type==="refund"&&x.refundOf===id&&x.status==="posted")) return false;
+  const r=await commitForexAware(()=>{ if(!forexTxnMovement(t,true)) throw new Error("Forex wallet reference is missing"); t.status="voided"; log("void",id); });
+  return r.ok;
+}
+async function unvoid(id){
+  const t=S.txns.find(x=>x.id===id); if(!t||t.status==="posted") return false;
+  if(t.type==="refund"){
+    const parent=S.txns.find(x=>x.id===t.refundOf);
+    if(!parent||parent.status!=="posted") return false;
+  }
+  const r=await commitForexAware(()=>{ if(!forexTxnMovement(t,false)) throw new Error("Forex wallet reference is missing"); t.status="posted"; log("restore",id); });
+  return r.ok;
+}
 
 /* ---------- app state (vault) ---------- */
 let S=null, CK=null, BIO=null, SALT=null, KDF_ITER=250000, chain=Promise.resolve();
@@ -2938,7 +3019,8 @@ function paymentAccounts(purpose, opts){
   const groups=[
     {key:"bank", label:"Bank accounts"},
     {key:"card", label:"Credit / debit cards"},
-    {key:"cash", label:"Cash accounts"}
+    {key:"cash", label:"Cash accounts"},
+    {key:"forex", label:"Forex cards"}
   ].map(g=>({...g, accounts:list.filter(a=>a.type===g.key).slice().sort(rank)})).filter(g=>g.accounts.length);
   const extra=list.filter(a=>!types.includes(a.type));
   if(extra.length) groups.push({key:"other", label:"Current account", accounts:extra});
@@ -2962,9 +3044,22 @@ function updateForexWalletPicker(){
     box.style.display = "block";
     const wallets = forexWallets(a);
     sel.innerHTML = wallets.map(w=>`<option value="${esc(w.id)}">${esc(w.cur)} · ${fmtHide(w.balance, w.cur)}</option>`).join("") || `<option value="">No wallets</option>`;
+    const hint=$("#forexWalletHint"), selected=wallets.find(w=>w.id===sel.value)||wallets[0];
+    if(hint) hint.textContent=selected?"Amount will be deducted from the "+selected.cur+" wallet. Current balance: "+fmt(selected.balance,selected.cur)+".":"Add a currency wallet to this Forex card first.";
   }else{
     box.style.display = "none";
     sel.innerHTML = "";
+  }
+}
+function updateEditForexWalletPicker(){
+  const box=$("#editForexWalletBox"), sel=$("#edForexWallet");
+  if(!box||!sel) return;
+  const a=acct($("#edFrom")?.value);
+  if(a&&a.type==="forex"){
+    box.style.display="block";
+    sel.innerHTML=forexWallets(a).map(w=>`<option value="${esc(w.id)}">${esc(w.cur)} · ${fmtHide(w.balance,w.cur)}</option>`).join("")||`<option value="">No wallets</option>`;
+  }else{
+    box.style.display="none"; sel.innerHTML="";
   }
 }
 function paySelectHtml(id, selectedId, purpose){
@@ -2979,12 +3074,14 @@ function paySelectHtml(id, selectedId, purpose){
   }
   const rows=groups.map(g=>`<div class="pay-group"><div class="pay-group-label">${esc(g.label)}</div>${g.accounts.map(a=>{
     const on=a.id===sel;
-    const b=balance(a);
+    const forex=a.type==="forex";
+    const b=forex?forexDisplayValue(a).value:balance(a);
     const debit=a.type==="bank"&&a.cardMeta&&a.cardMeta.last4?" · Debit ••"+a.cardMeta.last4:"";
-    const kind=a.type==="card"?((a.cardMeta&&a.cardMeta.cardType)==="Debit"?"Debit card":"Credit card"):a.type==="cash"?"Cash":"Bank";
+    const kind=a.type==="card"?((a.cardMeta&&a.cardMeta.cardType)==="Debit"?"Debit card":"Credit card"):a.type==="cash"?"Cash":forex?"Forex card":"Bank";
+    const currencyLabel=forex?forexWallets(a).map(w=>w.cur+" "+fmtHide(w.balance,w.cur)).join(" · "):a.cur;
     return `<button type="button" class="pay-opt ${on?"on":""}" data-paypick="${esc(id)}" data-payid="${esc(a.id)}">
-      <span class="pay-opt-main"><span class="pay-opt-name">${esc(a.name)}</span><span class="pay-opt-meta">${esc(kind)} · ${esc(a.cur)}${debit}${a.owner&&a.owner!=="Me"?" · "+esc(a.owner):""}</span></span>
-      <b class="pay-opt-bal num ${b<0?"out":""}">${fmtHide(b,a.cur)}</b>
+      <span class="pay-opt-main"><span class="pay-opt-name">${esc(a.name)}</span><span class="pay-opt-meta">${esc(kind)} · ${esc(currencyLabel)}${debit}${a.owner&&a.owner!=="Me"?" · "+esc(a.owner):""}</span></span>
+      <b class="pay-opt-bal num ${b<0?"out":""}">${forex?fmtHide(b,S.display):fmtHide(b,a.cur)}</b>
     </button>`;
   }).join("")}</div>`).join("");
   return `<div class="pay-picker"><input type="hidden" id="${esc(id)}" value="${esc(sel)}"><div class="pay-scroll">${rows}</div></div>`;
@@ -3771,9 +3868,12 @@ function acctSheet(id){
 function txnEditSheet(id){
   const t=S.txns.find(x=>x.id===id);if(!t||t.status!=="posted")return;
   const p=t.postings[0]||{},isTransfer=t.type==="transfer";
-  const fromPurpose=isTransfer?"either":(t.type==="income"?"in":"out");
+  const purpose=isTransfer?"either":(t.type==="income"?"in":"expense");
+  const from=acct(p.acct);
+  const initialWallet=from&&from.type==="forex"?(t.walletId||forexWallets(from)[0]?.id||""):"";
+  const walletOptions=from&&from.type==="forex"?forexWallets(from).map(w=>`<option value="${esc(w.id)}" ${w.id===initialWallet?"selected":""}>${esc(w.cur)} · ${fmtHide(w.balance,w.cur)}</option>`).join(""):"";
   openSheet(`<h2 style="margin-top:0">Edit transaction</h2><form id="fedit"><input type="hidden" id="editId" value="${id}"><label>Date</label><input id="edDate" type="date" value="${esc(t.date)}" required>
-  ${isTransfer?`<label>From account</label>${paySelectHtml("edFrom", p.acct, "either")}<label>To account</label>${paySelectHtml("edTo", t.postings[1]?.acct, "either")}<label>Amount sent</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}"><label>Amount received (only if currencies differ)</label><input id="edRecv" inputmode="decimal" value="${Math.abs(t.postings[1]?.amt||0)}">`:`<label>Category</label><input id="edCat" value="${esc(t.cat||"")}" required><label>Account</label>${paySelectHtml("edFrom", p.acct, fromPurpose)}<label>Amount</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}" required>`}
+  ${isTransfer?`<label>From account</label>${paySelectHtml("edFrom", p.acct, "either")}<label>To account</label>${paySelectHtml("edTo", t.postings[1]?.acct, "either")}<label>Amount sent</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}"><label>Amount received (only if currencies differ)</label><input id="edRecv" inputmode="decimal" value="${Math.abs(t.postings[1]?.amt||0)}">`:`<label>Category</label><input id="edCat" value="${esc(t.cat||"")}" required><label>Account</label>${paySelectHtml("edFrom", p.acct, purpose)}<div id="editForexWalletBox" style="display:${from&&from.type==="forex"?"block":"none"};margin-top:8px"><label>Currency wallet</label><select id="edForexWallet">${walletOptions}</select><div class="muted">The expense is recorded and deducted in this wallet's currency.</div></div><label>Amount</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}" required>`}
   <label>Note</label><input id="edNote" maxlength="80" value="${esc(t.note||"")}"><button class="btn" type="submit">Save changes</button></form>`);
 }
 function passphraseSheet(){openSheet(`<h2 style="margin-top:0">Change passphrase</h2><p class="muted">Your data will be re-encrypted with a new random salt and key. The old passphrase will no longer unlock this copy.</p><form id="fpass"><label>Current passphrase</label><input id="oldPass" type="password" autocomplete="current-password" required><label>New passphrase (at least 12 characters recommended)</label><input id="newPass" type="password" autocomplete="new-password" required><label>Repeat new passphrase</label><input id="newPass2" type="password" autocomplete="new-password" required><button class="btn" type="submit">Re-encrypt and change</button></form>`);}
@@ -3814,9 +3914,22 @@ async function unlockBiometric(){
   SALT=unb64(env.salt); KDF_ITER=env.iterations||250000; BIO=bio;
   try{ S=await unseal(env,CK); }
   catch(e){ S=null; CK=null; throw new Error("Vault would not decrypt with biometric key. Use passphrase, then re-enable fingerprint in More."); }
-  try{ migrate(); }catch(e){ console.error(e); }
+  const originalS=JSON.parse(JSON.stringify(S));
+  try{
+    migrate();
+    if(!Array.isArray(S.accounts)||!Array.isArray(S.txns)) throw new Error("Invalid state after migration");
+    if(S.accounts.some(a=>a._forexMigrateProblems&&a._forexMigrateProblems.length)) throw new Error("Forex wallet migration could not be validated.");
+  }catch(e){
+    console.error("Biometric migration failed — vault preserved",e);
+    S=null;CK=null;BIO=null;
+    throw new Error("Migration failed. Your existing encrypted vault was not changed. Unlock with your passphrase to review or export a backup. "+(e&&e.message||""));
+  }
   try{ const auto=processDueAutomations(); toastAutomations(auto); }catch(e){ console.warn(e); }
-  try{ save(); }catch(e){ console.warn(e); }
+  const persisted=await save();
+  if(!persisted){
+    S=null;CK=null;BIO=null;
+    throw new Error("The migrated vault could not be saved. The original encrypted vault remains unchanged; try unlocking again with your passphrase.");
+  }
   document.body.classList.remove("locked");
   render();
 }
@@ -3828,14 +3941,19 @@ function runCheck(){
   for(const a of S.accounts){
     if(a.archived) continue;
     if(a.type==="forex"){
-      const curs=new Set();
+      const curs=new Set(),walletIds=new Set();
       for(const w of (a.wallets||[])){
-        if(!w || !w.cur) issues.push("Forex wallet missing currency on "+(a.name||a.id));
-        else if(curs.has(w.cur)) issues.push("Duplicate currency "+w.cur+" on Forex card "+(a.name||a.id));
-        else curs.add(w.cur);
-        if(!fxKnown(w.cur)) issues.push("Unsupported currency "+w.cur+" on "+(a.name||a.id));
+        if(!w||!w.cur){issues.push("Forex wallet missing currency on "+(a.name||a.id));continue;}
+        const cur=String(w.cur).toUpperCase();
+        if(curs.has(cur)) issues.push("Duplicate currency "+cur+" on Forex card "+(a.name||a.id));
+        curs.add(cur);
+        if(!fxKnown(cur)) issues.push("Unsupported currency "+cur+" on "+(a.name||a.id));
+        if(!w.id||walletIds.has(w.id)) issues.push("Missing or duplicate wallet ID on "+(a.name||a.id));
+        walletIds.add(w.id);
+        if(!Number.isFinite(Number(w.balance))||!Number.isFinite(Number(w.openingBalance))) issues.push("Invalid wallet balance baseline on "+(a.name||a.id)+" "+cur);
+        const expected=forexWalletLedgerBalance(a.id,w.id);
+        if(expected!=null&&Math.abs(expected-(Number(w.balance)||0))>0.02) issues.push("Forex wallet balance mismatch "+(a.name||a.id)+" "+cur+": live="+w.balance+" ledger="+expected);
       }
-      // Check that every Forex expense references a valid wallet
       continue;
     }
     let recon=Number(a.opening)||0;
@@ -3846,13 +3964,34 @@ function runCheck(){
     const live=balance(a);
     if(Math.abs(recon-live)>0.02) issues.push("Balance mismatch "+(a.name||a.id)+": live="+live+" recon="+recon);
   }
-  // Forex transaction integrity
+  // Forex transaction integrity, including refunds and voided historical references.
   for(const t of S.txns){
+    if(t.type==="refund"&&t.status==="posted"){
+      const parent=S.txns.find(x=>x.id===t.refundOf);
+      if(!parent) issues.push("Refund "+t.id+" references a missing original expense");
+      else if(parent.type!=="expense") issues.push("Refund "+t.id+" references a non-expense transaction");
+      else if(parent.status!=="posted") issues.push("Posted refund "+t.id+" belongs to a voided expense");
+      const refunded=S.txns.filter(x=>x.type==="refund"&&x.status==="posted"&&x.refundOf===t.refundOf).reduce((sum,x)=>sum+Math.abs(Number(x.postings?.[0]?.amt)||0),0);
+      if(parent&&refunded>Math.abs(Number(parent.postings?.[0]?.amt)||0)+0.02) issues.push("Refunds exceed original expense "+parent.id);
+    }
+    const postingAcct=t.postings?.[0]?.acct?acct(t.postings[0].acct):null;
+    if(postingAcct&&postingAcct.type==="forex"&&!t.forexAcct) issues.push("Transaction "+t.id+" posts to a Forex card without wallet metadata");
     if(t.forexAcct){
       const a=acct(t.forexAcct);
-      if(!a) issues.push("Forex expense references missing card "+t.forexAcct);
+      if(!a) issues.push("Forex transaction references missing card "+t.forexAcct);
       else if(a.type!=="forex") issues.push("Transaction "+t.id+" points at non-Forex account");
-      else if(t.walletId && !(a.wallets||[]).some(w=>w.id===t.walletId)) issues.push("Forex expense "+t.id+" references missing wallet");
+      else if(!t.walletId||!(a.wallets||[]).some(w=>w.id===t.walletId)) issues.push("Forex transaction "+t.id+" references missing wallet");
+      else{
+        const w=a.wallets.find(x=>x.id===t.walletId);
+        if(!["expense","refund"].includes(t.type)) issues.push("Unsupported Forex transaction type "+t.type+" on "+t.id);
+        if(t.walletCur&&String(t.walletCur).toUpperCase()!==String(w.cur).toUpperCase()) issues.push("Forex transaction currency mismatch on "+t.id);
+        if(t.postings?.[0]?.acct!==a.id) issues.push("Forex transaction posting account mismatch on "+t.id);
+        const postingAmount=Math.abs(Number(t.postings?.[0]?.amt)||0);
+        if(!Number.isFinite(Number(t.amount))||Math.abs(Number(t.amount)-postingAmount)>0.02) issues.push("Forex transaction amount mismatch on "+t.id);
+        if(String(t.postings?.[0]?.cur||"").toUpperCase()!==String(w.cur).toUpperCase()) issues.push("Forex posting currency mismatch on "+t.id);
+        if(t.type==="expense"&&Number(t.postings?.[0]?.amt)>=0) issues.push("Forex expense posting must be negative on "+t.id);
+        if(t.type==="refund"&&Number(t.postings?.[0]?.amt)<=0) issues.push("Forex refund posting must be positive on "+t.id);
+      }
     }
   }
 
@@ -4494,7 +4633,30 @@ if(d.delmethod){
     if(!confirm("Remove this purchase reminder? The spending transaction stays.")) return;
     S.purchases=S.purchases.filter(v=>v.id!==d.delpur); save(); render(); return;
   }
-  if(d.refund){ const o=S.txns.find(v=>v.id===d.refund); if(!o) return; const was=S.txns.filter(v=>v.refundOf===o.id&&v.status==="posted").reduce((a,v)=>a+v.postings[0].amt,0), left=Math.round((Math.abs(o.postings[0].amt)-was)*100)/100; if(left<=0){ alert("Already fully refunded."); return; } const raw=prompt("Refund amount (up to "+left+")",left); if(raw==null){ closeSheet(); return; } const v=rejectAmt(raw,{required:true,positive:true,maxDecimals:2}); if(v==null) return; if(v>left){ alert("That is more than the "+left+" still refundable."); return; } addTxn({type:"refund",date:today(),cat:o.cat,note:o.note||"",refundOf:o.id,postings:[{acct:o.postings[0].acct,amt:v,cur:o.postings[0].cur}]}); closeSheet(); render(); return; }
+  if(d.refund){
+    const o=S.txns.find(v=>v.id===d.refund); if(!o) return;
+    const was=S.txns.filter(v=>v.refundOf===o.id&&v.status==="posted").reduce((a,v)=>a+Math.abs(Number(v.postings?.[0]?.amt)||0),0);
+    const left=Math.round((Math.abs(Number(o.postings?.[0]?.amt)||0)-was)*100)/100;
+    if(left<=0){alert("Already fully refunded.");return;}
+    const raw=prompt("Refund amount (up to "+left+")",left);if(raw==null){closeSheet();return;}
+    const v=rejectAmt(raw,{required:true,positive:true,maxDecimals:2});if(v==null)return;
+    if(v>left){alert("That is more than the "+left+" still refundable.");return;}
+    const a=o.forexAcct?acct(o.forexAcct):null;
+    const wallet=o.walletId&&a?(a.wallets||[]).find(w=>w.id===o.walletId):null;
+    if(o.forexAcct&&(!a||!wallet)){alert("The original Forex wallet is missing. No refund was recorded.");return;}
+    const refund={type:"refund",date:today(),cat:o.cat,note:o.note||"",refundOf:o.id,postings:[{acct:o.postings[0].acct,amt:v,cur:o.postings[0].cur}]};
+    if(wallet){refund.forexAcct=a.id;refund.walletId=wallet.id;refund.walletCur=wallet.cur;refund.amount=v;refund.fxRate=o.fxRate||S.rate||1;refund.forexMovementApplied=true;}
+    (async()=>{
+      const committed=await commitForexAware(()=>{
+        const saved=addTxn(refund,{skipSave:true});
+        if(wallet&&!applyForexMovement(a.id,wallet.id,v)) throw new Error("Could not credit the original Forex wallet.");
+        return saved;
+      });
+      if(!committed.ok){alert("Refund was not saved. No wallet balance change was kept.");render();return;}
+      closeSheet();render();toast("Refund recorded");
+    })();
+    return;
+  }
   if("holds" in d){ openSheet(`<h2 style="margin-top:0">Import stock holdings</h2>
 <p class="muted">Choose your broker file saved as CSV, or paste the table copied from Excel, including the heading row. Select the owner these holdings belong to.</p>
 <label>Owner of these stocks</label>
@@ -4521,8 +4683,16 @@ if(d.delmethod){
   if(d.hold){ holdSheet(d.hold); return; }
   if(d.txn){ txnSheet(d.txn); return; }
   if(d.acct){ acctSheet(d.acct); return; }
-  if(d.void){ voidTxn(d.void); closeSheet(); render(); toast("Voided",()=>{unvoid(d.void);render();}); return; }
-  if(d.restore){ unvoid(d.restore); closeSheet(); render(); return; }
+  if(d.void){
+    const id=d.void;
+    (async()=>{const ok=await voidTxn(id);if(!ok){alert("Transaction was not voided. If it has posted refunds, void those refunds first; otherwise check storage and retry. The original balance is unchanged.");render();return;}closeSheet();render();toast("Voided",async()=>{const restored=await unvoid(id);if(!restored)alert("Restore was not saved; the transaction remains voided.");render();});})();
+    return;
+  }
+  if(d.restore){
+    const id=d.restore;
+    (async()=>{const ok=await unvoid(id);if(!ok){alert("Transaction was not restored. Restore its original expense first if this is a refund, then retry. The wallet balance is unchanged.");render();return;}closeSheet();render();toast("Restored");})();
+    return;
+  }
   if(d.filter){ filterAcct=d.filter; tab="activity"; closeSheet(); render(); return; }
   if(d.archive){
     const a=acct(d.archive);
@@ -4556,6 +4726,7 @@ if(d.delmethod){
     const root=el.closest(".pay-picker");
     if(root) root.querySelectorAll(".pay-opt").forEach(b=>b.classList.toggle("on", b.dataset.payid===acctId));
     if(id==="from"||id==="to"){ try{ updateRecv(); refreshAmtPreview(); }catch(err){} }
+    if(id==="edFrom") updateEditForexWalletPicker();
     return;
   }
   if(d.dematmode){
@@ -4757,7 +4928,7 @@ document.addEventListener("input", e=>{
   }
 });
 
-document.addEventListener("submit", e=>{
+document.addEventListener("submit", async e=>{
   e.preventDefault();
   const form=e.target;
   if(form.dataset.submitting==="1") return;
@@ -4768,14 +4939,45 @@ document.addEventListener("submit", e=>{
     const t=S.txns.find(x=>x.id===$("#editId").value);if(!t||t.status!=="posted")return;
     const a=acct($("#edFrom").value),amt=rejectAmt($("#edAmt").value,{required:true,positive:true,maxDecimals:2}),date=$("#edDate").value||today(),note=$("#edNote").value.trim();if(amt==null)return;
     const origFrom=t.postings&&t.postings[0]?t.postings[0].acct:"";
-    if(!assertPayAccount(a, t.type==="income"?"in":"either", origFrom)) return;
+    if(t.type==="expense"&&S.txns.some(x=>x.type==="refund"&&x.refundOf===t.id&&x.status==="posted")){
+      alert("Void the recorded refunds first. The original expense cannot be edited while refunds are posted.");
+      return;
+    }
+    if(!assertPayAccount(a,t.type==="income"?"in":(t.type==="expense"?"expense":"either"),origFrom)) return;
+    let to=null,recv=amt,walletId="",walletCur=a&&a.cur;
     if(t.type==="transfer"){
-      const to=acct($("#edTo").value);if(!to||to.id===a.id){alert("Choose two different accounts.");return;}
+      to=acct($("#edTo").value);if(!to||to.id===a.id){alert("Choose two different accounts.");return;}
       const origTo=t.postings&&t.postings[1]?t.postings[1].acct:"";
-      if(!assertPayAccount(to, "either", origTo)) return;let recv=amt;if(a.cur!==to.cur){recv=(()=>{const rr=readAmt($("#edRecv").value,{required:true,positive:true,maxDecimals:2}); if(!rr.ok){ alert(rr.error); return null;} return rr.value;})(); if(recv==null) return;}
-      t.postings=[{acct:a.id,amt:-amt,cur:a.cur},{acct:to.id,amt:recv,cur:to.cur}];
-    }else{if(t.postings[0]?.cur!==a.cur)t.fxRate=S.rate;t.postings=[{acct:a.id,amt:t.type==="income"?amt:-amt,cur:a.cur}];t.cat=$("#edCat").value.trim();}
-    t.date=date;t.note=note;if(!t.fxRate)t.fxRate=S.rate;t.owner=a.owner||"Me";log("edit",t.id);save();closeSheet();render();toastSaved("Transaction updated");return;
+      if(!assertPayAccount(to,"either",origTo)) return;
+      if(a.cur!==to.cur){const rr=readAmt($("#edRecv").value,{required:true,positive:true,maxDecimals:2});if(!rr.ok){alert(rr.error);return;}recv=rr.value;}
+    }else if(t.type==="expense"&&a.type==="forex"){
+      walletId=$("#edForexWallet")?.value||"";
+      const w=(a.wallets||[]).find(x=>x.id===walletId);
+      if(!w){alert("Choose a currency wallet on this Forex card.");return;}
+      walletCur=w.cur;
+      if(amt>(Number(w.balance)||0)+0.005&&!confirm("Wallet balance is "+fmt(Number(w.balance)||0,w.cur)+". This expense will make it negative. Continue?")) return;
+    }
+    const result=await commitForexAware(()=>{
+      if(t.forexAcct&&!forexTxnMovement(t,true)) throw new Error("The original Forex wallet is missing. No changes were applied.");
+      if(t.type==="transfer"){
+        t.postings=[{acct:a.id,amt:-amt,cur:a.cur},{acct:to.id,amt:recv,cur:to.cur}];
+        delete t.forexAcct;delete t.walletId;delete t.walletCur;delete t.amount;
+      }else if(t.type==="expense"&&a.type==="forex"){
+        t.forexAcct=a.id;t.walletId=walletId;t.walletCur=walletCur;t.amount=amt;t.forexMovementApplied=true;
+        t.postings=[{acct:a.id,amt:-amt,cur:walletCur}];
+        t.fxRate=(S.fx&&S.fx[walletCur])||S.rate||1;
+        if(!applyForexMovement(a.id,walletId,-amt)) throw new Error("Could not update the selected Forex wallet.");
+      }else{
+        t.postings=[{acct:a.id,amt:t.type==="income"?amt:-amt,cur:a.cur}];
+        t.cat=$("#edCat").value.trim();
+        delete t.forexAcct;delete t.walletId;delete t.walletCur;delete t.amount;
+        if(t.postings[0]?.cur!==a.cur)t.fxRate=S.rate;
+      }
+      t.date=date;t.note=note;if(!t.fxRate)t.fxRate=S.rate;t.owner=a.owner||"Me";log("edit",t.id);
+      return t;
+    });
+    if(!result.ok){alert("Transaction was not changed because it could not be saved. Your previous transaction and wallet balance have been restored.");render();return;}
+    closeSheet();render();toast("Transaction updated");return;
   }
   if(e.target.id==="faskpass"){
     const v=$("#askPass").value;
@@ -4880,24 +5082,28 @@ document.addEventListener("submit", e=>{
         t.walletId = walletId;
         t.walletCur = walletCur;
         t.amount = amt;
+        t.forexMovementApplied = true;
         // Store historical rate for this currency to display currency
         t.fxRate = (S.fx && S.fx[walletCur]) || S.rate || 1;
-        // Deduct from wallet now (void/restore will reverse)
-        applyForexMovement(from.id, walletId, -amt);
       }
       S.lastAcct=from.id;
     }
-    const saved=addTxn(t);
-    if(sheetType==="expense" && $("#asPurchase")?.checked){
-      const item=($("#pitem")?.value||note||chosenCat||"Purchase").trim();
-      const months=warrantyMonths;
-      let expiry="";
-      if(months>0) expiry=addM(date||today(), months);
-      S.purchases.push({id:uid(),item,amt,cur:from.cur,date:date||today(),expiry,acct:from.id,txnId:saved.id});
-      save();
-    }
+    const committed=await commitForexAware(()=>{
+      const saved=addTxn(t,{skipSave:true});
+      if(from.type==="forex"&&sheetType==="expense"&&!applyForexMovement(from.id,walletId,-amt)) throw new Error("Could not deduct from the selected Forex wallet.");
+      if(sheetType==="expense" && $("#asPurchase")?.checked){
+        const item=($("#pitem")?.value||note||chosenCat||"Purchase").trim();
+        const months=warrantyMonths;
+        let expiry="";
+        if(months>0) expiry=addM(date||today(), months);
+        S.purchases.push({id:uid(),item,amt,cur:walletCur,date:date||today(),expiry,acct:from.id,txnId:saved.id});
+      }
+      return saved;
+    });
+    if(!committed.ok){alert("Transaction was not saved. The wallet balance and transaction list have been restored; please try again.");render();return;}
+    const saved=committed.result;
     closeSheet(); render();
-    toastSaved("Saved",()=>{ voidTxn(saved.id); render(); });
+    toast("Saved",()=>{ voidTxn(saved.id).then(()=>render()); });
   }
   if(e.target.id==="f2"){
     const amt=rejectAmt($("#amt").value,{required:true,positive:true,maxDecimals:2}); if(amt==null) return;
@@ -5759,6 +5965,7 @@ if(globalThis.__MF_TEST){
     processDueAutomations, salaryTermsAt, advanceSalaryNext, sipTermsAt, advanceSipNext, addM, addDays, calendarDays,
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
     wealthBreakdown, netWorth, valuationNotes, holdPos, balance, addTxn,
+    applyForexMovement, forexWalletNetMovement, forexTxnDelta, forexTxnMovement, forexWalletLedgerBalance, commitForexAware, voidTxn, unvoid, runCheck,
     dematPosition, investmentTotals, dematClaims, paymentAccounts, payAccountAllowed, paySelectHtml,
     maskCardLast4, collectForexWallets, applyForexWallets, forexDisplayValue, fmt, viewAccounts,
     openBackupPayload, commitRestore, vaultShapeOk, buildHoldPlanRow, applySectionSort,

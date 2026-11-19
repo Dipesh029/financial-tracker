@@ -460,3 +460,29 @@ Production tests via `node regression.mjs` (extracts real functions from index.h
 | PASS cardMeta_not_debitCard | source has cardMeta only |
 
 `acctSheet` uses `acctSheetCardSectionHtml(a)` — no unconditional card fields.
+
+
+## Update 2.8.1 — Forex ledger completion and migration safety (2026-11-19)
+
+| Area | Change |
+|------|--------|
+| Expense picker | Forex cards shown in a dedicated group; per-wallet currency and balance are visible |
+| New expense | Selected wallet is debited in its own currency; historical conversion rate retained |
+| Edit expense | Old Forex movement reversed, new selected wallet movement applied; account/wallet/currency metadata updated |
+| Refund | Refund references and credits the original Forex wallet; legacy v2.8.0 refunds are linked as history-only movements; the existing balance is preserved because prior manual adjustments cannot be inferred |
+| Void / restore | Expense and refund movements reverse/reapply; failed persistence rolls back the in-memory snapshot |
+| Purchase / warranty | Purchase currency follows selected wallet currency rather than `MULTI` card currency |
+| Migration | Rejects malformed wallet lists, duplicate currencies/IDs, unsupported currencies, and invalid balances before replacing wallet data |
+| Reconciliation | Wallet opening baseline + posted expenses/refunds compared with current balance |
+| Biometric unlock | Migration failure aborts unlock processing; no automation or save of partial state |
+| Compatibility | `myfinance.v1`, AES-256-GCM envelope, PBKDF2 fields, and encrypted backup envelope unchanged |
+
+### Validation performed
+- Application inline JavaScript `node --check`: PASS.
+- `regression.mjs` `node --check`: PASS.
+- `sw.js` `node --check`: PASS.
+- `node regression.mjs`: PASS — all production logic regression groups pass using the no-dependency DOM shim.
+- Chromium UI smoke test: BLOCKED by environment browser policy (`ERR_BLOCKED_BY_ADMINISTRATOR`).
+- Physical Android UI, WebAuthn fingerprint, and a real encrypted-vault upgrade/restore: NOT RUN.
+
+No claim is made that the full browser/device regression suite passed.
