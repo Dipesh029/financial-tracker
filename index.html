@@ -203,6 +203,14 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:none;border
 .quick-grid button:active{transform:scale(.97)}
 .chart{width:100%;height:auto;display:block}
 .chart-legend{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-top:8px}
+.mix-bar{display:flex;gap:3px;overflow:hidden;border-radius:999px;margin:2px 0 16px}
+.mix-legend{display:flex;flex-direction:column;gap:2px}
+.mix-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--line)}
+.mix-row:first-child{border-top:0}
+.mix-name{display:flex;align-items:center;gap:8px;min-width:0;font-size:14px}
+.mix-name .dot{width:10px;height:10px;margin:0;flex-shrink:0}
+.mix-val{display:flex;align-items:baseline;gap:8px;flex-shrink:0}
+.mix-pct{min-width:38px;text-align:right;font-size:12px;font-weight:650;color:var(--muted)}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
 .home-filter{margin:4px 0 10px}
 .home-filter select{padding:10px 12px}
@@ -248,10 +256,12 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 .pay-trigger .pay-opt-name,.pay-trigger .pay-opt-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pay-caret{flex-shrink:0;width:18px;height:18px;color:var(--muted);transition:transform .15s var(--ease)}
 .pay-picker.open .pay-caret{transform:rotate(180deg)}
-.pay-panel{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;border:1px solid var(--line);border-radius:14px;background:var(--card);box-shadow:0 10px 30px rgba(0,0,0,.22);overflow:hidden}
+.pay-picker.open::before{content:"";position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:29;animation:fadeIn .15s var(--ease)}
+.pay-panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,440px);z-index:30;border:1px solid var(--line);border-radius:18px;background:var(--card);box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column;max-height:min(72vh,560px)}
 .pay-panel[hidden]{display:none}
-.pay-picker.up .pay-panel{top:auto;bottom:calc(100% + 6px)}
-.pay-scroll{max-height:min(260px,42vh);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.pay-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 8px 12px 16px;border-bottom:1px solid var(--line);font-weight:700;font-size:15px}
+.pay-panel-close{border:0;background:transparent;color:var(--muted);font:inherit;font-size:22px;line-height:1;width:44px;height:44px;border-radius:12px;cursor:pointer}
+.pay-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .pay-group-label{position:sticky;top:0;z-index:1;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);background:var(--bg-2);padding:6px 12px;border-bottom:1px solid var(--line)}
 .pay-opt{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);font:inherit;padding:9px 12px;min-height:48px;border-radius:0}
 .pay-group .pay-opt:last-child{border-bottom:0}
@@ -275,7 +285,6 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
   .home-controls{gap:6px}
   .privacy-chip{padding:8px 10px;font-size:12px}
   .val-row{grid-template-columns:1fr 1fr 1fr;gap:6px}
-  .pay-scroll{max-height:min(220px,38vh)}
 }
 .method-card{cursor:pointer}
 .members-only .metric span{font-weight:600}
@@ -333,7 +342,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .rec-card{padding:14px 15px;overflow:hidden}
 .rec-card .name{font-size:15px;font-weight:650;line-height:1.25;word-break:break-word}
 .rec-card .meta{font-size:12px;color:var(--muted);margin:4px 0 0;line-height:1.35}
-.rec-card .amt{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:8px}
+.rec-card .amt{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:8px;text-align:left;padding:0;letter-spacing:0;border-radius:0}
+/* a lone last tile spans the full row instead of leaving a gap */
+.metric-grid>:last-child:nth-child(odd),.wealth-grid>:last-child:nth-child(odd),.mod-metrics>:last-child:nth-child(odd),.nw-breakdown>:last-child:nth-child(odd){grid-column:1/-1}
 .rec-foot{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-top:10px}
 .pref-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
 .pref-row:last-of-type{border-bottom:0}
@@ -373,7 +384,7 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 const KEY = "myfinance.v1";
 const APP_VERSION = "2.8.3";
 const RELEASES = [
-  {v:"2.8.3", d:"2026-11-19", notes:"Fixed salary schedule updates not saving (next credit date, amount, account and frequency edits threw an error before saving). Account pickers are now a tap-to-open dropdown with a scrollable list that closes on selection. Fixed the stock-holdings import review failing on an undeclared variable and removed a dead CSV handler."},
+  {v:"2.8.3", d:"2026-11-19", notes:"Fixed salary schedule updates not saving (next credit date, amount, account and frequency edits threw an error before saving). Account pickers are now a tap-to-open dropdown with a scrollable list that closes on selection. Account picker now opens as a centred dialog with a dimmed backdrop. Asset mix bar has clear spacing and distinct colours. Account, SIP and salary cards no longer inherit the big centred amount style; lone last tiles fill the row; sort chip is labelled. Fixed the stock-holdings import review failing on an undeclared variable and removed a dead CSV handler."},
   {v:"2.8.2", d:"2026-11-19", notes:"Protect Forex wallet identity and historical references; prevent deleting or changing the currency of wallets with transaction history. Keep negative wallet balances consistent with confirmed overspending. Synchronise linked purchase and warranty records when expenses are edited; suspend reminders when linked expenses are voided and resume on restore. Fix legacy card-number migration masking and speed up integrity checks with one-pass indexes."},
   {v:"2.8.1", d:"2026-11-19", notes:"Complete Forex ledger fixes: wallet picker, edit/refund/void/restore movements, atomic saves, migration preservation and wallet reconciliation. Biometric unlock now uses the same safe migration guard."},
   {v:"2.8.0", d:"2026-11-19", notes:"Fixed European/Indian amount parsing (12,00 → 12.00). Lending calculations ignore future-dated repayments. Demat valuation uses only holdings linked to that specific account. Safe migrations abort on failure and preserve the original vault. Forex cards can now be used for expenses: select the card, choose the currency wallet, amount is deducted in that currency with historical rate stored. Wallet movements reverse on void/restore. Integrity checks cover Forex wallets and references."},
@@ -1719,7 +1730,7 @@ function sortBarHtml(section, options){
   const opts=[{key:"manual",label:"Manual"},...options];
   const cur=opts.find(o=>o.key===pref.key)||opts[0];
   const dirMark=pref.key!=="manual"?(pref.dir==="desc"?" ↓":" ↑"):"";
-  return `<div class="sort-bar"><button type="button" class="chip sort-chip" data-sortopen="${section}">${esc(cur.label)}${dirMark}</button></div>`;
+  return `<div class="sort-bar"><button type="button" class="chip sort-chip" data-sortopen="${section}" aria-label="Sort order">Sort: ${esc(cur.label)}${dirMark}</button></div>`;
 }
 
 function sortMenuHtml(section, options){
@@ -2173,9 +2184,9 @@ function allocationHtml(owner){
   if(w.insuranceCash>0) parts.push(["Insurance value", w.insuranceCash]);
   if(w.owedToYou>0) parts.push(["Owed to you", w.owedToYou]);
   const total=parts.reduce((a,x)=>a+x[1],0); if(!total) return "";
-  const colors=["var(--accent)","var(--in)","var(--warn)","#7c3aed"];
-  const seg=parts.map(([n,v],i)=>{const pct=v/total*100; return {n,v,pct,el:`<span style="display:block;height:12px;width:${pct}%;background:${colors[i%colors.length]}"></span>`};});
-  return `<h2>Asset mix</h2><div class="card"><div style="display:flex;overflow:hidden;border-radius:8px;gap:2px">${seg.map(x=>x.el).join("")}</div>${seg.map((x,i)=>`<div class="row"><span><i class="dot" style="background:${colors[i%colors.length]}"></i>${x.n}</span><b class="num">${fmtHide(x.v,S.display)} · ${Math.round(x.pct)}%</b></div>`).join("")}</div>`;
+  const colors=["#2563eb","#16a34a","#f59e0b","#7c3aed","#db2777"];
+  const seg=parts.map(([n,v],i)=>{const pct=v/total*100; return {n,v,pct,el:`<span style="display:block;height:12px;flex:${pct} 1 0;min-width:4px;background:${colors[i%colors.length]}" title="${esc(n)}"></span>`};});
+  return `<h2>Asset mix</h2><div class="card"><div class="mix-bar" role="img" aria-label="Asset mix">${seg.map(x=>x.el).join("")}</div><div class="mix-legend">${seg.map((x,i)=>`<div class="mix-row"><span class="mix-name"><i class="dot" style="background:${colors[i%colors.length]}"></i>${esc(x.n)}</span><span class="mix-val"><b class="num">${fmtHide(x.v,S.display)}</b><span class="mix-pct">${Math.round(x.pct)}%</span></span></div>`).join("")}</div></div>`;
 }
 
 function viewHome0(){
@@ -3173,7 +3184,7 @@ function paySelectHtml(id, selectedId, purpose){
   const caret=`<svg class="pay-caret" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8l5 5 5-5"/></svg>`;
   return `<div class="pay-picker"><input type="hidden" id="${esc(id)}" value="${esc(sel)}">
     <button type="button" class="pay-trigger" data-paytoggle="${esc(id)}" aria-haspopup="listbox" aria-expanded="false"><span class="pay-trigger-main">${payOptInner(selAcct)}</span>${caret}</button>
-    <div class="pay-panel" role="listbox" hidden><div class="pay-scroll">${rows}</div></div></div>`;
+    <div class="pay-panel" role="dialog" aria-label="Choose account" hidden><div class="pay-panel-head"><span>Choose account</span><button type="button" class="pay-panel-close" data-paytoggle="${esc(id)}" aria-label="Close">×</button></div><div class="pay-scroll" role="listbox">${rows}</div></div></div>`;
 }
 function assertPayAccount(a, purpose, allowId){
   if(!a){ alert("Choose an account."); return false; }
@@ -4167,7 +4178,7 @@ function exportCSV(){
 /* ---------- account dropdown (pay picker) ---------- */
 function closePayPanels(focusTrigger){
   document.querySelectorAll(".pay-picker.open").forEach(r=>{
-    r.classList.remove("open","up");
+    r.classList.remove("open");
     const t=r.querySelector(".pay-trigger"), p=r.querySelector(".pay-panel");
     if(p) p.hidden=true;
     if(t){ t.setAttribute("aria-expanded","false"); if(focusTrigger){ try{ t.focus({preventScroll:true}); }catch(e){} } }
@@ -4177,20 +4188,14 @@ function openPayPanel(root){
   const t=root.querySelector(".pay-trigger"), p=root.querySelector(".pay-panel"), sc=root.querySelector(".pay-scroll");
   if(!t||!p) return;
   root.classList.add("open"); p.hidden=false; t.setAttribute("aria-expanded","true");
-  // open upward only if there is clearly more room above than below
-  const host=root.closest(".sheet")||document.documentElement;
-  const hb=host===document.documentElement?window.innerHeight:host.getBoundingClientRect().bottom;
-  const ht=host===document.documentElement?0:host.getBoundingClientRect().top;
-  const tr=t.getBoundingClientRect(), need=Math.min(p.offsetHeight||260,260);
-  const below=hb-tr.bottom, above=tr.top-ht;
-  root.classList.toggle("up", below<need && above>below);
   const on=sc&&sc.querySelector(".pay-opt.on");
-  if(on){ const top=on.offsetTop-sc.offsetTop-36; sc.scrollTop=Math.max(0,top); }
-  try{ p.scrollIntoView({block:"nearest",behavior:"smooth"}); }catch(e){}
+  if(on){ sc.scrollTop=Math.max(0, on.offsetTop-sc.offsetTop-sc.clientHeight/2+on.offsetHeight/2); }
 }
 document.addEventListener("click", e=>{
   if(!document.querySelector(".pay-picker.open")) return;
-  if(e.target.closest(".pay-picker.open")) return;
+  // the dimmed backdrop is the picker's own ::before, so a click on the picker element itself is a backdrop tap
+  if(e.target.classList&&e.target.classList.contains("pay-picker")){ e.stopPropagation(); closePayPanels(); return; }
+  if(e.target.closest(".pay-panel,.pay-trigger")) return;
   closePayPanels();
 }, true);
 document.addEventListener("keydown", e=>{
