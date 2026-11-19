@@ -80,8 +80,9 @@ assert(mf && mf.parseAmt, "production exports missing");
     ["1,00,000", 100000],
     ["₹1,00,000.50", 100000.5],
     ["1,000", 1000],
-    ["1,00", 100],
-    ["12,00", 1200],
+    ["1,00", 1],
+    ["12,00", 12],
+    ["100,00", 100],
     ["10,50", 10.5],
     ["10,5", 10.5],
     ["1.234,56", 1234.56],
@@ -620,7 +621,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.7.3");
+  const versionAt = home.indexOf("v" + "2.8.0");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");

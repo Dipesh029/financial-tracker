@@ -359,8 +359,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.7.3";
+const APP_VERSION = "2.8.0";
 const RELEASES = [
+  {v:"2.8.0", d:"2026-11-19", notes:"Fixed European/Indian amount parsing (12,00 → 12.00). Lending calculations ignore future-dated repayments. Demat valuation uses only holdings linked to that specific account. Safe migrations abort on failure and preserve the original vault. Forex cards can now be used for expenses: select the card, choose the currency wallet, amount is deducted in that currency with historical rate stored. Wallet movements reverse on void/restore. Integrity checks cover Forex wallets and references."},
   {v:"2.7.3", d:"2026-11-18", notes:"Forex cards sit with Cards, separate from credit and debit. Each currency wallet has its own balance and symbol. Net worth converts those balances with your rates, once. Card numbers are stored as the last 4 digits only."},
   {v:"2.7.1", d:"2026-11-18", notes:"Failed saves stay in the session but never say Saved. Amounts keep real formats and reject junk. SIP frequency changes, premium term ends, and net worth tiles stay reconcilable."},
   {v:"2.7.0", d:"2026-11-18", notes:"Storage failures are no longer reported as saved. Amounts reject bad input. Schedules, lending day-count, premiums, net worth, and restore rollback are aligned."},
@@ -653,7 +654,7 @@ function migrate(){
     a.invested=Number(a.invested)||0;
     if(a.valuationMode!=="holdings" && a.valuationMode!=="manual"){
       const linked=(S.holdings||[]).some(h=>holdingLinkedTo(h,a));
-      a.valuationMode=(linked||ownerHasLiveHoldings(a.owner||"Me"))?"holdings":"manual";
+      a.valuationMode=linked?"holdings":"manual";
     }
     // Old forms stored a current value as the ledger opening. Keep it once as the manual value
     // when it is not the same number as invested. Never rewrite invested, holdings, or transactions.
@@ -668,20 +669,33 @@ function migrate(){
   }
   for(const a of S.accounts){
     if(a.type!=="forex") continue;
-    const rows=(Array.isArray(a.wallets)?a.wallets:[]).map(w=>({
-      id:w&&w.id||"",
-      cur:String(w&&w.cur||"").toUpperCase(),
-      balance:Math.max(0, Number(w&&w.balance)||0),
-      asOf:w&&w.asOf||""
-    })).filter(w=>fxKnown(w.cur));
+    const rawRows=Array.isArray(a.wallets)?a.wallets:[];
+    const rows=[];
     const seen=new Set();
-    const wallets=[];
-    for(const w of rows){
-      if(seen.has(w.cur)) continue;
-      seen.add(w.cur);
-      wallets.push(w);
+    const problems=[];
+    for(const w of rawRows){
+      if(!w) continue;
+      const cur=String(w.cur||"").toUpperCase();
+      const bal=Number(w.balance);
+      if(!cur || !fxKnown(cur)){
+        problems.push("unsupported currency "+cur);
+        continue;
+      }
+      if(seen.has(cur)){
+        problems.push("duplicate currency "+cur);
+        continue;
+      }
+      seen.add(cur);
+      // Preserve original balance (including negative) and id
+      rows.push({id:w.id||"", cur, balance:isFinite(bal)?bal:0, asOf:w.asOf||""});
     }
-    a.wallets=wallets.map(w=>({id:w.id||uid(), cur:w.cur, balance:Math.round(w.balance*100)/100, asOf:w.asOf||""}));
+    if(problems.length){
+      console.warn("Forex migration issues for account "+(a.name||a.id)+": "+problems.join(", "));
+      // Keep original wallets if we cannot migrate cleanly — do not silently drop data
+      // Caller (safe migrate) will decide whether to abort
+      a._forexMigrateProblems=problems;
+    }
+    a.wallets=rows.map(w=>({id:w.id||uid(), cur:w.cur, balance:Math.round(w.balance*100)/100, asOf:w.asOf||""}));
     a.opening=0;
     a.cur=a.wallets.length===1?a.wallets[0].cur:(a.wallets.length?"MULTI":"INR");
     a.cardMeta=Object.assign({}, a.cardMeta||{}, {cardType:"Forex"});
@@ -1070,8 +1084,13 @@ function inspectAmt(v){
   }else if(lastComma>=0){
     const parts=s.split(",");
     const tail=parts[parts.length-1];
-    if(parts.length===2 && tail.length>=1 && tail.length<=2 && !/^0+$/.test(tail)) decSep=",";
-    else grpSep=",";
+    // European decimal-comma: last group 1-2 digits (e.g. 12,00 or 1,5)
+    // Indian/Western thousands: last group 3 digits (e.g. 1,00,000 or 1,234)
+    if(parts.length>=2 && tail.length>=1 && tail.length<=2){
+      decSep=",";
+    }else{
+      grpSep=",";
+    }
   }else if(lastDot>=0) decSep=".";
   let intPart=s, frac="";
   if(decSep){
@@ -1089,7 +1108,10 @@ function inspectAmt(v){
         if(!(western || indian)) return {ok:false, error:"Number separators are not a valid amount."};
       }
       intPart=groups.join("");
-    }else intPart=intPart.replace(/[.,]/g,"");
+    }else{
+      // Pure decimal-comma case (no thousands separator). Integer part must be plain digits.
+      if(/[.,]/.test(intPart)) return {ok:false, error:"Misplaced separator."};
+    }
   }else if(grpSep){
     const parts=s.split(grpSep);
     if(parts.some(p=>!p)) return {ok:false, error:"Misplaced separator."};
@@ -1097,13 +1119,13 @@ function inspectAmt(v){
       const last=parts[parts.length-1], first=parts[0], middles=parts.slice(1,-1);
       const western=last.length===3 && middles.every(p=>p.length===3) && first.length>=1 && first.length<=3;
       const indian=last.length===3 && middles.every(p=>p.length===2) && first.length>=1 && first.length<=2;
-      const legacyHundreds=parts.length===2 && last==="00";
-      if(!(western || indian || legacyHundreds)) return {ok:false, error:"Number separators are not a valid amount."};
+      if(!(western || indian)) return {ok:false, error:"Number separators are not a valid amount."};
     }
     intPart=parts.join("");
+    frac="";
   }
-  if(intPart!=="" && !/^\d+$/.test(intPart)) return {ok:false, error:"Not a valid amount."};
-  if(frac && !/^\d+$/.test(frac)) return {ok:false, error:"Not a valid amount."};
+  if(!intPart) intPart="0";
+  if(/[^0-9]/.test(intPart) || (frac && /[^0-9]/.test(frac))) return {ok:false, error:"Not a valid amount."};
   if(frac.length>6) return {ok:false, error:"Too many decimal places."};
   const n=Number((intPart||"0")+"."+(frac||"0"));
   if(!isFinite(n)) return {ok:false, error:"Not a valid amount."};
@@ -1317,8 +1339,24 @@ function addTxn(t, opts){
   if(!opts.skipSave) save();
   return t;
 }
-function voidTxn(id){ const t=S.txns.find(x=>x.id===id); if(t){ t.status="voided"; log("void",id); save(); } }
-function unvoid(id){ const t=S.txns.find(x=>x.id===id); if(t){ t.status="posted"; log("restore",id); save(); } }
+
+function applyForexMovement(acctId, walletId, delta){
+  const a = acct(acctId);
+  if(!a || a.type!=="forex" || !Array.isArray(a.wallets)) return false;
+  const w = a.wallets.find(x=>x.id===walletId);
+  if(!w) return false;
+  w.balance = Math.round(((Number(w.balance)||0) + delta)*100)/100;
+  return true;
+}
+function forexTxnMovement(t, reverse){
+  if(!t || !t.forexAcct || !t.walletId) return;
+  const sign = (t.type==="expense" ? -1 : (t.type==="refund" || t.type==="income" ? 1 : 0));
+  if(!sign) return;
+  const delta = (reverse ? -sign : sign) * Math.abs(Number(t.amount||t.postings?.[0]?.amt)||0);
+  applyForexMovement(t.forexAcct, t.walletId, delta);
+}
+function voidTxn(id){ const t=S.txns.find(x=>x.id===id); if(t){ if(t.status==="posted") forexTxnMovement(t, true); t.status="voided"; log("void",id); save(); } }
+function unvoid(id){ const t=S.txns.find(x=>x.id===id); if(t){ if(t.status!=="posted") forexTxnMovement(t, false); t.status="posted"; log("restore",id); save(); } }
 
 /* ---------- app state (vault) ---------- */
 let S=null, CK=null, BIO=null, SALT=null, KDF_ITER=250000, chain=Promise.resolve();
@@ -1636,7 +1674,7 @@ function amountInCur(amount, fromCur, toCur){
 function resolvedDematMode(a){
   if(!a) return "manual";
   if(a.valuationMode==="holdings"||a.valuationMode==="manual") return a.valuationMode;
-  if((S.holdings||[]).some(h=>holdingLinkedTo(h,a)) || ownerHasLiveHoldings(a.owner||"Me")) return "holdings";
+  if((S.holdings||[]).some(h=>holdingLinkedTo(h,a))) return "holdings";
   return "manual";
 }
 function dematPosition(a, claims){
@@ -1656,10 +1694,9 @@ function dematPosition(a, claims){
       const basis=invested>0?invested:cost;
       return {mode, invested:basis, accountInvested:invested, holdingCost:cost, value, pl:Math.round((value-basis)*100)/100, estimated:false, source:"holdings", holdings:linked};
     }
-    if(ownerHasLiveHoldings(a.owner||"Me")){
-      return {mode, invested, accountInvested:invested, holdingCost:cost, value:0, pl:0, estimated:false, source:"external-holdings", holdings:linked};
-    }
-    return {mode, invested, accountInvested:invested, holdingCost:0, value:invested, pl:0, estimated:true, source:"invested", holdings:linked};
+    // No holdings are linked to this specific Demat account.
+    // Do not invent a value from the account's invested amount or from other holdings of the owner.
+    return {mode, invested, accountInvested:invested, holdingCost:0, value:0, pl:0, estimated:false, source:"unlinked", holdings:linked};
   }
   if(!dematHasExplicitValue(a)){
     return {mode:"manual", invested, accountInvested:invested, value:invested, pl:0, estimated:true, source:"invested", holdings:linked};
@@ -2514,7 +2551,7 @@ function addSheet(){
   if(sheetType==="invest"||sheetType==="lend") return addSheet2();
   const cats = sheetType==="income"?incomeCats():expenseCats();
   if(!chosenCat || !cats.includes(chosenCat)) chosenCat = cats[0];
-  const purpose = sheetType==="income"?"in":"out";
+  const purpose = sheetType==="income"?"in":(sheetType==="expense"?"expense":"out");
   const fromPref = preferredPayId(sheetType==="transfer"?"either":purpose, (xferPrefill&&xferPrefill.from)||"");
   const other = S.accounts.find(a=>a.id!==fromPref && payAccountAllowed(a,"either"));
   const toPref = preferredPayId("either", (xferPrefill&&xferPrefill.to)||(other?other.id:""));
@@ -2553,6 +2590,11 @@ function addSheet(){
       <div class="chips" id="cats">${cats.map(c=>`<button type="button" class="chip ${c===chosenCat?"on":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}</div>
       <label>${sheetType==="income"?"Into account (bank or cash)":"Paid from (bank, cash, or card)"}</label>
       ${paySelectHtml("from", fromPref, purpose)}
+      <div id="forexWalletBox" style="display:none;margin-top:8px">
+        <label>Currency wallet</label>
+        <select id="forexWallet"></select>
+        <div class="muted" id="forexWalletHint">Amount will be deducted from the selected wallet in its own currency.</div>
+      </div>
       <div class="muted" style="margin-top:6px">${sheetType==="income"?"Cash income: choose a Cash account. Salary to bank: choose that bank account.":"A card purchase is spending on the card. Paying the card bill later is a transfer from bank to card, not another expense."}</div>`}
     <label>Date</label><input type="date" id="date" value="${today()}">
     <label>Note (optional)</label><input id="note" maxlength="80" placeholder="Optional">
@@ -2872,6 +2914,7 @@ function acctUseScore(a){
 }
 function payPurposeTypes(purpose){
   if(purpose==="in") return ["bank","cash"];
+  if(purpose==="expense" || purpose==="forex-expense") return ["bank","card","cash","forex"];
   return ["bank","card","cash"];
 }
 function payAccountAllowed(a, purpose){
@@ -2908,6 +2951,22 @@ function preferredPayId(purpose, pref){
   const groups=paymentAccounts(purpose);
   return groups[0]&&groups[0].accounts[0]?groups[0].accounts[0].id:"";
 }
+
+function updateForexWalletPicker(){
+  const box = $("#forexWalletBox");
+  const sel = $("#forexWallet");
+  if(!box || !sel) return;
+  const fromId = $("#from")?.value;
+  const a = acct(fromId);
+  if(a && a.type==="forex" && sheetType==="expense"){
+    box.style.display = "block";
+    const wallets = forexWallets(a);
+    sel.innerHTML = wallets.map(w=>`<option value="${esc(w.id)}">${esc(w.cur)} · ${fmtHide(w.balance, w.cur)}</option>`).join("") || `<option value="">No wallets</option>`;
+  }else{
+    box.style.display = "none";
+    sel.innerHTML = "";
+  }
+}
 function paySelectHtml(id, selectedId, purpose){
   const groups=paymentAccounts(purpose, {includeId:selectedId||""});
   let sel=selectedId&&acct(selectedId)?selectedId:"";
@@ -2937,7 +2996,7 @@ function assertPayAccount(a, purpose, allowId){
   alert(a.type==="demat"
     ? "Demat accounts are for investments, not payments. Choose a bank, card, or cash account."
     : a.type==="forex"
-    ? "Forex cards are tracked as balances you update, not as a payment source. Pay from a bank, credit card, or cash account."
+    ? "Select a specific currency wallet on this Forex card to record an expense."
     : "Choose a bank or cash account for this.");
   return false;
 }
@@ -3079,11 +3138,11 @@ function lendingPosition(l){
   const rate=Number(l.rate)||0;
   const start=l.start||today();
   // Principal repayments chronological
-  const prinTxns=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&t.principalReduction)
+  const asOf=today();
+  const prinTxns=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&t.principalReduction&&(t.date||start)<=asOf)
     .map(t=>({date:t.date||start, amt:Number(t.principalReduction)||0, created:t.created||""}))
     .sort((a,b)=>a.date.localeCompare(b.date)||String(a.created).localeCompare(String(b.created)));
   for(const t of prinTxns){ if(t.date<start) t.date=start; }
-  const asOf=today();
   let principalLeft=principalOrig;
   let principalRepaid=0;
   let cursor=start;
@@ -3109,10 +3168,11 @@ function lendingPosition(l){
   // If principal fully repaid, cursor is last repayment date — no further accrual (above branch skipped)
   principalLeft=Math.max(0, principalLeft);
   principalRepaid=Math.min(principalOrig, Math.max(0, principalRepaid));
-  const interestPaid=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&t.interestSettlement)
+  const interestPaid=S.txns.filter(t=>t.status==="posted"&&t.loanId===l.id&&t.interestSettlement&&(t.date||start)<=asOf)
     .reduce((v,t)=>v+Math.abs(t.postings?.[0]?.amt||0),0);
   // Manual adjustments: positive = more interest owed; negative = waiver/round-down
-  const adjustments=l.interestAdjustments||[];
+  const asOfAdj=today();
+  const adjustments=(l.interestAdjustments||[]).filter(a=>!a.date || a.date<=asOfAdj);
   const interestAdj=adjustments.reduce((v,a)=>v+(Number(a.amount)||0),0);
   const interestLeft=Math.max(0, accrued+interestAdj-interestPaid-interestFromOverpay);
   const totalOutstanding=principalLeft+interestLeft;
@@ -3767,6 +3827,17 @@ function runCheck(){
   for(const x of (S.sips||[])){ if(x.hold&&!S.holdings.find(h=>h.id===x.hold)) issues.push("Orphan SIP → missing holding "+x.hold); if(x.acct&&!acct(x.acct)) issues.push("Orphan SIP → missing account"); }
   for(const a of S.accounts){
     if(a.archived) continue;
+    if(a.type==="forex"){
+      const curs=new Set();
+      for(const w of (a.wallets||[])){
+        if(!w || !w.cur) issues.push("Forex wallet missing currency on "+(a.name||a.id));
+        else if(curs.has(w.cur)) issues.push("Duplicate currency "+w.cur+" on Forex card "+(a.name||a.id));
+        else curs.add(w.cur);
+        if(!fxKnown(w.cur)) issues.push("Unsupported currency "+w.cur+" on "+(a.name||a.id));
+      }
+      // Check that every Forex expense references a valid wallet
+      continue;
+    }
     let recon=Number(a.opening)||0;
     for(const t of S.txns){
       if(t.status!=="posted"||!t.postings) continue;
@@ -3774,6 +3845,15 @@ function runCheck(){
     }
     const live=balance(a);
     if(Math.abs(recon-live)>0.02) issues.push("Balance mismatch "+(a.name||a.id)+": live="+live+" recon="+recon);
+  }
+  // Forex transaction integrity
+  for(const t of S.txns){
+    if(t.forexAcct){
+      const a=acct(t.forexAcct);
+      if(!a) issues.push("Forex expense references missing card "+t.forexAcct);
+      else if(a.type!=="forex") issues.push("Transaction "+t.id+" points at non-Forex account");
+      else if(t.walletId && !(a.wallets||[]).some(w=>w.id===t.walletId)) issues.push("Forex expense "+t.id+" references missing wallet");
+    }
   }
 
   for(const t of S.txns){
@@ -4509,9 +4589,9 @@ if(d.delmethod){
   if(d.forexdel){
     const a=acct(d.forexdel);
     if(!a||a.type!=="forex") return;
-    const posts=(S.txns||[]).some(t=>t.status==="posted"&&(t.postings||[]).some(p=>p.acct===a.id));
-    if(posts){
-      if(!confirm("“"+a.name+"” has transactions. Archive it instead so those records stay?")) return;
+    const referenced=(S.txns||[]).some(t=>(t.forexAcct===a.id) || ((t.postings||[]).some(p=>p.acct===a.id)));
+    if(referenced){
+      if(!confirm("“"+a.name+"” is referenced by transactions (including voided). Archive it instead so history is preserved?")) return;
       a.archived=true;
       save(); closeSheet(); render(); toastSaved("Forex card archived");
       return;
@@ -4636,7 +4716,10 @@ document.addEventListener("change", e=>{
     toastSaved(code+" rate saved");
     render();
   }
-  if(e.target.id==="from"||e.target.id==="to") updateRecv();
+  if(e.target.id==="from"||e.target.id==="to"){
+    updateRecv();
+    updateForexWalletPicker();
+  }
   if(e.target.id==="file"){
     const f=e.target.files[0]; if(!f) return;
     const rd=new FileReader();
@@ -4749,7 +4832,19 @@ document.addEventListener("submit", e=>{
     if(amt==null) return;
     const date=$("#date").value||today(), note=$("#note").value.trim();
     const from=acct($("#from").value);
-    if(!assertPayAccount(from, sheetType==="income"?"in":"either")) return;
+    const purpose = sheetType==="income"?"in":(sheetType==="expense"?"expense":"either");
+    if(!assertPayAccount(from, purpose)) return;
+    let walletId = null, walletCur = from.cur;
+    if(from.type==="forex" && sheetType==="expense"){
+      walletId = $("#forexWallet")?.value || "";
+      const w = (from.wallets||[]).find(x=>x.id===walletId);
+      if(!w){ alert("Choose a currency wallet on this Forex card."); return; }
+      walletCur = w.cur;
+      const bal = Number(w.balance)||0;
+      if(amt > bal + 0.005){
+        if(!confirm("Wallet balance is "+fmt(bal, w.cur)+". This expense will make it negative. Continue?")) return;
+      }
+    }
     let warrantyMonths=0;
     if(sheetType==="expense" && $("#asPurchase")?.checked){
       warrantyMonths=rejectAmt($("#pwarr")?.value||"",{required:false,allowNegative:false,maxDecimals:0});
@@ -4779,7 +4874,17 @@ document.addEventListener("submit", e=>{
       }
     }else{
       const sign=sheetType==="income"?1:-1;
-      t={type:sheetType,date,note,cat:chosenCat,postings:[{acct:from.id,amt:sign*amt,cur:from.cur}]};
+      t={type:sheetType,date,note,cat:chosenCat,postings:[{acct:from.id,amt:sign*amt,cur:walletCur}]};
+      if(from.type==="forex" && sheetType==="expense"){
+        t.forexAcct = from.id;
+        t.walletId = walletId;
+        t.walletCur = walletCur;
+        t.amount = amt;
+        // Store historical rate for this currency to display currency
+        t.fxRate = (S.fx && S.fx[walletCur]) || S.rate || 1;
+        // Deduct from wallet now (void/restore will reverse)
+        applyForexMovement(from.id, walletId, -amt);
+      }
       S.lastAcct=from.id;
     }
     const saved=addTxn(t);
@@ -5610,9 +5715,29 @@ function boot(){
         SALT=crypto.getRandomValues(new Uint8Array(16)); KDF_ITER=600000;
         CK=await deriveKey(p,SALT,KDF_ITER); S=legacy||blank(); BIO=null;
       }
-      try{ migrate(); }catch(mErr){ console.error(mErr); /* still allow in with partial migrate */ }
-      try{ const auto=processDueAutomations(); toastAutomations(auto); }catch(aErr){ console.warn(aErr); }
-      try{ save(); }catch(sErr){ console.warn(sErr); }
+      // Safe migration: work on a copy. If it fails, keep the original encrypted vault untouched.
+      const originalS = JSON.parse(JSON.stringify(S));
+      let migrated = false;
+      try{
+        migrate();
+        // Basic post-migrate validation
+        if(!Array.isArray(S.accounts) || !Array.isArray(S.txns)) throw new Error("Invalid state after migration");
+        for(const a of S.accounts){
+          if(a._forexMigrateProblems && a._forexMigrateProblems.length){
+            throw new Error("Forex wallet data could not be migrated safely: "+a._forexMigrateProblems.join(", "));
+          }
+        }
+        migrated = true;
+      }catch(mErr){
+        console.error("Migration failed — original vault preserved", mErr);
+        S = originalS;
+        unlockNotice = "Migration failed. Your existing vault was not changed. "+(mErr&&mErr.message||"");
+        // Do not run automations or save a partial state
+      }
+      if(migrated){
+        try{ const auto=processDueAutomations(); toastAutomations(auto); }catch(aErr){ console.warn(aErr); }
+        try{ save(); }catch(sErr){ console.warn(sErr); }
+      }
       document.body.classList.remove("locked");
       render();
       if(unlockNotice){ const note=unlockNotice; unlockNotice=""; setTimeout(()=>toast(note), 700); }
