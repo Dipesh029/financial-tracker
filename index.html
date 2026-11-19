@@ -239,7 +239,19 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
 .home-toolbar .home-filter{flex:1;margin:0}
 .privacy-chip{flex-shrink:0;min-height:40px;padding:8px 12px}
 .pay-picker input[type="hidden"]{display:none!important;min-height:0!important;padding:0!important;border:0!important;width:0!important}
-.pay-scroll{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--input);-webkit-overflow-scrolling:touch}
+.pay-picker{position:relative}
+.pay-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;border:1px solid var(--line);border-radius:12px;background:var(--input);color:var(--ink);font:inherit;padding:8px 12px;min-height:52px;cursor:pointer}
+.pay-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.pay-picker.open .pay-trigger{border-color:var(--accent)}
+.pay-trigger-main{min-width:0;flex:1;display:flex;align-items:center;gap:10px;justify-content:space-between}
+.pay-trigger .pay-opt-main{flex:1;min-width:0}
+.pay-trigger .pay-opt-name,.pay-trigger .pay-opt-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pay-caret{flex-shrink:0;width:18px;height:18px;color:var(--muted);transition:transform .15s var(--ease)}
+.pay-picker.open .pay-caret{transform:rotate(180deg)}
+.pay-panel{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;border:1px solid var(--line);border-radius:14px;background:var(--card);box-shadow:0 10px 30px rgba(0,0,0,.22);overflow:hidden}
+.pay-panel[hidden]{display:none}
+.pay-picker.up .pay-panel{top:auto;bottom:calc(100% + 6px)}
+.pay-scroll{max-height:min(260px,42vh);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .pay-group-label{position:sticky;top:0;z-index:1;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);background:var(--bg-2);padding:6px 12px;border-bottom:1px solid var(--line)}
 .pay-opt{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);font:inherit;padding:9px 12px;min-height:48px;border-radius:0}
 .pay-group .pay-opt:last-child{border-bottom:0}
@@ -263,7 +275,7 @@ nav button.add{width:52px;height:52px;margin-top:-12px;border-radius:16px;font-s
   .home-controls{gap:6px}
   .privacy-chip{padding:8px 10px;font-size:12px}
   .val-row{grid-template-columns:1fr 1fr 1fr;gap:6px}
-  .pay-scroll{max-height:200px}
+  .pay-scroll{max-height:min(220px,38vh)}
 }
 .method-card{cursor:pointer}
 .members-only .metric span{font-weight:600}
@@ -359,8 +371,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.8.2";
+const APP_VERSION = "2.8.3";
 const RELEASES = [
+  {v:"2.8.3", d:"2026-11-19", notes:"Fixed salary schedule updates not saving (next credit date, amount, account and frequency edits threw an error before saving). Account pickers are now a tap-to-open dropdown with a scrollable list that closes on selection. Fixed the stock-holdings import review failing on an undeclared variable and removed a dead CSV handler."},
   {v:"2.8.2", d:"2026-11-19", notes:"Protect Forex wallet identity and historical references; prevent deleting or changing the currency of wallets with transaction history. Keep negative wallet balances consistent with confirmed overspending. Synchronise linked purchase and warranty records when expenses are edited; suspend reminders when linked expenses are voided and resume on restore. Fix legacy card-number migration masking and speed up integrity checks with one-pass indexes."},
   {v:"2.8.1", d:"2026-11-19", notes:"Complete Forex ledger fixes: wallet picker, edit/refund/void/restore movements, atomic saves, migration preservation and wallet reconciliation. Biometric unlock now uses the same safe migration guard."},
   {v:"2.8.0", d:"2026-11-19", notes:"Fixed European/Indian amount parsing (12,00 → 12.00). Lending calculations ignore future-dated repayments. Demat valuation uses only holdings linked to that specific account. Safe migrations abort on failure and preserve the original vault. Forex cards can now be used for expenses: select the card, choose the currency wallet, amount is deducted in that currency with historical rate stored. Wallet movements reverse on void/restore. Integrity checks cover Forex wallets and references."},
@@ -1523,6 +1536,7 @@ async function unvoid(id){
 let S=null, CK=null, BIO=null, SALT=null, KDF_ITER=250000, chain=Promise.resolve();
 
 /* ---------- UI state ---------- */
+let pendH=null; // pending holdings-import plan (was undeclared → ReferenceError in strict mode)
 let tab="home", q="", sheetType="expense", chosenCat=null, filterAcct="", homeOwner="All family", xferMode="self", moneySeg="accounts", moneyAcctFilter="all", moneyHoldFilter="all", planSeg="sips", homeNwFilter="all", actLimit=40, filterType="", xferPrefill=null, passWait=null, unlockNotice="";
 function getThemePref(){try{return localStorage.getItem("myfinance.theme")||"system";}catch(e){return "system";}}
 function applyTheme(pref){
@@ -2624,15 +2638,6 @@ function readExpiryField(idPrefix, opts){
 
 function openSheet(html){ $("#layer").innerHTML = `<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`; try{if(navigator.vibrate)navigator.vibrate(8);}catch(e){}
   try{ ["adexpiry","cexpiry","expiry","fxexpiry"].forEach(id=>{ if(document.getElementById(id)) wireExpiryField(id); }); }catch(e){}
-  requestAnimationFrame(()=>{
-    document.querySelectorAll("#layer .pay-scroll").forEach(sc=>{
-      const on=sc.querySelector(".pay-opt.on");
-      if(!on) return;
-      const top=on.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
-      const next=Math.max(0, top-36);
-      if(next>4) sc.scrollTop=next;
-    });
-  });
 }
 function closeSheet(){
   $("#layer").innerHTML="";
@@ -3142,6 +3147,14 @@ function updateEditForexWalletPicker(){
     box.style.display="none"; sel.innerHTML="";
   }
 }
+function payOptInner(a){
+  const forex=a.type==="forex";
+  const b=forex?forexDisplayValue(a).value:balance(a);
+  const debit=a.type==="bank"&&a.cardMeta&&a.cardMeta.last4?" · Debit ••"+a.cardMeta.last4:"";
+  const kind=a.type==="card"?((a.cardMeta&&a.cardMeta.cardType)==="Debit"?"Debit card":"Credit card"):a.type==="cash"?"Cash":forex?"Forex card":"Bank";
+  const currencyLabel=forex?forexWallets(a).map(w=>w.cur+" "+fmtHide(w.balance,w.cur)).join(" · "):a.cur;
+  return `<span class="pay-opt-main"><span class="pay-opt-name">${esc(a.name)}</span><span class="pay-opt-meta">${esc(kind)} · ${esc(currencyLabel)}${debit}${a.owner&&a.owner!=="Me"?" · "+esc(a.owner):""}</span></span><b class="pay-opt-bal num ${b<0?"out":""}">${forex?fmtHide(b,S.display):fmtHide(b,a.cur)}</b>`;
+}
 function paySelectHtml(id, selectedId, purpose){
   const groups=paymentAccounts(purpose, {includeId:selectedId||""});
   let sel=selectedId&&acct(selectedId)?selectedId:"";
@@ -3154,17 +3167,13 @@ function paySelectHtml(id, selectedId, purpose){
   }
   const rows=groups.map(g=>`<div class="pay-group"><div class="pay-group-label">${esc(g.label)}</div>${g.accounts.map(a=>{
     const on=a.id===sel;
-    const forex=a.type==="forex";
-    const b=forex?forexDisplayValue(a).value:balance(a);
-    const debit=a.type==="bank"&&a.cardMeta&&a.cardMeta.last4?" · Debit ••"+a.cardMeta.last4:"";
-    const kind=a.type==="card"?((a.cardMeta&&a.cardMeta.cardType)==="Debit"?"Debit card":"Credit card"):a.type==="cash"?"Cash":forex?"Forex card":"Bank";
-    const currencyLabel=forex?forexWallets(a).map(w=>w.cur+" "+fmtHide(w.balance,w.cur)).join(" · "):a.cur;
-    return `<button type="button" class="pay-opt ${on?"on":""}" data-paypick="${esc(id)}" data-payid="${esc(a.id)}">
-      <span class="pay-opt-main"><span class="pay-opt-name">${esc(a.name)}</span><span class="pay-opt-meta">${esc(kind)} · ${esc(currencyLabel)}${debit}${a.owner&&a.owner!=="Me"?" · "+esc(a.owner):""}</span></span>
-      <b class="pay-opt-bal num ${b<0?"out":""}">${forex?fmtHide(b,S.display):fmtHide(b,a.cur)}</b>
-    </button>`;
+    return `<button type="button" class="pay-opt ${on?"on":""}" role="option" aria-selected="${on?"true":"false"}" data-paypick="${esc(id)}" data-payid="${esc(a.id)}">${payOptInner(a)}</button>`;
   }).join("")}</div>`).join("");
-  return `<div class="pay-picker"><input type="hidden" id="${esc(id)}" value="${esc(sel)}"><div class="pay-scroll">${rows}</div></div>`;
+  const selAcct=acct(sel)||groups[0].accounts[0];
+  const caret=`<svg class="pay-caret" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8l5 5 5-5"/></svg>`;
+  return `<div class="pay-picker"><input type="hidden" id="${esc(id)}" value="${esc(sel)}">
+    <button type="button" class="pay-trigger" data-paytoggle="${esc(id)}" aria-haspopup="listbox" aria-expanded="false"><span class="pay-trigger-main">${payOptInner(selAcct)}</span>${caret}</button>
+    <div class="pay-panel" role="listbox" hidden><div class="pay-scroll">${rows}</div></div></div>`;
 }
 function assertPayAccount(a, purpose, allowId){
   if(!a){ alert("Choose an account."); return false; }
@@ -4155,9 +4164,42 @@ function exportCSV(){
   download(`transactions-${today()}.csv`, csv, "text/csv");
 }
 
+/* ---------- account dropdown (pay picker) ---------- */
+function closePayPanels(focusTrigger){
+  document.querySelectorAll(".pay-picker.open").forEach(r=>{
+    r.classList.remove("open","up");
+    const t=r.querySelector(".pay-trigger"), p=r.querySelector(".pay-panel");
+    if(p) p.hidden=true;
+    if(t){ t.setAttribute("aria-expanded","false"); if(focusTrigger){ try{ t.focus({preventScroll:true}); }catch(e){} } }
+  });
+}
+function openPayPanel(root){
+  const t=root.querySelector(".pay-trigger"), p=root.querySelector(".pay-panel"), sc=root.querySelector(".pay-scroll");
+  if(!t||!p) return;
+  root.classList.add("open"); p.hidden=false; t.setAttribute("aria-expanded","true");
+  // open upward only if there is clearly more room above than below
+  const host=root.closest(".sheet")||document.documentElement;
+  const hb=host===document.documentElement?window.innerHeight:host.getBoundingClientRect().bottom;
+  const ht=host===document.documentElement?0:host.getBoundingClientRect().top;
+  const tr=t.getBoundingClientRect(), need=Math.min(p.offsetHeight||260,260);
+  const below=hb-tr.bottom, above=tr.top-ht;
+  root.classList.toggle("up", below<need && above>below);
+  const on=sc&&sc.querySelector(".pay-opt.on");
+  if(on){ const top=on.offsetTop-sc.offsetTop-36; sc.scrollTop=Math.max(0,top); }
+  try{ p.scrollIntoView({block:"nearest",behavior:"smooth"}); }catch(e){}
+}
+document.addEventListener("click", e=>{
+  if(!document.querySelector(".pay-picker.open")) return;
+  if(e.target.closest(".pay-picker.open")) return;
+  closePayPanels();
+}, true);
+document.addEventListener("keydown", e=>{
+  if(e.key==="Escape" && document.querySelector(".pay-picker.open")){ e.stopPropagation(); closePayPanels(true); }
+});
+
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-paytoggle],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -4814,6 +4856,13 @@ if(d.delmethod){
   if("backupFolder" in d){await chooseBackupFolder();return;}
   if("backupForget" in d){await forgetBackupFolder();return;}
   if("export" in d){ exportJSON(); return; }
+  if(d.paytoggle){
+    const root=el.closest(".pay-picker"); if(!root) return;
+    const willOpen=!root.classList.contains("open");
+    closePayPanels();
+    if(willOpen) openPayPanel(root);
+    return;
+  }
   if(d.paypick){
     const id=d.paypick, acctId=d.payid;
     const hidden=document.getElementById(id);
@@ -4822,7 +4871,11 @@ if(d.delmethod){
       hidden.dispatchEvent(new Event("change",{bubbles:true}));
     }
     const root=el.closest(".pay-picker");
-    if(root) root.querySelectorAll(".pay-opt").forEach(b=>b.classList.toggle("on", b.dataset.payid===acctId));
+    if(root){
+      root.querySelectorAll(".pay-opt").forEach(b=>{ const on=b.dataset.payid===acctId; b.classList.toggle("on",on); b.setAttribute("aria-selected",on?"true":"false"); });
+      const tm=root.querySelector(".pay-trigger-main"); if(tm) tm.innerHTML=el.innerHTML;
+      closePayPanels(true);
+    }
     if(id==="from"||id==="to"){ try{ updateRecv(); refreshAmtPreview(); }catch(err){} }
     if(id==="edFrom") updateEditForexWalletPicker();
     return;
@@ -4978,7 +5031,6 @@ document.addEventListener("change", e=>{
   if(e.target.id==="ft"){ filterType=e.target.value; actLimit=40; render(); }
   if(e.target.id==="homeOwner"){homeOwner=e.target.value;render();}
   if(e.target.id==="hf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>holdParse(rd.result); rd.readAsText(fl); return; }
-  if(e.target.id==="csvf"){ const fl=e.target.files[0]; if(!fl) return; const rd=new FileReader(); rd.onload=()=>importCSV(String(rd.result)); rd.readAsText(fl); e.target.value=""; return; }
   if(e.target.id==="themePref"){ applyTheme(e.target.value); return; }
   if(e.target.id==="rate"){ const r=readAmt(e.target.value,{required:true,positive:true,maxDecimals:6}); if(!r.ok){ alert(r.error); return; } S.rate=r.value; save(); toastSaved("Rate saved"); render(); }
   if(e.target.dataset && e.target.dataset.fxrate){
@@ -5646,10 +5698,15 @@ document.addEventListener("submit", async e=>{
     if(m==null) return;
     if(!a){ alert("Choose the account this salary is paid into."); return; }
     if(!assertPayAccount(a, "in", x.acct)) return;
+    const raw=($("#sef")?.value||"m:1").split(":");
     const freqUnit=raw[0]==="w"?"week":"month";
     const freq=Math.max(1, +raw[1]||1);
     const next=$("#sed")?.value||x.next||today();
-    const effect=$("#seeffect")?.value||today();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(next)){ alert("Enter a valid next credit date."); return; }
+    let effect=$("#seeffect")?.value||today();
+    // Keep revision dates in order so salaryTermsAt() can replay them correctly
+    const lastRev=(x.revisions||[]).reduce((m,r)=>r&&r.date&&r.date>m?r.date:m,"");
+    if(lastRev && effect<lastRev) effect=lastRev;
     const noteBits=[];
     if(x.amt!==m) noteBits.push("amount "+x.amt+" → "+m);
     if(x.acct!==a.id) noteBits.push("account changed");

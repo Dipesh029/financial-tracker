@@ -617,7 +617,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.8.2");
+  const versionAt = home.indexOf("v" + "2.8.3");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -820,6 +820,21 @@ console.log("PASS calendar-dst-end");
   assert(failedCommit.ok===false,"failed Forex-aware save reports failure");
   assert(JSON.stringify(mf.getS())===stateBefore,"failed Forex-aware save restores the entire in-memory state");
   console.log("PASS forex-cards");
+}
+
+// ---------- account picker is a collapsed dropdown ----------
+{
+  S.accounts = [
+    {id:"b1", name:"ING", type:"bank", owner:"Me", cur:"EUR", opening:10, archived:false},
+    {id:"b2", name:"SBI", type:"bank", owner:"Me", cur:"INR", opening:20, archived:false}
+  ];
+  const html = mf.paySelectHtml("sa", "b2", "in");
+  assert(html.includes('class="pay-trigger"') && html.includes('data-paytoggle="sa"'), "picker has a trigger button");
+  assert(/<div class="pay-panel"[^>]*\shidden>/.test(html), "account list is collapsed by default");
+  assert(/<input type="hidden" id="sa" value="b2">/.test(html), "hidden value holds the selected account");
+  assert(/pay-trigger-main">[\s\S]*SBI/.test(html), "trigger shows the selected account");
+  assert((html.match(/data-paypick="sa"/g)||[]).length===2, "every account is still pickable");
+  console.log("PASS account-picker");
 }
 
 console.log("ALL_REGRESSION_PASS");
