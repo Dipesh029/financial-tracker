@@ -382,8 +382,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.9.0";
+const APP_VERSION = "2.9.1";
 const RELEASES = [
+  {v:"2.9.1", d:"2026-11-21", notes:"Hardened Give & Take: historical FX conversion, specific transaction settlements, legacy balances grouped by person and currency, full per-person history, editing and safe void/restore, duplicate-contact protection, stable contact IDs for formal lending, and centre + close/cancel state reset."},
   {v:"2.9.0", d:"2026-11-21", notes:"Added Centre + → Give & Take for informal money exchanges with contacts. Completely separate from Plan → Lending. Person-wise balances, settlements, stable contact IDs. Formal loans remain unchanged."},
   {v:"2.8.3", d:"2026-11-19", notes:"Fixed salary schedule updates not saving (next credit date, amount, account and frequency edits threw an error before saving). Account pickers are now a tap-to-open dropdown with a scrollable list that closes on selection. Account picker now opens as a centred dialog with a dimmed backdrop. Asset mix bar has clear spacing and distinct colours. Account, SIP and salary cards no longer inherit the big centred amount style; lone last tiles fill the row; sort chip is labelled. Fixed the stock-holdings import review failing on an undeclared variable and removed a dead CSV handler."},
   {v:"2.8.2", d:"2026-11-19", notes:"Protect Forex wallet identity and historical references; prevent deleting or changing the currency of wallets with transaction history. Keep negative wallet balances consistent with confirmed overspending. Synchronise linked purchase and warranty records when expenses are edited; suspend reminders when linked expenses are voided and resume on restore. Fix legacy card-number migration masking and speed up integrity checks with one-pass indexes."},
@@ -601,7 +602,7 @@ async function chooseBackupFolder(){
 }
 /* ---------- encryption & vault helpers ---------- */
 const blank=()=>({v:2,rate:104.16,display:"INR",accounts:[],holdings:[],sips:[],salaries:[],policies:[],purchases:[],snaps:[],history:[],lending:[],bankContacts:[],contacts:[],people:["Me","Father","Mother"],txns:[],audit:[],lastAcct:null,autoSip:true,autoSalary:true,hideBalances:false,onboardingDone:false});
-const LBL={adjust:"Portfolio sync · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to "};
+const LBL={adjust:"Portfolio sync · ",open:"Opening position · ",refund:"Refund · ",buy:"Bought ",sell:"Sold ",lend:"Lent to ",lendback:"Repaid by ",borrow:"Borrowed from ",repay:"Repaid to ",givetake:"Give & Take · "};
 const isSecureContext = window.isSecureContext === true;
 function b64(u){
   const bytes=u instanceof Uint8Array?u:new Uint8Array(u);
@@ -1311,10 +1312,23 @@ function readCalendarDay(raw){
 const acct = id => S.accounts.find(a=>a.id===id);
 
 function contactById(id){ return (S.contacts||[]).find(c=>c.id===id); }
+function normalizeContactName(name){
+  return String(name||"").normalize("NFKC").trim().replace(/\\s+/g," ").toLowerCase();
+}
+function findContactByName(name){
+  const key=normalizeContactName(name);
+  if(!key) return {contact:null, ambiguous:false};
+  const matches=(S.contacts||[]).filter(c=>normalizeContactName(c.name)===key);
+  return {contact:matches.length===1?matches[0]:null, ambiguous:matches.length>1};
+}
 function ensureContactByName(name){
-  name=(name||"").trim(); if(!name) return null;
-  let c=(S.contacts||[]).find(x=>x.name.toLowerCase()===name.toLowerCase());
-  if(!c){ c={id:uid(),name,notes:"",methods:[]}; S.contacts.push(c); }
+  name=String(name||"").normalize("NFKC").trim().replace(/\\s+/g," ");
+  if(!name) return null;
+  const found=findContactByName(name);
+  if(found.ambiguous) return null;
+  if(found.contact) return found.contact;
+  const c={id:uid(),name,notes:"",methods:[]};
+  S.contacts.push(c);
   return c;
 }
 function renamePerson(oldName, newName){
@@ -1371,19 +1385,36 @@ function migrateContactsFromBank(){
       }else{ hit.person=hit.person||c.name; hit._migrated=true; }
     }
   }
-  const by={};
-  for(const c of S.contacts){
-    const k=(c.name||"").trim().toLowerCase(); if(!k) continue;
-    if(!by[k]) by[k]={...c, methods:(c.methods||[]).slice()};
-    else {
-      for(const m of (c.methods||[])){
-        const num=(m.accountNumber||m.upi||"").replace(/\s/g,"");
-        const exists=by[k].methods.some(x=>{ const xn=(x.accountNumber||x.upi||"").replace(/\s/g,""); return (m.id&&x.id===m.id)||(num&&xn&&num===xn); });
-        if(!exists) by[k].methods.push(m);
+  // Keep same-name contacts separate. Their stable IDs may already be
+  // referenced by transactions; silently merging them can orphan history.
+  // Ambiguous names are deliberately left for the user to resolve.
+  for(const t of S.txns||[]){
+    if(!t.giveTake || !t.person || (t.contactId&&contactById(t.contactId))) continue;
+    const found=findContactByName(t.person);
+    if(found.contact) t.contactId=found.contact.id;
+    else if(!found.ambiguous){
+      const c=ensureContactByName(t.person);
+      if(c) t.contactId=c.id;
+    }else delete t.contactId;
+  }
+  for(const l of S.lending||[]){
+    if(l.contactId&&!contactById(l.contactId)) delete l.contactId;
+    if(!l.contactId && l.person){
+      const found=findContactByName(l.person);
+      if(found.contact) l.contactId=found.contact.id;
+      else if(!found.ambiguous){
+        const c=ensureContactByName(l.person);
+        if(c) l.contactId=c.id;
+      }
+    }
+    if(l.contactId){
+      for(const t of S.txns||[]){
+        if(t.loanId===l.id || t.lendingId===l.id){
+          if(!t.contactId||!contactById(t.contactId)) t.contactId=l.contactId;
+        }
       }
     }
   }
-  S.contacts=Object.values(by);
 }
 
 const fundLabel = h => { if(!h) return "Fund"; const bits=[h.name]; if(h.folio) bits.push("Folio "+h.folio); if(h.owner&&h.owner!=="Me") bits.push(h.owner); return bits.join(" · "); };
@@ -1434,32 +1465,94 @@ function personPos(owner){
   return m;
 }
 
+function giveTakeTxnValue(t){
+  const cur=t?.postings?.[0]?.cur||t?.cur||S.display;
+  return toDisplayAt(Number(t?.pd)||0,cur,t?.fxRate||S.rate);
+}
+function giveTakeMatches(t, contactIdOrName){
+  const c=contactById(contactIdOrName);
+  if(c) return t.contactId===c.id;
+  const key=normalizeContactName(contactIdOrName);
+  return !key || normalizeContactName(t.person)===key;
+}
 function giveTakeBalance(contactIdOrName){
-  // Positive = they owe me; Negative = I owe them
+  // Positive = they owe me; Negative = I owe them. Every record is
+  // converted using its own stored FX rate before aggregation.
   let bal=0;
-  const name=(typeof contactIdOrName==="string" && contactById(contactIdOrName))?null:String(contactIdOrName||"").trim().toLowerCase();
-  const cid=contactById(contactIdOrName)?contactIdOrName:null;
   for(const t of S.txns||[]){
-    if(t.status!=="posted" || !t.giveTake) continue;
-    if(cid && t.contactId!==cid) continue;
-    if(name && String(t.person||"").trim().toLowerCase()!==name) continue;
-    bal += Number(t.pd)||0;
+    if(t.status!=="posted" || !t.giveTake || !giveTakeMatches(t,contactIdOrName)) continue;
+    bal += giveTakeTxnValue(t);
   }
   return Math.round(bal*100)/100;
+}
+function giveTakeOpenItems(contactIdOrName, excludeSettlementId){
+  const posted=(S.txns||[]).filter(t=>t.status==="posted"&&t.giveTake&&giveTakeMatches(t,contactIdOrName));
+  const rows=[];
+  // New records have individual source IDs. Settlements are linked to exactly
+  // one source and never silently netted against another transaction.
+  for(const t of posted.filter(x=>x.giveTakeVersion===2&&!x.settlesTxnId&&!x.settlesLegacyKey&&!x.settlement)){
+    const cur=t.postings?.[0]?.cur||t.cur||S.display;
+    let outstanding=Number(t.pd)||0;
+    for(const st of posted) if(st.id!==excludeSettlementId&&st.settlesTxnId===t.id) outstanding+=Number(st.pd)||0;
+    rows.push({id:t.id,txn:t,cur,outstanding:Math.round(outstanding*100)/100});
+  }
+  // Older records did not store settlement-to-source links. Keep them as one
+  // transparent legacy balance per person and currency instead of guessing
+  // which old transaction a settlement belonged to.
+  const legacy=new Map();
+  for(const t of posted.filter(x=>!x.giveTakeVersion&&!x.settlesTxnId&&!x.settlesLegacyKey)){
+    const cur=t.postings?.[0]?.cur||t.cur||S.display;
+    const personKey=t.contactId||normalizeContactName(t.person);
+    const key=personKey+"|"+cur;
+    if(!legacy.has(key)) legacy.set(key,{legacyKey:key,contactId:t.contactId||null,person:t.person,cur,outstanding:0,txns:[]});
+    const row=legacy.get(key); row.outstanding+=Number(t.pd)||0; row.txns.push(t);
+  }
+  for(const [key,row] of legacy){
+    for(const st of posted) if(st.id!==excludeSettlementId&&st.settlesLegacyKey===key) row.outstanding+=Number(st.pd)||0;
+    row.outstanding=Math.round(row.outstanding*100)/100;
+    if(Math.abs(row.outstanding)>0.005) rows.push({...row,id:"legacy:"+key,txn:null});
+  }
+  return rows.filter(x=>Math.abs(x.outstanding)>0.005);
+}
+function giveTakeSettlementPlan(contactId, sourceId, amount, accountCurrency){
+  const item=giveTakeOpenItems(contactId).find(x=>x.legacyKey?sourceId==="legacy:"+encodeURIComponent(x.legacyKey):x.txn?.id===sourceId);
+  if(!item) return {ok:false,error:"Select a valid outstanding transaction for this person."};
+  if(accountCurrency!==item.cur) return {ok:false,error:"Choose one of your accounts in "+item.cur+" to settle this transaction."};
+  if(!(amount>0) || amount>Math.abs(item.outstanding)+0.005) return {ok:false,error:"The settlement amount exceeds the outstanding amount ("+fmt(Math.abs(item.outstanding),item.cur)+"). Enter a smaller amount."};
+  return {ok:true,pd:item.outstanding>0?-amount:amount,settlesTxnId:item.txn?.id||null,settlesLegacyKey:item.legacyKey||null,cur:item.cur};
 }
 function giveTakeSummary(){
   const map={};
   for(const t of S.txns||[]){
     if(t.status!=="posted" || !t.giveTake || !t.person) continue;
-    const key=t.contactId||t.person;
+    const key=t.contactId||normalizeContactName(t.person)||t.person;
     if(!map[key]) map[key]={name:t.person, contactId:t.contactId||null, given:0, received:0, balance:0, txns:[]};
-    const pd=Number(t.pd)||0;
+    const pd=giveTakeTxnValue(t);
     if(pd>0) map[key].given += pd;
     else map[key].received += -pd;
     map[key].balance += pd;
     map[key].txns.push(t);
   }
-  return Object.values(map).map(x=>({...x, balance:Math.round(x.balance*100)/100, given:Math.round(x.given*100)/100, received:Math.round(x.received*100)/100}));
+  return Object.values(map).map(x=>({...x, balance:Math.round(x.balance*100)/100, given:Math.round(x.given*100)/100, received:Math.round(x.received*100)/100, txns:x.txns.sort((a,b)=>(b.date||"").localeCompare(a.date||""))}));
+}
+function giveTakeSettlementOptions(person){
+  const found=findContactByName(person);
+  const items=found.contact?giveTakeOpenItems(found.contact.id):[];
+  return items.map(x=>{
+    const t=x.txn;
+    const label=x.legacyKey
+      ? "Older entries · "+(x.outstanding>0?"They owe you ":"You owe them ")+fmt(Math.abs(x.outstanding),x.cur)
+      : (t.date||"—")+" · "+(x.outstanding>0?"They owe you ":"You owe them ")+fmt(Math.abs(x.outstanding),x.cur)+" · "+(t.note||"Give & Take");
+    const value=x.legacyKey?"legacy:"+encodeURIComponent(x.legacyKey):t.id;
+    return `<option value="${esc(value)}">${esc(label)}</option>`;
+  }).join("");
+}
+function giveTakeRecipientOptions(person){
+  const found=findContactByName(person);
+  const contacts=found.contact?[found.contact]:[];
+  return contacts.flatMap(c=>(c.methods||[]).map(m=>
+    `<option value="${esc(c.id)}::${esc(m.id)}">${esc(c.name)} · ${m.kind==="upi"?"UPI "+esc(m.upi||m.accountNumber||""):esc(m.bank||"Bank")+" "+esc(m.accountMasked||"")}</option>`
+  )).join("");
 }
 function giveTakeSheet(){
   const people=allPersonNames().map(n=>`<option value="${esc(n)}">`).join("");
@@ -1472,12 +1565,19 @@ function giveTakeSheet(){
     <select id="gtDir">
       <option value="given">I gave money (they owe me)</option>
       <option value="received">I received money (I owe them)</option>
-      <option value="settle">Settle outstanding</option>
+      <option value="settle">Settle a specific outstanding transaction</option>
     </select>
+    <div id="gtSettleWrap" style="display:none">
+      <label>Outstanding transaction</label>
+      <select id="gtSettleTxn"><option value="">Select transaction</option>${giveTakeSettlementOptions("")}</select>
+      <div class="muted">Settlement must use the same currency as the selected outstanding transaction.</div>
+    </div>
     <label>Amount</label>
     <input id="gtAmt" inputmode="decimal" required placeholder="0.00">
     <label>My account</label>
     ${paySelectHtml("gtAcct", preferredPayId("either"), "either")}
+    <label>Their account / UPI (optional)</label>
+    <select id="gtRecv"><option value="">— Not specified —</option>${giveTakeRecipientOptions("")}</select>
     <label>Date</label>
     <input type="date" id="gtDate" value="${today()}">
     <label>Note (optional)</label>
@@ -1485,6 +1585,21 @@ function giveTakeSheet(){
     <button class="btn" type="submit">Save</button>
   </form>
   <button class="btn alt" data-close>Cancel</button>`);
+  const person=$("#gtPerson"), dir=$("#gtDir"), wrap=$("#gtSettleWrap"), pick=$("#gtSettleTxn"), amt=$("#gtAmt"), recv=$("#gtRecv");
+  const refresh=()=>{
+    const settling=dir?.value==="settle";
+    if(wrap) wrap.style.display=settling?"block":"none";
+    if(pick) pick.innerHTML=`<option value="">Select transaction</option>${giveTakeSettlementOptions(person?.value||"")}`;
+    if(recv){
+      const keep=recv.value;
+      recv.innerHTML=`<option value="">— Not specified —</option>${giveTakeRecipientOptions(person?.value||"")}`;
+      if([...recv.options].some(o=>o.value===keep)) recv.value=keep;
+    }
+    if(amt) amt.placeholder=settling?"Settlement amount":"0.00";
+  };
+  person?.addEventListener("input",refresh);
+  dir?.addEventListener("change",refresh);
+  refresh();
 }
 function monthKey(d){ return d.slice(0,7); }
 function monthTotals(m,owner){
@@ -1584,11 +1699,25 @@ async function commitForexAware(mutator){
 async function voidTxn(id){
   const t=S.txns.find(x=>x.id===id); if(!t||t.status!=="posted") return false;
   if(t.type==="expense"&&S.txns.some(x=>x.type==="refund"&&x.refundOf===id&&x.status==="posted")) return false;
+  if(t.giveTake&&!t.settlesTxnId&&S.txns.some(x=>x.status==="posted"&&x.giveTake&&x.settlesTxnId===id)) return false;
   const r=await commitForexAware(()=>{ if(!forexTxnMovement(t,true)) throw new Error("Forex wallet reference is missing"); t.status="voided"; setLinkedPurchaseTxnVoided(id,true); log("void",id); });
   return r.ok;
 }
 async function unvoid(id){
   const t=S.txns.find(x=>x.id===id); if(!t||t.status==="posted") return false;
+  if(t.giveTake&&t.settlesTxnId){
+    const source=S.txns.find(x=>x.id===t.settlesTxnId&&x.status==="posted"&&x.giveTake);
+    if(!source) return false;
+    let available=Number(source.pd)||0;
+    for(const st of S.txns||[]) if(st.status==="posted"&&st.giveTake&&st.settlesTxnId===source.id) available+=Number(st.pd)||0;
+    const expected=available>0?-1:1;
+    if(Math.sign(Number(t.pd)||0)!==expected || Math.abs(Number(t.pd)||0)>Math.abs(available)+0.005) return false;
+  }
+  if(t.giveTake&&t.settlesLegacyKey){
+    const item=giveTakeOpenItems(t.contactId||t.person).find(x=>x.legacyKey===t.settlesLegacyKey);
+    const available=item?.outstanding||0, expected=available>0?-1:1;
+    if(!item||Math.sign(Number(t.pd)||0)!==expected||Math.abs(Number(t.pd)||0)>Math.abs(available)+0.005) return false;
+  }
   if(t.type==="refund"){
     const parent=S.txns.find(x=>x.id===t.refundOf);
     if(!parent||parent.status!=="posted") return false;
@@ -2348,7 +2477,7 @@ function viewActivity(){
   <input id="q" type="search" placeholder="Search note, category, person" value="${esc(q)}">
   <div class="filter-row">
   <select id="fa" class="filter-select"><option value="">All accounts</option>${S.accounts.map(a=>`<option value="${esc(a.id)}" ${filterAcct===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
-  <select id="ft"><option value="">All types</option>${[["expense","Expense"],["income","Income"],["transfer","Transfer"],["buy","Buy"],["sell","Sell"],["lend","Lent"],["borrow","Borrowed"],["adjustment","Adjustment"],["open","Opening"],["refund","Refund"]].map(([t,l])=>`<option value="${t}" ${filterType===t?"selected":""}>${l}</option>`).join("")}</select>
+  <select id="ft"><option value="">All types</option>${[["expense","Expense"],["income","Income"],["transfer","Transfer"],["givetake","Give & Take"],["buy","Buy"],["sell","Sell"],["lend","Lent"],["borrow","Borrowed"],["adjustment","Adjustment"],["open","Opening"],["refund","Refund"]].map(([t,l])=>`<option value="${t}" ${filterType===t?"selected":""}>${l}</option>`).join("")}</select>
   </div>
   <div class="row" style="margin-top:8px"><span class="muted">${list.length} match${list.length===1?"":"es"}</span>
   ${(filterAcct||filterType||q)?`<button type="button" class="chip" data-clearfilters>Clear filters</button>`:""}</div>
@@ -2706,6 +2835,9 @@ function openSheet(html){ $("#layer").innerHTML = `<div class="sheet-bg" data-cl
 }
 function closeSheet(){
   $("#layer").innerHTML="";
+  // A closed Give & Take form must not remain the selected quick-add mode.
+  // Otherwise the next tap on the centre + button reopens the stale form.
+  if(sheetType==="givetake"){ sheetType="expense"; chosenCat=null; }
   if(passWait){ const r=passWait; passWait=null; r(null); }
 }
 function askPassphrase(title, body){
@@ -3686,12 +3818,21 @@ function viewPlan(){
     const cards=rows.map(r=>{
       const owes=r.balance>0.005?"Owes you":r.balance<-0.005?"You owe":"Settled";
       const cls=r.balance>0?"in":r.balance<0?"out":"";
+      const history=r.txns.map(t=>{
+        const cur=t.postings?.[0]?.cur||t.cur||S.display;
+        const amount=fmt(Math.abs(toDisplayAt(Number(t.pd)||0,cur,t.fxRate||S.rate)),S.display);
+        const label=(t.settlesTxnId||t.settlesLegacyKey||t.settlement)?"Settlement":(Number(t.pd)>0?"Given":"Received");
+        return `<div class="row" style="gap:8px;padding:7px 0;border-top:1px solid var(--line)">
+          <div style="min-width:0;flex:1"><b>${esc(label)}</b><div class="muted" style="font-size:12px">${esc(t.date||"—")} · ${esc(t.note||"")}</div></div>
+          <b class="num">${amount}</b>
+        </div>`;
+      }).join("");
       return `<div class="card" style="margin-bottom:10px">
         <div class="row"><b>${esc(r.name)}</b><span class="status-pill">${owes}</span></div>
-        <div class="row"><span>Given</span><b class="num">${fmt(r.given)}</b></div>
-        <div class="row"><span>Received</span><b class="num">${fmt(r.received)}</b></div>
-        <div class="row"><span>Outstanding</span><b class="num ${cls}">${fmt(Math.abs(r.balance))}</b></div>
-        <div class="muted" style="font-size:12px;margin-top:4px">${r.txns.length} transaction${r.txns.length===1?"":"s"}</div>
+        <div class="row"><span>Given</span><b class="num">${fmt(r.given,S.display)}</b></div>
+        <div class="row"><span>Received</span><b class="num">${fmt(r.received,S.display)}</b></div>
+        <div class="row"><span>Outstanding</span><b class="num ${cls}">${fmt(Math.abs(r.balance),S.display)}</b></div>
+        <details style="margin-top:8px"><summary class="muted">${r.txns.length} transaction${r.txns.length===1?"":"s"} · View history</summary>${history}</details>
       </div>`;
     }).join("") || `<div class="empty"><div class="empty-title">No Give & Take yet</div><p>Use the + button → Give & Take to record informal money exchanges.</p></div>`;
     return segBar+`<h2 style="margin-top:4px">Give & Take</h2>
@@ -3974,11 +4115,11 @@ function newAcctSheet(){
 function txnSheet(id){
   const t=S.txns.find(x=>x.id===id); if(!t) return;
   const p=t.postings[0]||{amt:t.cost,cur:"INR"};
-  openSheet(`<h2 style="margin-top:0">${esc(t.type==="transfer"?"Transfer":(t.cat||t.type))}</h2>
+  openSheet(`<h2 style="margin-top:0">${esc(t.giveTake?"Give & Take":(t.type==="transfer"?"Transfer":(t.cat||t.type)))}</h2>
   <div class="muted">${esc(t.date)} · ${t.status}</div>
   <div class="big num" style="font-size:28px">${fmt(Math.abs(p.amt),p.cur)}</div>
   ${t.note?`<p>${esc(t.note)}</p>`:""}${t.recipientBank?`<div class="muted">Recipient: ${esc(t.recipientBank.person)} · ${esc(t.recipientBank.bank)} · ${esc(t.recipientBank.accountMasked||"")}${t.recipientBank.ifsc?" · IFSC "+esc(t.recipientBank.ifsc):""}</div>`:""}
-  ${t.status==="posted"?`${["income","expense","transfer"].includes(t.type)&&!t.loanId&&!t.hold&&!t.sip?`<button class="btn alt" data-edit="${esc(t.id)}">Edit transaction</button>`:""}${t.type==="expense"?`<button class="btn alt" data-refund="${esc(t.id)}">Record a refund</button>`:""}<button class="btn danger" data-void="${esc(t.id)}">Void this transaction</button><div class="muted" style="margin-top:6px">Voiding keeps the record but removes it from balances and reports.</div>`:`<button class="btn" data-restore="${esc(t.id)}">Restore</button>`}
+  ${t.status==="posted"?`${(t.giveTake||(["income","expense","transfer"].includes(t.type)&&!t.loanId&&!t.hold&&!t.sip))?`<button class="btn alt" data-edit="${esc(t.id)}">Edit transaction</button>`:""}${t.type==="expense"?`<button class="btn alt" data-refund="${esc(t.id)}">Record a refund</button>`:""}<button class="btn danger" data-void="${esc(t.id)}">Void this transaction</button><div class="muted" style="margin-top:6px">Voiding keeps the record but removes it from balances and reports.</div>`:`<button class="btn" data-restore="${esc(t.id)}">Restore</button>`}
   <button class="btn alt" data-close>Close</button>`);
 }
 
@@ -4038,8 +4179,22 @@ function acctSheet(id){
   <button class="btn alt" data-close>Close</button>`);
 }
 
+function giveTakeEditSheet(id){
+  const t=S.txns.find(x=>x.id===id);
+  if(!t||t.status!=="posted"||!t.giveTake) return;
+  openSheet(`<h2 style="margin-top:0">Edit Give & Take</h2>
+    <p class="muted">${esc(t.person||"")} · ${t.settlesTxnId?"Settlement":"Original transaction"}</p>
+    <form id="fgtedit"><input type="hidden" id="gtEditId" value="${esc(t.id)}">
+      <label>Date</label><input id="gtEditDate" type="date" value="${esc(t.date||today())}" required>
+      <label>Amount (${esc(t.postings?.[0]?.cur||S.display)})</label><input id="gtEditAmt" inputmode="decimal" value="${Math.abs(Number(t.pd)||0)}" required>
+      <label>Note</label><input id="gtEditNote" maxlength="80" value="${esc(t.note||"")}">
+      <button class="btn" type="submit">Save changes</button>
+    </form>
+    <button class="btn alt" data-close>Cancel</button>`);
+}
 function txnEditSheet(id){
   const t=S.txns.find(x=>x.id===id);if(!t||t.status!=="posted")return;
+  if(t.giveTake){ giveTakeEditSheet(id); return; }
   const p=t.postings[0]||{},isTransfer=t.type==="transfer";
   const purpose=isTransfer?"either":(t.type==="income"?"in":"expense");
   const from=acct(p.acct);
@@ -4272,7 +4427,9 @@ document.addEventListener("click", e=>{
   closePayPanels();
 }, true);
 document.addEventListener("keydown", e=>{
-  if(e.key==="Escape" && document.querySelector(".pay-picker.open")){ e.stopPropagation(); closePayPanels(true); }
+  if(e.key!=="Escape") return;
+  if(document.querySelector(".pay-picker.open")){ e.stopPropagation(); closePayPanels(true); return; }
+  if(document.querySelector("#layer .sheet")){ e.stopPropagation(); closeSheet(); }
 });
 
 /* ---------- events ---------- */
@@ -4903,7 +5060,7 @@ if(d.delmethod){
   if(d.acct){ acctSheet(d.acct); return; }
   if(d.void){
     const id=d.void;
-    (async()=>{const ok=await voidTxn(id);if(!ok){alert("Transaction was not voided. If it has posted refunds, void those refunds first; otherwise check storage and retry. The original balance is unchanged.");render();return;}closeSheet();render();toast("Voided",async()=>{const restored=await unvoid(id);if(!restored)alert("Restore was not saved; the transaction remains voided.");render();});})();
+    (async()=>{const ok=await voidTxn(id);if(!ok){const linked= S.txns.some(x=>x.status==="posted"&&x.giveTake&&x.settlesTxnId===id);alert(linked?"Void the linked Give & Take settlements first, then void this original transaction.":"Transaction was not voided. If it has posted refunds, void those refunds first; otherwise check storage and retry. The original balance is unchanged.");render();return;}closeSheet();render();toast("Voided",async()=>{const restored=await unvoid(id);if(!restored)alert("Restore was not saved; the transaction remains voided.");render();});})();
     return;
   }
   if(d.restore){
@@ -5169,6 +5326,50 @@ document.addEventListener("submit", async e=>{
   form.dataset.submitting="1";
   const unlockSubmit=()=>{ try{ form.dataset.submitting=""; }catch(err){} };
   setTimeout(unlockSubmit, 1500);
+  if(e.target.id==="fgtedit"){
+    const t=S.txns.find(x=>x.id===$("#gtEditId").value);
+    if(!t||t.status!=="posted"||!t.giveTake) return;
+    const amount=rejectAmt($("#gtEditAmt").value,{required:true,positive:true,maxDecimals:2});
+    if(amount==null) return;
+    const date=$("#gtEditDate").value||today(), note=$("#gtEditNote").value.trim();
+    const sign=(Number(t.pd)||0)>=0?1:-1;
+    if(t.settlesTxnId){
+      const source=S.txns.find(x=>x.id===t.settlesTxnId&&x.status==="posted"&&x.giveTake);
+      if(!source){ alert("The original Give & Take transaction is not active. Restore it before editing this settlement."); return; }
+      let available=Number(source.pd)||0;
+      for(const st of S.txns||[]) if(st.status==="posted"&&st.giveTake&&st.settlesTxnId===source.id&&st.id!==t.id) available+=Number(st.pd)||0;
+      const expectedSign=available>0?-1:1;
+      if(sign!==expectedSign || amount>Math.abs(available)+0.005){
+        alert("This settlement cannot exceed the remaining amount on its linked transaction ("+fmt(Math.abs(available),source.postings?.[0]?.cur||S.display)+").");
+        return;
+      }
+    }else if(t.settlesLegacyKey){
+      const item=giveTakeOpenItems(t.contactId||t.person,t.id).find(x=>x.legacyKey===t.settlesLegacyKey);
+      const available=item?.outstanding||0, expectedSign=available>0?-1:1;
+      if(!item||sign!==expectedSign||amount>Math.abs(available)+0.005){
+        alert("This settlement cannot exceed the remaining legacy balance ("+fmt(Math.abs(available),t.postings?.[0]?.cur||S.display)+").");
+        return;
+      }
+    }else{
+      let settled=0;
+      for(const st of S.txns||[]) if(st.status==="posted"&&st.giveTake&&st.settlesTxnId===t.id) settled+=Number(st.pd)||0;
+      if(Math.abs(Number(t.pd)||0)+1e-9<Math.abs(settled) || amount+0.005<Math.abs(settled)){
+        alert("The amount cannot be reduced below settlements already recorded ("+fmt(Math.abs(settled),t.postings?.[0]?.cur||S.display)+"). Void or edit those settlements first.");
+        return;
+      }
+    }
+    const old={pd:t.pd,postings:JSON.parse(JSON.stringify(t.postings||[])),date:t.date,note:t.note};
+    t.pd=sign*amount;
+    if(t.postings?.[0]) t.postings[0].amt=t.pd>0?-amount:amount;
+    t.date=date; t.note=note;
+    log("edit",t.id);
+    if(!save()){
+      t.pd=old.pd;t.postings=old.postings;t.date=old.date;t.note=old.note;
+      alert("The change could not be saved. The original transaction has been restored.");
+      return;
+    }
+    closeSheet();render();toastSaved("Give & Take updated");return;
+  }
   if(e.target.id==="fedit"){
     const t=S.txns.find(x=>x.id===$("#editId").value);if(!t||t.status!=="posted")return;
     const a=acct($("#edFrom").value),amt=rejectAmt($("#edAmt").value,{required:true,positive:true,maxDecimals:2}),date=$("#edDate").value||today(),note=$("#edNote").value.trim();if(amt==null)return;
@@ -5353,18 +5554,43 @@ document.addEventListener("submit", async e=>{
     if(!a || !assertPayAccount(a,"either")) return;
     const date=$("#gtDate")?.value||today();
     const note=($("#gtNote")?.value||"").trim();
-    const c=ensureContactByName(person);
-    let pd = dir==="given" ? amt : -amt;
+    let c=null, pd=dir==="given"?amt:-amt, settlesTxnId=null, settlesLegacyKey=null;
     if(dir==="settle"){
-      const current=giveTakeBalance(c.id);
-      if(Math.abs(current)<0.005){ alert("Nothing outstanding to settle."); return; }
-      pd = current>0 ? -Math.min(amt, current) : Math.min(amt, -current);
+      const found=findContactByName(person);
+      if(found.ambiguous){ alert("More than one contact has this name. Resolve the duplicate contacts in Money → Contacts before settling."); return; }
+      c=found.contact;
+      if(!c){ alert("No existing contact was found for this person. Record a Give or Receive transaction first."); return; }
+      const sourceId=$("#gtSettleTxn")?.value||"";
+      const plan=giveTakeSettlementPlan(c.id,sourceId,amt,a.cur);
+      if(!plan.ok){ alert(plan.error); return; }
+      pd=plan.pd;
+      settlesTxnId=plan.settlesTxnId;
+      settlesLegacyKey=plan.settlesLegacyKey;
+    }else{
+      c=ensureContactByName(person);
+      if(!c){ alert("Multiple contacts match this name. Resolve duplicate contacts in Money → Contacts before recording this transaction."); return; }
+    }
+    let recipientMethod=null, recipientMethodId="";
+    const rv=$("#gtRecv")?.value||"";
+    if(rv){
+      const [cid,mid]=rv.split("::");
+      const rc=contactById(cid), method=rc&&(rc.methods||[]).find(x=>x.id===mid);
+      if(method && rc.id===c.id){
+        recipientMethodId=method.id;
+        recipientMethod={person:rc.name,kind:method.kind,bank:method.bank||"",accountMasked:method.accountMasked||"",upi:method.upi||"",ifsc:method.ifsc||""};
+      }
     }
     const t={
       type:"givetake",
       giveTake:true,
+      giveTakeVersion:2,
+      settlement:dir==="settle",
+      settlesTxnId,
+      settlesLegacyKey,
       contactId:c.id,
       person:c.name,
+      recipientMethodId,
+      recipientMethod,
       date,
       note:note||(dir==="given"?"Given":dir==="received"?"Received":"Settlement"),
       pd,
@@ -5487,7 +5713,8 @@ if(e.target.id==="f2"){
     if(!assertPayAccount(a, "either")) return;
     if(a.cur!==cur){alert("Choose an account in "+cur+".");return;}
     if(rate<0){alert("Interest rate cannot be negative.");return;}
-    ensureContactByName(person);
+    const contact=ensureContactByName(person);
+    if(!contact){ alert("Multiple contacts match this name. Resolve duplicate contacts in Money → Contacts before creating this loan."); return; }
     let recipientMethod=null, recipientMethodId="";
     const rv=($("#lrecv")?.value||"");
     if(rv){
@@ -5499,9 +5726,9 @@ if(e.target.id==="f2"){
       }
     }
     const note=($("#lnote")?.value||"").trim();
-    const l={id:uid(),person,direction:dir,principal,rate,cur,start,account:a.id,recipientMethodId,recipientMethod,note,created:new Date().toISOString()};
+    const l={id:uid(),person,contactId:contact.id,direction:dir,principal,rate,cur,start,account:a.id,recipientMethodId,recipientMethod,note,created:new Date().toISOString()};
     S.lending.push(l);
-    addTxn({type:dir==="lent"?"lend":"borrow",date:start,person,note:note||(recipientMethod?(recipientMethod.kind==="upi"?"UPI "+(recipientMethod.upi||""):(recipientMethod.bank||"")+" "+(recipientMethod.accountMasked||"")):""),lendingId:l.id,loanId:l.id,postings:[{acct:a.id,amt:dir==="lent"?-principal:principal,cur}]});
+    addTxn({type:dir==="lent"?"lend":"borrow",date:start,person,contactId:contact.id,note:note||(recipientMethod?(recipientMethod.kind==="upi"?"UPI "+(recipientMethod.upi||""):(recipientMethod.bank||"")+" "+(recipientMethod.accountMasked||"")):""),lendingId:l.id,loanId:l.id,postings:[{acct:a.id,amt:dir==="lent"?-principal:principal,cur}]});
     save(); closeSheet(); render(); toastSaved("Lending record saved"); return;
   }
   if(e.target.id==="flr"){
@@ -5515,10 +5742,10 @@ if(e.target.id==="f2"){
     if(kind==="interest"&&amount>p.interestLeft+0.005){alert("Amount is more than interest outstanding ("+fmt(p.interestLeft,l.cur)+"). Enter the outstanding interest, or add a waiver if you are forgiving it.");return;}
     if(kind==="principal"){
       const incoming=l.direction==="lent", typ=incoming?"lendback":"repay";
-      addTxn({type:typ,date,person:l.person,loanId:l.id,pd:incoming?-amount:amount,principalReduction:amount,postings:[{acct:a.id,amt:incoming?amount:-amount,cur:l.cur}],note});
+      addTxn({type:typ,date,person:l.person,contactId:l.contactId||findContactByName(l.person).contact?.id||null,loanId:l.id,pd:incoming?-amount:amount,principalReduction:amount,postings:[{acct:a.id,amt:incoming?amount:-amount,cur:l.cur}],note});
     }else{
       const incoming=l.direction==="lent", typ=incoming?"income":"expense";
-      addTxn({type:typ,date,person:l.person,loanId:l.id,interestSettlement:true,cat:"Interest",postings:[{acct:a.id,amt:incoming?amount:-amount,cur:l.cur}],note});
+      addTxn({type:typ,date,person:l.person,contactId:l.contactId||findContactByName(l.person).contact?.id||null,loanId:l.id,interestSettlement:true,cat:"Interest",postings:[{acct:a.id,amt:incoming?amount:-amount,cur:l.cur}],note});
     }
     save();closeSheet();render();toastSaved("Lending transaction saved");return;
   }
@@ -6252,7 +6479,9 @@ if(globalThis.__MF_TEST){
     getS(){ return S; }, setS(v){ S=v; },
     getCK(){ return CK; },
     setCrypto(k, salt, iter){ CK=k; SALT=salt; if(iter) KDF_ITER=iter; },
-    giveTakeBalance, giveTakeSummary, ensureContactByName, contactById,
+    giveTakeBalance, giveTakeSummary, giveTakeOpenItems, giveTakeTxnValue, giveTakeSettlementPlan, ensureContactByName, contactById, findContactByName, normalizeContactName,
+    closeSheet, getSheetType(){ return sheetType; }, setSheetType(v){ sheetType=v; },
+    migrateContactsFromBank,
     today, uid
   };
 }

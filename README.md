@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.9.0
+**Current version:** 2.9.1
 
 ---
 
@@ -26,7 +26,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 - Bank details: account number/IBAN, IFSC, branch; **copy** for own accounts and for saved recipients.
 - Optional **linked debit card** on a bank account (not a separate balance).
 - Income, expense, transfer, refund; linked purchase/warranty records stay synchronised when expenses are edited and warranty reminders suspend when the linked expense is voided; Forex card expenses, edits and refunds post to the selected currency wallet; wallet identity and historical currency references are protected; void/restore reverses the wallet movement; **set current balance** (adjustment posting).
-- Friends’ / recipients’ bank details for transfer notes.
+- Friends’ / recipients’ bank details for transfer notes. Informal Give & Take is separate from formal Lending; balances use each transaction’s stored FX rate, and settlements link to one specific outstanding item (older unlinked records are grouped by person and currency).
 
 ### Investments
 - Stocks and mutual funds (owner, folio/ISIN/symbol, cost, units, manual price).
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Upload **all** of: `index.html`, `sw.js`, `manifest.webmanifest`, `icon.svg` to the **same HTTPS path** as before.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.8.3**).
+5. Confirm the unlock screen shows the expected version (**v2.9.1**).
 6. Unlock with your existing passphrase.
 
 If the UI looks old, the service worker is still serving a cached shell — clear cache and reopen once more.

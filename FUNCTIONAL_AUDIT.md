@@ -1,6 +1,6 @@
 # Functional audit — My Finance PWA
 
-Last reviewed against app version **2.8.2**.
+Last reviewed against app version **2.9.1**.
 
 ## Architecture
 
@@ -99,3 +99,19 @@ Validation in this archive:
 - Legacy card-number migration now strips non-digits correctly before discarding a full PAN and retaining only last four digits.
 - Integrity checks include archived Forex cards and orphaned/mismatched purchase references. Refund and wallet movement totals are indexed in one pass rather than repeatedly scanning the transaction list.
 - The vault key, encrypted envelope, encryption algorithms and backup format are unchanged.
+
+
+## 2.9.1 — Give & Take correctness and navigation
+
+- Give & Take remains a separate transaction type and never creates or changes a formal Lending record.
+- New Give & Take entries carry an additive schema marker. Each settlement links to one specific outstanding transaction, is restricted to the same currency, and rejects over-settlement instead of silently capping the amount.
+- Pre-2.9.1 Give & Take entries had no reliable settlement-to-source reference. They are therefore grouped into one legacy balance per contact and currency; the migration does not guess which historical transaction a settlement belonged to.
+- Give & Take person balances and totals convert each transaction using its stored FX rate before aggregating into the selected display currency.
+- Person history is visible under Plan → Give & Take. Posted entries can be edited, voided and restored through Activity; original entries cannot be voided while linked settlements remain posted.
+- Contact names are normalized for lookup. Duplicate normalized names are preserved rather than merged; ambiguous matches require the user to resolve them. Existing formal loans and their transactions receive stable contact IDs only when a unique contact match exists.
+- Closing or cancelling the Give & Take sheet resets the centre + quick-add mode, preventing the next tap on + from reopening the stale Give & Take form. Escape also closes an active sheet.
+- Regression coverage includes mixed-currency aggregation, transaction-specific and legacy-bucket settlements, duplicate-name handling, formal-loan contact migration, linked-settlement void protection, and quick-add close-state reset.
+
+Validation in this archive:
+- `node regression.mjs`: PASS — all existing and added regression checks pass.
+- Browser/device interaction, encrypted-vault upgrade with real user data, and WebAuthn: NOT RUN.

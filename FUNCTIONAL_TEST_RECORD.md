@@ -96,3 +96,16 @@ Several forms had UI but **no `submit` handler** for their `form id`.
 - PASS: integrity checks index refunds and wallet movements in one pass and inspect archived Forex cards.
 - Automated coverage: `node regression.mjs` (minimal DOM shim; production logic, not full browser rendering).
 - Not run: real Android device, WebAuthn biometric prompt, browser-level form dispatch, and real encrypted-vault restore on a personal dataset.
+
+
+## 2.9.1 — Give & Take and navigation
+
+- PASS: Give & Take remains separate from formal Lending; formal loan records and linked transactions use stable contact IDs when a unique contact match exists.
+- PASS: balances and person summaries convert each transaction using its stored FX rate before aggregation.
+- PASS: a new settlement is linked to one selected outstanding item, must use the same currency, and cannot exceed its remaining amount.
+- PASS: legacy Give & Take records are shown as one aggregate outstanding balance per person and currency; no historical source transaction is guessed.
+- PASS: per-person history is retained; Give & Take transactions can be edited, voided and restored, with source/settlement consistency guards.
+- PASS: duplicate normalized contacts are not silently merged; orphaned IDs are repaired only when the name has one unique match.
+- PASS: closing the Give & Take sheet resets quick-add state; regression verifies the next centre + action no longer inherits Give & Take mode.
+- PASS: `node regression.mjs` — all regression groups pass, including the added Give & Take currency, settlement, migration, and close-state checks.
+- Not run: real browser/device interaction, real encrypted-vault upgrade using the user's personal data, and WebAuthn.

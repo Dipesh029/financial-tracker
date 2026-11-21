@@ -15,9 +15,11 @@ function near(a, b, msg){
 }
 
 const window = { matchMedia: () => ({matches:false}), navigator: {} };
+const testLayer = {innerHTML:""};
 const document = {
   addEventListener(){},
   getElementById(){ return null; },
+  querySelector(sel){ return sel==="#layer" ? testLayer : null; },
   createElement(){ return {setAttribute(){}, remove(){}, querySelector(){return null;}}; },
   body: { appendChild(){}, classList:{add(){},remove(){}} },
   documentElement: { setAttribute(){}, style:{} }
@@ -617,7 +619,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.9.0");
+  const versionAt = home.indexOf("v" + "2.9.1");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -853,6 +855,7 @@ console.log("PASS calendar-dst-end");
   const t = mf.addTxn({
     type:"givetake",
     giveTake:true,
+    giveTakeVersion:2,
     contactId:c.id,
     person:"Rahul",
     date:"2026-11-21",
@@ -872,6 +875,9 @@ console.log("PASS calendar-dst-end");
   const t2 = mf.addTxn({
     type:"givetake",
     giveTake:true,
+    giveTakeVersion:2,
+    settlement:true,
+    settlesTxnId:t.id,
     contactId:c.id,
     person:"Rahul",
     date:"2026-11-22",
@@ -881,7 +887,74 @@ console.log("PASS calendar-dst-end");
   }, {skipSave:true});
   assert(mf.giveTakeBalance(c.id) === 1500, "partial settlement reduces balance");
 
-  console.log("PASS givetake-separation");
+  // A second linked settlement is tracked against the same specific source.
+  mf.addTxn({
+    type:"givetake", giveTake:true, giveTakeVersion:2, settlement:true, settlesTxnId:t.id,
+    contactId:c.id, person:"Rahul", date:"2026-11-23", pd:-500,
+    postings:[{acct:"cash1",amt:500,cur:"INR"}]
+  }, {skipSave:true});
+  const open = mf.giveTakeOpenItems(c.id);
+  assert(open.some(x=>x.txn?.id===t.id && x.outstanding===1000), "linked partial settlements reduce only their source transaction");
+  assert(mf.giveTakeSettlementPlan(c.id,t.id,1000,"INR").ok, "settlement plan accepts the exact outstanding amount");
+  assert(!mf.giveTakeSettlementPlan(c.id,t.id,1001,"INR").ok, "settlement plan rejects over-settlement");
+  assert(!mf.giveTakeSettlementPlan(c.id,t.id,100,"EUR").ok, "settlement plan rejects currency mismatch");
+  assert(mf.giveTakeBalance(c.id) === 1000, "both linked settlements affect person balance");
+  assert(mf.giveTakeSummary()[0].txns.length===3, "person summary retains full transaction history");
+  assert(await mf.voidTxn(t.id)===false, "an original transaction cannot be voided while linked settlements remain posted");
+  const testKey=await crypto.subtle.generateKey({name:"AES-GCM",length:256},true,["encrypt","decrypt"]);
+  mf.setCrypto(testKey,new Uint8Array(16),1000);
+  assert(await mf.voidTxn(t2.id)===true && t2.status==="voided", "linked settlement can be voided");
+  assert(await mf.unvoid(t2.id)===true && t2.status==="posted", "voided settlement can be restored");
+  const excessiveRestore={id:"too-large",status:"voided",type:"givetake",giveTake:true,settlesTxnId:t.id,pd:-2000,contactId:c.id,person:"Rahul",postings:[{acct:"cash1",amt:2000,cur:"INR"}]};
+  S.txns.push(excessiveRestore);
+  assert(await mf.unvoid(excessiveRestore.id)===false, "restore rejects a settlement that would over-settle its source");
+  S.txns=S.txns.filter(x=>x.id!==excessiveRestore.id);
+
+  // Pre-upgrade records are grouped into a transparent person/currency legacy balance.
+  const legacy=mf.ensureContactByName("Legacy Friend");
+  mf.addTxn({type:"givetake",giveTake:true,contactId:legacy.id,person:legacy.name,pd:1200,postings:[{acct:"cash1",amt:-1200,cur:"INR"}]}, {skipSave:true});
+  mf.addTxn({type:"givetake",giveTake:true,contactId:legacy.id,person:legacy.name,pd:-200,postings:[{acct:"cash1",amt:200,cur:"INR"}]}, {skipSave:true});
+  const legacyOpen=mf.giveTakeOpenItems(legacy.id);
+  assert(legacyOpen.length===1 && legacyOpen[0].legacyKey && legacyOpen[0].outstanding===1000, "legacy records are netted per person and currency without guessing individual links");
+  assert(mf.giveTakeSettlementPlan(legacy.id,"legacy:"+encodeURIComponent(legacyOpen[0].legacyKey),400,"INR").ok, "legacy balance can be settled through its explicit aggregate bucket");
+  mf.addTxn({type:"givetake",giveTake:true,giveTakeVersion:2,settlement:true,settlesLegacyKey:legacyOpen[0].legacyKey,contactId:legacy.id,person:legacy.name,pd:-400,postings:[{acct:"cash1",amt:400,cur:"INR"}]}, {skipSave:true});
+  assert(mf.giveTakeOpenItems(legacy.id)[0].outstanding===600, "new settlements can reduce the grouped legacy balance");
+
+  // FX conversion is applied per transaction using its stored historical rate.
+  S.display="INR"; S.rate=100;
+  const eurContact=mf.ensureContactByName("Mira");
+  mf.addTxn({type:"givetake",giveTake:true,contactId:eurContact.id,person:"Mira",pd:10,fxRate:90,postings:[{acct:"cash1",amt:-10,cur:"EUR"}]}, {skipSave:true});
+  mf.addTxn({type:"givetake",giveTake:true,contactId:eurContact.id,person:"Mira",pd:1000,fxRate:100,postings:[{acct:"cash1",amt:-1000,cur:"INR"}]}, {skipSave:true});
+  assert(mf.giveTakeBalance(eurContact.id)===1900, "mixed-currency balance converts each record to display currency");
+  assert(mf.giveTakeSummary().find(x=>x.contactId===eurContact.id).given===1900, "mixed-currency summary totals use display currency");
+
+  // Duplicate normalized names are never silently merged or guessed.
+  S.contacts.push({id:"dup1",name:"  ALEX ",methods:[]},{id:"dup2",name:"Alex",methods:[]});
+  assert(mf.findContactByName("alex").ambiguous, "duplicate normalized names are detected");
+  assert(mf.ensureContactByName("Alex")===null, "ambiguous contact is not guessed");
+
+  // Existing formal loans acquire stable contact IDs only when the name is unique.
+  S.contacts=[{id:"loan-contact",name:"Loan Person",methods:[]}];
+  S.bankContacts=[];
+  S.lending=[{id:"loan-stable",person:"Loan Person"}];
+  S.txns=[{id:"loan-origin",status:"posted",type:"lend",loanId:"loan-stable",person:"Loan Person",postings:[]}];
+  mf.migrateContactsFromBank();
+  assert(S.lending[0].contactId==="loan-contact", "formal loan migration assigns stable contact ID");
+  assert(S.txns[0].contactId==="loan-contact", "formal loan transaction receives same contact ID");
+  S.contacts=[{id:"surviving-contact",name:"Old GiveTake Person",methods:[]}];
+  S.lending=[];
+  S.txns=[{id:"legacy-give",status:"posted",type:"givetake",giveTake:true,contactId:"orphaned-id",person:"Old GiveTake Person",pd:50,postings:[]}];
+  mf.migrateContactsFromBank();
+  assert(S.txns[0].contactId==="surviving-contact", "unique legacy contact match repairs an orphaned contact ID");
+
+  // Closing Give & Take resets the centre + quick-add mode.
+  mf.setSheetType("givetake");
+  testLayer.innerHTML="open";
+  mf.closeSheet();
+  assert(testLayer.innerHTML==="", "close clears the active sheet");
+  assert(mf.getSheetType()==="expense", "close resets Give & Take quick-add mode");
+
+  console.log("PASS givetake-separation-and-regressions");
 }
 
 console.log("ALL_REGRESSION_PASS");
