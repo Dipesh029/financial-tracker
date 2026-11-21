@@ -617,7 +617,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.8.3");
+  const versionAt = home.indexOf("v" + "2.9.0");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -835,6 +835,53 @@ console.log("PASS calendar-dst-end");
   assert(/pay-trigger-main">[\s\S]*SBI/.test(html), "trigger shows the selected account");
   assert((html.match(/data-paypick="sa"/g)||[]).length===2, "every account is still pickable");
   console.log("PASS account-picker");
+}
+
+
+// ---------- Give & Take separation ----------
+{
+  const S = mf.getS();
+  S.txns = [];
+  S.lending = [];
+  S.contacts = [];
+  S.accounts = [{id:"cash1", name:"Cash", type:"cash", cur:"INR", opening:10000, archived:false}];
+  mf.setS(S);
+
+  // Create a Give & Take transaction
+  const c = mf.ensureContactByName("Rahul");
+  assert(c && c.id, "contact created");
+  const t = mf.addTxn({
+    type:"givetake",
+    giveTake:true,
+    contactId:c.id,
+    person:"Rahul",
+    date:"2026-11-21",
+    pd:2000,
+    postings:[{acct:"cash1", amt:-2000, cur:"INR"}]
+  }, {skipSave:true});
+  assert(t.giveTake === true, "giveTake flag set");
+  assert(S.lending.length === 0, "no formal lending record created");
+  assert(mf.giveTakeBalance(c.id) === 2000, "balance positive (they owe me)");
+
+  // Formal lending should not affect Give & Take
+  S.lending.push({id:"loan1", person:"Rahul", principal:50000, direction:"lent", start:"2026-11-21", rate:10});
+  assert(mf.giveTakeBalance(c.id) === 2000, "formal loan does not change Give & Take balance");
+  assert(S.lending.length === 1, "lending record exists independently");
+
+  // Settlement
+  const t2 = mf.addTxn({
+    type:"givetake",
+    giveTake:true,
+    contactId:c.id,
+    person:"Rahul",
+    date:"2026-11-22",
+    pd:-500,
+    note:"Partial settlement",
+    postings:[{acct:"cash1", amt:500, cur:"INR"}]
+  }, {skipSave:true});
+  assert(mf.giveTakeBalance(c.id) === 1500, "partial settlement reduces balance");
+
+  console.log("PASS givetake-separation");
 }
 
 console.log("ALL_REGRESSION_PASS");

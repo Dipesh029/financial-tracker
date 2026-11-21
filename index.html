@@ -382,8 +382,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.8.3";
+const APP_VERSION = "2.9.0";
 const RELEASES = [
+  {v:"2.9.0", d:"2026-11-21", notes:"Added Centre + → Give & Take for informal money exchanges with contacts. Completely separate from Plan → Lending. Person-wise balances, settlements, stable contact IDs. Formal loans remain unchanged."},
   {v:"2.8.3", d:"2026-11-19", notes:"Fixed salary schedule updates not saving (next credit date, amount, account and frequency edits threw an error before saving). Account pickers are now a tap-to-open dropdown with a scrollable list that closes on selection. Account picker now opens as a centred dialog with a dimmed backdrop. Asset mix bar has clear spacing and distinct colours. Account, SIP and salary cards no longer inherit the big centred amount style; lone last tiles fill the row; sort chip is labelled. Fixed the stock-holdings import review failing on an undeclared variable and removed a dead CSV handler."},
   {v:"2.8.2", d:"2026-11-19", notes:"Protect Forex wallet identity and historical references; prevent deleting or changing the currency of wallets with transaction history. Keep negative wallet balances consistent with confirmed overspending. Synchronise linked purchase and warranty records when expenses are edited; suspend reminders when linked expenses are voided and resume on restore. Fix legacy card-number migration masking and speed up integrity checks with one-pass indexes."},
   {v:"2.8.1", d:"2026-11-19", notes:"Complete Forex ledger fixes: wallet picker, edit/refund/void/restore movements, atomic saves, migration preservation and wallet reconciliation. Biometric unlock now uses the same safe migration guard."},
@@ -1419,7 +1420,7 @@ function personPos(owner){
   for(const t of S.txns){
     if(t.status!=="posted"||!t.person||!t.pd||!t.postings?.[0]) continue;
     if(t.loanId||t.lendingId||t.principalReduction||t.interestSettlement) continue;
-    if(["lend","borrow","lendback","repay"].includes(t.type)) continue;
+    if(["lend","borrow","lendback","repay","givetake"].includes(t.type) || t.giveTake) continue;
     const who=t.owner||"Me";
     if(owner && who!==owner) continue;
     // Legacy records may lack loanId but use loan-related notes
@@ -1431,6 +1432,59 @@ function personPos(owner){
     m[t.person]=(m[t.person]||0)+toDisplayAt(t.pd,t.postings[0].cur,t.fxRate);
   }
   return m;
+}
+
+function giveTakeBalance(contactIdOrName){
+  // Positive = they owe me; Negative = I owe them
+  let bal=0;
+  const name=(typeof contactIdOrName==="string" && contactById(contactIdOrName))?null:String(contactIdOrName||"").trim().toLowerCase();
+  const cid=contactById(contactIdOrName)?contactIdOrName:null;
+  for(const t of S.txns||[]){
+    if(t.status!=="posted" || !t.giveTake) continue;
+    if(cid && t.contactId!==cid) continue;
+    if(name && String(t.person||"").trim().toLowerCase()!==name) continue;
+    bal += Number(t.pd)||0;
+  }
+  return Math.round(bal*100)/100;
+}
+function giveTakeSummary(){
+  const map={};
+  for(const t of S.txns||[]){
+    if(t.status!=="posted" || !t.giveTake || !t.person) continue;
+    const key=t.contactId||t.person;
+    if(!map[key]) map[key]={name:t.person, contactId:t.contactId||null, given:0, received:0, balance:0, txns:[]};
+    const pd=Number(t.pd)||0;
+    if(pd>0) map[key].given += pd;
+    else map[key].received += -pd;
+    map[key].balance += pd;
+    map[key].txns.push(t);
+  }
+  return Object.values(map).map(x=>({...x, balance:Math.round(x.balance*100)/100, given:Math.round(x.given*100)/100, received:Math.round(x.received*100)/100}));
+}
+function giveTakeSheet(){
+  const people=allPersonNames().map(n=>`<option value="${esc(n)}">`).join("");
+  openSheet(`<h2 style="margin-top:0">Give & Take</h2>
+  <p class="muted">Informal money exchanges with family and friends. Not a formal loan — no interest.</p>
+  <form id="fgivetake" autocomplete="off">
+    <label>Person</label>
+    <input id="gtPerson" list="gtPeople" required placeholder="Name or select contact"><datalist id="gtPeople">${people}</datalist>
+    <label>Direction</label>
+    <select id="gtDir">
+      <option value="given">I gave money (they owe me)</option>
+      <option value="received">I received money (I owe them)</option>
+      <option value="settle">Settle outstanding</option>
+    </select>
+    <label>Amount</label>
+    <input id="gtAmt" inputmode="decimal" required placeholder="0.00">
+    <label>My account</label>
+    ${paySelectHtml("gtAcct", preferredPayId("either"), "either")}
+    <label>Date</label>
+    <input type="date" id="gtDate" value="${today()}">
+    <label>Note (optional)</label>
+    <input id="gtNote" maxlength="80">
+    <button class="btn" type="submit">Save</button>
+  </form>
+  <button class="btn alt" data-close>Cancel</button>`);
 }
 function monthKey(d){ return d.slice(0,7); }
 function monthTotals(m,owner){
@@ -2725,7 +2779,8 @@ function openCatsSheet(kind){
 }
 function addSheet(){
   if(!S.accounts.length){ newAcctSheet(); return; }
-  if(sheetType==="invest"||sheetType==="lend") return addSheet2();
+  if(sheetType==="invest") return addSheet2();
+  if(sheetType==="givetake"){ giveTakeSheet(); return; }
   const cats = sheetType==="income"?incomeCats():expenseCats();
   if(!chosenCat || !cats.includes(chosenCat)) chosenCat = cats[0];
   const purpose = sheetType==="income"?"in":(sheetType==="expense"?"expense":"out");
@@ -2736,7 +2791,7 @@ function addSheet(){
   const chips = sheetType==="transfer" ? [500,1000,2000,5000,10000] : [50,100,200,500,1000,2000,5000];
   const catKind = sheetType==="income"?"income":"expense";
   openSheet(`
-  <div class="seg" id="seg">${["expense","income","transfer","invest","lend"].map(k=>`<button data-type="${k}" class="${sheetType===k?"on":""}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}</div>
+  <div class="seg" id="seg">${["expense","income","transfer","invest","givetake"].map(k=>`<button data-type="${k}" class="${sheetType===k?"on":""}">${k==="givetake"?"Give & Take":k[0].toUpperCase()+k.slice(1)}</button>`).join("")}</div>
   <form id="f" autocomplete="off">
     <input class="amt" id="amt" inputmode="decimal" placeholder="0" aria-label="Amount" autofocus>
     <div id="amtPreview" class="amt-preview muted"></div>
@@ -2796,7 +2851,7 @@ function updateRecv(){
 
 function addSheet2(){
   const purpose=sheetType==="invest"?"out":"either";
-  const seg=`<div class="seg">${["expense","income","transfer","invest","lend"].map(k=>`<button data-type="${k}" class="${sheetType===k?"on":""}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}</div>`;
+  const seg=`<div class="seg">${["expense","income","transfer","invest","givetake"].map(k=>`<button data-type="${k}" class="${sheetType===k?"on":""}">${k==="givetake"?"Give & Take":k[0].toUpperCase()+k.slice(1)}</button>`).join("")}</div>`;
   let mid;
   if(sheetType==="invest") mid=S.holdings.length?`<label>Action</label><select id="ia"><option value="buy">Buy</option><option value="sell">Sell</option></select><label>Holding</label><select id="ih">${S.holdings.map(h=>`<option value="${esc(h.id)}">${esc(h.name)} (${h.cur})</option>`).join("")}</select><label>Units or shares</label><input id="iu" inputmode="decimal">`:`<div class="empty">Add a fund or stock first, under Money → Investments.</div>`;
   else mid=`<label>What happened</label><select id="la"><option value="lend">I lent money</option><option value="lendback">They paid me back</option><option value="borrow">I borrowed</option><option value="repay">I repaid</option><option value="intin">Interest I received</option><option value="intout">Interest I paid</option></select><label>Person</label><input id="lp" list="pl" required><datalist id="pl">${Object.keys(personPos()).map(n=>`<option value="${esc(n)}">`).join("")}</datalist>`;
@@ -3574,6 +3629,7 @@ function viewPlan(){
   const segBar = `<div class="seg" style="margin:4px 0 12px">
     <button type="button" data-planseg="sips" class="${seg==="sips"?"on":""}">SIPs</button>
     <button type="button" data-planseg="salaries" class="${seg==="salaries"?"on":""}">Salaries</button>
+    <button type="button" data-planseg="givetake" class="${seg==="givetake"?"on":""}">Give & Take</button>
     <button type="button" data-planseg="lending" class="${seg==="lending"?"on":""}">Lending</button>
     <button type="button" data-planseg="cover" class="${seg==="cover"?"on":""}">Cover</button>
   </div>`;
@@ -3624,6 +3680,23 @@ function viewPlan(){
     <button type="button" class="chip" data-newsalary>+ Add</button>
   </div>
   ${cards||`<div class="empty"><div class="empty-title">No salary schedules</div><p>Add a schedule for Me or a family member. Past payments stay when you edit amounts.</p><button class="btn" data-newsalary>Add salary schedule</button></div>`}`;
+  }
+  if(seg==="givetake"){
+    const rows=giveTakeSummary();
+    const cards=rows.map(r=>{
+      const owes=r.balance>0.005?"Owes you":r.balance<-0.005?"You owe":"Settled";
+      const cls=r.balance>0?"in":r.balance<0?"out":"";
+      return `<div class="card" style="margin-bottom:10px">
+        <div class="row"><b>${esc(r.name)}</b><span class="status-pill">${owes}</span></div>
+        <div class="row"><span>Given</span><b class="num">${fmt(r.given)}</b></div>
+        <div class="row"><span>Received</span><b class="num">${fmt(r.received)}</b></div>
+        <div class="row"><span>Outstanding</span><b class="num ${cls}">${fmt(Math.abs(r.balance))}</b></div>
+        <div class="muted" style="font-size:12px;margin-top:4px">${r.txns.length} transaction${r.txns.length===1?"":"s"}</div>
+      </div>`;
+    }).join("") || `<div class="empty"><div class="empty-title">No Give & Take yet</div><p>Use the + button → Give & Take to record informal money exchanges.</p></div>`;
+    return segBar+`<h2 style="margin-top:4px">Give & Take</h2>
+    <p class="muted">Informal balances with people. Separate from formal loans under Lending.</p>
+    ${cards}`;
   }
   if(seg==="lending"){
     let outstandingLent=0, outstandingBorrowed=0, originalLent=0, repaidLent=0, active=0, interestLent=0;
@@ -5269,7 +5342,39 @@ document.addEventListener("submit", async e=>{
     closeSheet(); render();
     toast("Saved",()=>{ voidTxn(saved.id).then(()=>render()); });
   }
-  if(e.target.id==="f2"){
+  
+  if(e.target.id==="fgivetake"){
+    const person=($("#gtPerson")?.value||"").trim();
+    if(!person){ alert("Enter a person."); return; }
+    const dir=$("#gtDir")?.value||"given";
+    const amt=rejectAmt($("#gtAmt")?.value,{required:true,positive:true,maxDecimals:2});
+    if(amt==null) return;
+    const a=acct($("#gtAcct")?.value);
+    if(!a || !assertPayAccount(a,"either")) return;
+    const date=$("#gtDate")?.value||today();
+    const note=($("#gtNote")?.value||"").trim();
+    const c=ensureContactByName(person);
+    let pd = dir==="given" ? amt : -amt;
+    if(dir==="settle"){
+      const current=giveTakeBalance(c.id);
+      if(Math.abs(current)<0.005){ alert("Nothing outstanding to settle."); return; }
+      pd = current>0 ? -Math.min(amt, current) : Math.min(amt, -current);
+    }
+    const t={
+      type:"givetake",
+      giveTake:true,
+      contactId:c.id,
+      person:c.name,
+      date,
+      note:note||(dir==="given"?"Given":dir==="received"?"Received":"Settlement"),
+      pd,
+      postings:[{acct:a.id, amt:pd>0?-Math.abs(pd):Math.abs(pd), cur:a.cur}]
+    };
+    addTxn(t);
+    closeSheet(); render(); toastSaved("Give & Take recorded");
+    return;
+  }
+if(e.target.id==="f2"){
     const amt=rejectAmt($("#amt").value,{required:true,positive:true,maxDecimals:2}); if(amt==null) return;
     const a=acct($("#from").value), date=$("#date").value||today(), note=$("#note").value.trim(); let t;
     if(!assertPayAccount(a, sheetType==="invest"?"out":"either")) return;
@@ -6147,6 +6252,7 @@ if(globalThis.__MF_TEST){
     getS(){ return S; }, setS(v){ S=v; },
     getCK(){ return CK; },
     setCrypto(k, salt, iter){ CK=k; SALT=salt; if(iter) KDF_ITER=iter; },
+    giveTakeBalance, giveTakeSummary, ensureContactByName, contactById,
     today, uid
   };
 }
