@@ -109,3 +109,13 @@ Several forms had UI but **no `submit` handler** for their `form id`.
 - PASS: closing the Give & Take sheet resets quick-add state; regression verifies the next centre + action no longer inherits Give & Take mode.
 - PASS: `node regression.mjs` — all regression groups pass, including the added Give & Take currency, settlement, migration, and close-state checks.
 - Not run: real browser/device interaction, real encrypted-vault upgrade using the user's personal data, and WebAuthn.
+
+
+## 2.9.2 — optional Forex visibility
+
+- PASS: More → Display includes a persistent Show Forex features On/Off preference; existing vaults default to On to preserve current behaviour.
+- PASS: Off hides Forex cards from Money, Forex-specific net-worth breakdown labels, Forex wallet-rate inputs, Forex account creation choice, and Forex payment options for new transactions.
+- PASS: Turning visibility back On restores those UI options.
+- PASS: Hiding Forex does not delete or rewrite Forex accounts, wallets, transaction history, exchange rates, or net-worth calculations.
+- PASS: `node regression.mjs` — all regression groups pass, including the new Forex visibility checks.
+- Not run: real browser/device interaction and a live encrypted-vault upgrade using personal data.

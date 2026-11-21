@@ -382,8 +382,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.9.1";
+const APP_VERSION = "2.9.2";
 const RELEASES = [
+  {v:"2.9.2", d:"2026-11-21", notes:"Added a More → Display preference to show or hide Forex features. Hiding Forex is presentation-only: it preserves existing wallets, transactions, balances, historical rates, and net-worth calculations."},
   {v:"2.9.1", d:"2026-11-21", notes:"Hardened Give & Take: historical FX conversion, specific transaction settlements, legacy balances grouped by person and currency, full per-person history, editing and safe void/restore, duplicate-contact protection, stable contact IDs for formal lending, and centre + close/cancel state reset."},
   {v:"2.9.0", d:"2026-11-21", notes:"Added Centre + → Give & Take for informal money exchanges with contacts. Completely separate from Plan → Lending. Person-wise balances, settlements, stable contact IDs. Formal loans remain unchanged."},
   {v:"2.8.3", d:"2026-11-19", notes:"Fixed salary schedule updates not saving (next credit date, amount, account and frequency edits threw an error before saving). Account pickers are now a tap-to-open dropdown with a scrollable list that closes on selection. Account picker now opens as a centred dialog with a dimmed backdrop. Asset mix bar has clear spacing and distinct colours. Account, SIP and salary cards no longer inherit the big centred amount style; lone last tiles fill the row; sort chip is labelled. Fixed the stock-holdings import review failing on an undeclared variable and removed a dead CSV handler."},
@@ -1895,6 +1896,7 @@ function ensureUi(){
   if(!S.ui.reorder) S.ui.reorder={};
   return S.ui;
 }
+function forexVisible(){ return ensureUi().showForex!==false; }
 function getSortPref(section){
   ensureUi();
   const p=S.ui.sort[section]||{};
@@ -2297,11 +2299,13 @@ function viewSettings(){
   <select id="themePref"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
   <div class="muted">Remembered on this device.</div></div>
   <div class="card"><b>Display</b>
+  <div class="pref-row"><div class="pref-text"><b>Show Forex features</b><span>Show or hide Forex cards, wallet controls, currency rates and Forex payment options. Hiding does not delete Forex data or change net-worth calculations.</span></div>
+    <button type="button" class="chip ${forexVisible()?"on":""}" data-toggleforex>${forexVisible()?"On":"Off"}</button></div>
   <label>EUR → INR rate</label>
   <input id="rate" inputmode="decimal" value="${S.rate||104.16}">
-  <div class="muted">Converts euro balances, including a euro wallet on a forex card. Not a live rate.</div>
-  ${forexRatesInUse().map(code=>`<label>1 ${esc(code)} → INR</label><input data-fxrate="${esc(code)}" inputmode="decimal" value="${esc(S.fx&&S.fx[code]!=null?S.fx[code]:"")}">`).join("")}
-  ${forexRatesInUse().length?`<div class="muted">Starter rates are filled in so net worth has a number. Change them to the rate you actually got. A forex balance is counted once, in its own currency, then converted.</div>`:""}</div>
+  <div class="muted">Converts euro balances. Not a live rate.</div>
+  ${forexVisible()?forexRatesInUse().map(code=>`<label>1 ${esc(code)} → INR</label><input data-fxrate="${esc(code)}" inputmode="decimal" value="${esc(S.fx&&S.fx[code]!=null?S.fx[code]:"")}">`).join(""):""}
+  ${forexVisible()&&forexRatesInUse().length?`<div class="muted">Starter rates are filled in so net worth has a number. Change them to the rate you actually got. A forex balance is counted once, in its own currency, then converted.</div>`:""}</div>
 
   <div class="card"><b>Security</b>
   <div class="muted">Fingerprint unlock: ${bioOn?"enabled":"not enabled"}</div>
@@ -2362,7 +2366,7 @@ function allocationHtml(owner){
   const w=wealthBreakdown(owner);
   const parts=[];
   if(w.cash+w.bank+w.cardAsset>0) parts.push(["Cash & bank", w.cash+w.bank+w.cardAsset]);
-  if(w.forex>0) parts.push(["Forex cards", w.forex]);
+  if(forexVisible() && w.forex>0) parts.push(["Forex cards", w.forex]);
   if((w.holdings+w.demat)>0) parts.push(["Investments", w.holdings+w.demat]);
   if(w.insuranceCash>0) parts.push(["Insurance value", w.insuranceCash]);
   if(w.owedToYou>0) parts.push(["Owed to you", w.owedToYou]);
@@ -2391,7 +2395,7 @@ function viewHome0(){
   const eye=hide?"Show balances":"Hide balances";
   const pills=[
     ["Cash & bank", wb.cash+wb.bank+wb.cardAsset, ""],
-    ["Forex cards", wb.forex, ""],
+    ...(forexVisible()?[ ["Forex cards", wb.forex, ""] ]:[]),
     ["Investments", wb.holdings+wb.demat, ""],
     ["Insurance value", wb.insuranceCash, ""],
     ["Owed to you", wb.owedToYou, ""],
@@ -2430,7 +2434,7 @@ function viewHome0(){
     ${pills.map(([label,val,cls])=>`<div class="wealth-pill"><span>${label}</span><b class="num ${cls}">${fmtHide(val,S.display)}</b></div>`).join("")}
     ${wb.insuranceCoverage>0?`<div class="wealth-pill"><span>Insurance cover</span><b class="num">Excluded</b></div>`:""}
   </div>
-  <p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Investments are holdings, or a demat account's manual value — not both for the same account. Forex cards are the balances you entered, converted once. Insurance value is surrender / fund value only. Cover ${wb.insuranceCoverage>0?fmtHide(wb.insuranceCoverage,S.display)+" is shown separately and ":""}is not in actual net worth.${reconOk?"":" Tile totals do not match net worth — open More and run the check."}</p>
+  <p class="muted" style="margin-top:4px;font-size:12px;line-height:1.4">Investments are holdings, or a demat account's manual value — not both for the same account. ${forexVisible()?"Forex cards are the balances you entered, converted once. ":""}Insurance value is surrender / fund value only. Cover ${wb.insuranceCoverage>0?fmtHide(wb.insuranceCoverage,S.display)+" is shown separately and ":""}is not in actual net worth.${reconOk?"":" Tile totals do not match net worth — open More and run the check."}</p>
   ${valuationNoteHtml(owner)}`:""}
 
   <div class="card">
@@ -2598,7 +2602,7 @@ function viewAccounts(){
   if(af==="bank") list = list.filter(a=>a.type==="bank");
   if(af==="cash") list = list.filter(a=>a.type==="cash");
   if(af==="card") list = list.filter(a=>a.type==="card");
-  let forexList = (af==="all"||af==="card") ? S.accounts.filter(a=>!a.archived&&a.type==="forex") : [];
+  let forexList = forexVisible() && (af==="all"||af==="card") ? S.accounts.filter(a=>!a.archived&&a.type==="forex") : [];
   forexList = applySectionSort(forexList, "forex", {name:a=>a.name||"", balance:a=>forexDisplayValue(a).value});
   let sumBank=0,sumCash=0,sumCard=0,sumForex=0;
   for(const a of S.accounts){
@@ -2641,7 +2645,7 @@ function viewAccounts(){
       <div class="mod-metric"><span>Bank</span><b class="num">${fmtHide(sumBank,S.display)}</b></div>
       <div class="mod-metric"><span>Cash</span><b class="num">${fmtHide(sumCash,S.display)}</b></div>
       <div class="mod-metric"><span>Cards owed</span><b class="num out">${fmtHide(sumCard,S.display)}</b></div>
-      <div class="mod-metric"><span>Forex cards</span><b class="num">${fmtHide(sumForex,S.display)}</b></div>
+      ${forexVisible()?`<div class="mod-metric"><span>Forex cards</span><b class="num">${fmtHide(sumForex,S.display)}</b></div>`:""}
     </div>
   </div>
   ${filterBar}
@@ -2649,7 +2653,7 @@ function viewAccounts(){
     <h2 style="margin:0;font-size:15px">List</h2>
     <button type="button" class="chip" data-newacct>+ Add</button>
   </div>
-  ${creditLabel}${cards}${forexBlock}`+(cards||forexBlock?"":`<div class="empty"><div class="empty-title">No accounts here</div><p>Add a bank, cash, credit card, or forex card.</p><button class="btn" data-newacct>Add account</button></div>`);
+  ${creditLabel}${cards}${forexBlock}`+(cards||forexBlock?"":`<div class="empty"><div class="empty-title">No accounts here</div><p>Add a bank, cash, or credit card.</p><button class="btn" data-newacct>Add account</button></div>`);
 }
 
 function forexCardHtml(a){
@@ -3292,6 +3296,7 @@ function paymentAccounts(purpose, opts){
   const list=(S.accounts||[]).filter(a=>{
     if(a.id===includeId) return true;
     if(a.archived) return false;
+    if(a.type==="forex" && !forexVisible()) return false;
     return types.includes(a.type);
   });
   const rank=(a,b)=>{
@@ -3311,8 +3316,9 @@ function paymentAccounts(purpose, opts){
 }
 function preferredPayId(purpose, pref){
   const wanted=pref&&acct(pref);
-  if(payAccountAllowed(wanted, purpose)) return wanted.id;
-  if(S.lastAcct && payAccountAllowed(acct(S.lastAcct), purpose)) return S.lastAcct;
+  if(payAccountAllowed(wanted, purpose) && (wanted.type!=="forex" || forexVisible())) return wanted.id;
+  const last= S.lastAcct && acct(S.lastAcct);
+  if(last && payAccountAllowed(last, purpose) && (last.type!=="forex" || forexVisible())) return last.id;
   const groups=paymentAccounts(purpose);
   return groups[0]&&groups[0].accounts[0]?groups[0].accounts[0].id:"";
 }
@@ -4048,7 +4054,7 @@ function newAcctSheet(){
     <option value="bank">Bank account</option>
     <option value="cash">Cash</option>
     <option value="card">Credit card</option>
-    <option value="forex">Forex card</option>
+    ${forexVisible()?`<option value="forex">Forex card</option>`:""}
   </select>
   <div id="stdBal">
   <label>Currency</label><select id="ac"><option>INR</option><option>EUR</option></select>
@@ -4434,7 +4440,7 @@ document.addEventListener("keydown", e=>{
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-paytoggle],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-toggleforex],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-paytoggle],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -4755,6 +4761,7 @@ if(d.delmethod){
   if("readme" in d){openSheet(readmeHtml());return;}
   if("togglesip" in d){ S.autoSip=S.autoSip===false; save(); render(); return; }
   if("togglehide" in d){ S.hideBalances=!S.hideBalances; save(); render(); return; }
+  if("toggleforex" in d){ ensureUi().showForex=!forexVisible(); save(); render(); toastSaved("Forex visibility updated"); return; }
   if(d.sortopen){
     const section=d.sortopen;
     const menus={
@@ -6469,8 +6476,8 @@ if(globalThis.__MF_TEST){
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
     wealthBreakdown, netWorth, valuationNotes, holdPos, balance, addTxn,
     applyForexMovement, forexWalletNetMovement, forexTxnDelta, forexTxnMovement, forexWalletLedgerBalance, forexWalletReferenced, validateForexWalletChanges, applyForexWallets, syncLinkedPurchaseForTxn, setLinkedPurchaseTxnVoided, commitForexAware, voidTxn, unvoid, runCheck,
-    dematPosition, investmentTotals, dematClaims, paymentAccounts, payAccountAllowed, paySelectHtml,
-    maskCardLast4, collectForexWallets, applyForexWallets, forexDisplayValue, fmt, viewAccounts,
+    dematPosition, investmentTotals, dematClaims, paymentAccounts, payAccountAllowed, preferredPayId, paySelectHtml,
+    maskCardLast4, collectForexWallets, applyForexWallets, forexDisplayValue, fmt, viewAccounts, viewSettings, forexVisible,
     openBackupPayload, commitRestore, vaultShapeOk, buildHoldPlanRow, applySectionSort,
     getNwPrefs, forgetBackupFolder, viewPlan, viewHome,
     setPlanSeg(v){ planSeg=v; },
