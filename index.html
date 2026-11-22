@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1E40AF">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-nyqB5ABcApUMY0KbwydjDWPOykwD1QhkP7+SmKVOvHU='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-jspBmMIQd5yDd2wqbAft0TG3RuRU1k3kEi+Kgzh0GL8='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -473,8 +473,9 @@ input[type="range"]{accent-color:var(--accent);min-height:32px;height:32px;paddi
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.12.1";
+const APP_VERSION = "2.12.2";
 const RELEASES = [
+  {v:"2.12.2", d:"2026-11-22", notes:"Editing a Forex expense no longer treats the money already in that expense as gone. An automatic SIP or salary is skipped when its currency does not match the account."},
   {v:"2.12.1", d:"2026-11-22", notes:"Home and Activity no longer go blank when a transaction is missing a date, a created time, or its postings. The broken row is skipped. Nothing is rewritten."},
   {v:"2.12.0", d:"2026-11-22", notes:"Mutual fund forecast rebuilt. It starts from market value, compounds each future SIP on its own date, and shows a donut, three scenarios and a year table. Dark mode is now near-black with blue accents."},
   {v:"2.11.0", d:"2026-11-22", notes:"Blue theme across the app. PDF reports for the main sections and one complete report. Mutual fund forecast now shows conservative, expected and optimistic paths without changing your records."},
@@ -1859,6 +1860,14 @@ function addTxn(t, opts){
   return t;
 }
 
+function forexSpendRoom(account, wallet, ignoreTxn){
+  let available=Number(wallet&&wallet.balance)||0;
+  if(ignoreTxn && ignoreTxn.status==="posted" && ignoreTxn.type==="expense" && account && wallet && ignoreTxn.forexAcct===account.id && ignoreTxn.walletId===wallet.id){
+    const current=ignoreTxn.amount!=null?ignoreTxn.amount:ignoreTxn.postings?.[0]?.amt;
+    available+=Math.abs(Number(current)||0);
+  }
+  return Math.round(available*100)/100;
+}
 function applyForexMovement(acctId, walletId, delta){
   const a=acct(acctId);
   if(!a||a.type!=="forex"||!Array.isArray(a.wallets)||!isFinite(Number(delta))) return false;
@@ -2049,6 +2058,13 @@ function processDueAutomations(){
           x.next=advanceSipNext(x, x.next);
           continue;
         }
+        if(x.cur && a.cur && String(x.cur)!==String(a.cur)){
+          skipped++;
+          x.history=x.history||[];
+          x.history.push({date:x.next,status:"missed",units:0,amount:terms.amt,auto:true,note:"Account currency does not match the SIP"});
+          x.next=advanceSipNext(x, x.next);
+          continue;
+        }
         const units=Math.round((terms.amt/price)*1e6)/1e6;
         const payDate=x.next;
         const n=S.txns.length;
@@ -2071,6 +2087,13 @@ function processDueAutomations(){
           skipped++;
           x.history=x.history||[];
           x.history.push({date:payDate,status:"missed",amount:terms.amt,auto:true,note:"Account unavailable"});
+          x.next=advanceSalaryNext(x, payDate);
+          continue;
+        }
+        if(x.cur && a.cur && String(x.cur)!==String(a.cur)){
+          skipped++;
+          x.history=x.history||[];
+          x.history.push({date:payDate,status:"missed",amount:terms.amt,auto:true,note:"Account currency does not match the salary"});
           x.next=advanceSalaryNext(x, payDate);
           continue;
         }
@@ -6291,7 +6314,8 @@ document.addEventListener("submit", async e=>{
       const w=(a.wallets||[]).find(x=>x.id===walletId);
       if(!w){alert("Choose a currency wallet on this Forex card.");return;}
       walletCur=w.cur;
-      if(amt>(Number(w.balance)||0)+0.005&&!confirm("Wallet balance is "+fmt(Number(w.balance)||0,w.cur)+". This expense will make it negative. Continue?")) return;
+      const room=forexSpendRoom(a,w,t);
+      if(amt>room+0.005&&!confirm("After removing this expense, the wallet has "+fmt(room,w.cur)+". The new amount is higher, so the balance will go negative. Continue?")) return;
     }
     const previousDate=t.date;
     const result=await commitForexAware(()=>{
@@ -7344,7 +7368,7 @@ document.addEventListener("visibilitychange",()=>{
 if(globalThis.__MF_TEST){
   globalThis.__mf={
     parseAmt, inspectAmt, readAmt, rejectAmt, thousandsFallback,
-    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, cleanShareText, buildLendingPdfHtml, formatMoney, roundMoney, blank, migrate,
+    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, cleanShareText, buildLendingPdfHtml, formatMoney, roundMoney, forexSpendRoom, processDueAutomations, blank, migrate,
     processDueAutomations, salaryTermsAt, advanceSalaryNext, sipTermsAt, advanceSipNext, addM, addDays, calendarDays,
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
     wealthBreakdown, netWorth, valuationNotes, holdPos, balance, balanceAsOf, projectHolding, holdingSipPlan, holdingSipReview, datedSipEvents, forecastDonutParts, buildReportPdf, addTxn,

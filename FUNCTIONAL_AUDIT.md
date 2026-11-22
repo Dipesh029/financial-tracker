@@ -158,6 +158,10 @@ Validation in this archive:
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
 
 
+## 2.12.2 — Forex edit room and schedule currency
+- `forexSpendRoom()` adds the expense being edited back to its own wallet before the negative-balance warning. Other wallets are unchanged.
+- Due SIPs and salaries whose currency differs from the account are marked missed and are not posted. A matching SIP still posts.
+
 ## 2.12.1 — Incomplete transactions no longer blank Home
 - `monthTotals()`, the Home spending chart and `txnRow()` skip a posted row that has no date or no numeric posting. Sorting no longer assumes `created` is present.
 - Records are not repaired automatically. The integrity check still reports the bad date or missing postings.
