@@ -637,7 +637,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.10.0");
+  const versionAt = home.indexOf("v" + "2.11.0");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -1049,7 +1049,7 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v90"), "service worker cache version is bumped for this release");
+  assert(sw.includes("myfinance-shell-v91"), "service worker cache version is bumped for this release");
   const htmlCache = sw.slice(sw.indexOf("if (isHTML)"));
   assert(htmlCache.indexOf("const forRequest = response.clone()") >= 0 && htmlCache.indexOf("const forRequest = response.clone()") < htmlCache.indexOf("caches.open(CACHE)"), "HTML is cloned before the cache is opened");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
@@ -1245,6 +1245,60 @@ console.log("PASS calendar-dst-end");
   assert(page.includes("prefers-reduced-motion") && page.includes("focus-visible") && page.includes("--hero:"), "the design system keeps motion, focus and colour tokens");
   assert(page.includes('max-width:840px') && page.includes("min-width:900px"), "wide screens use a bounded layout and centred sheets");
   console.log("PASS design-system-shell");
+}
+
+{
+  const flat=mf.projectHolding({startValue:1000, annualPct:0, months:12, monthlyExtra:100, includeSips:false, sips:[]});
+  near(flat.endValue, 2200, "zero return adds monthly contributions and no growth");
+  near(flat.gain, 0, "zero return has no investment gain");
+  const down=mf.projectHolding({startValue:1000, annualPct:-10, months:12, monthlyExtra:0, includeSips:false, sips:[]});
+  near(down.endValue, 900, "a negative annual return compounds to that annual change");
+  const up=mf.projectHolding({startValue:1000, annualPct:10, months:12, monthlyExtra:0, includeSips:false, sips:[]});
+  near(up.endValue, 1100, "a positive annual return with no contributions matches the annual rate");
+  const sip=[{amt:300, freq:3, cur:"INR"}];
+  const withSip=mf.projectHolding({startValue:500, annualPct:0, months:12, monthlyExtra:0, includeSips:true, sips:sip});
+  const noSip=mf.projectHolding({startValue:500, annualPct:0, months:12, monthlyExtra:0, includeSips:false, sips:sip});
+  near(withSip.contributed, 1200, "a quarterly SIP is added four times a year");
+  near(noSip.contributed, 0, "excluding SIPs does not count them");
+  near(noSip.endValue, 500, "excluding SIPs leaves the starting value unchanged at zero return");
+  const half=mf.projectHolding({startValue:100, annualPct:0, months:6, monthlyExtra:10, includeSips:false, sips:[]});
+  near(half.endValue, 160, "a six-month forecast does not run a full year");
+  const st=mf.blank();
+  st.display="INR";
+  st.accounts=[
+    {id:"inr",name:"Cash",type:"cash",cur:"INR",opening:100,accountNumber:"SECRET-ACC",archived:false},
+    {id:"eur",name:"Euro",type:"cash",cur:"EUR",opening:40,archived:false}
+  ];
+  st.contacts=[{id:"c",name:"Asha",notes:"Friend",methods:[{kind:"upi",upi:"asha@okbank"}]}];
+  st.holdings=[{id:"h1",name:"Flexi Cap",type:"fund",cur:"INR",price:20,owner:"Me"}];
+  st.sips=[{id:"sip1",hold:"h1",acct:"inr",amt:300,cur:"INR",freq:3,status:"active",next:mf.today()}];
+  const day=mf.today();
+  const future=mf.addDays(day, 20);
+  st.txns=[
+    {id:"open1",status:"posted",type:"open",date:day,hold:"h1",units:10,cost:150,postings:[]},
+    {id:"ok",status:"posted",type:"expense",date:day,cat:"Food",note:"Lunch",postings:[{acct:"inr",amt:-10,cur:"INR"}]},
+    {id:"later",status:"posted",type:"expense",date:future,cat:"Food",note:"FUTURE-LUNCH",postings:[{acct:"inr",amt:-25,cur:"INR"}]},
+    {id:"gone",status:"voided",type:"expense",date:day,cat:"Food",note:"VOID-MEAL",postings:[{acct:"inr",amt:-15,cur:"INR"}]}
+  ];
+  const before=JSON.stringify(st);
+  mf.setS(st);
+  const held=mf.holdingSipPlan(st.holdings[0]);
+  assert(held.length===1 && held[0].freq===3 && held[0].amt===300, "forecast reads the saved SIP without copying it into a monthly smear");
+  const html=mf.buildReportPdf("all");
+  assert(html.includes("Complete financial report") && html.includes("Contents") && html.includes("A4 landscape"), "complete PDF has a title, contents and landscape pages");
+  assert(html.includes(mf.formatMoney(90,"INR")) && html.includes(mf.formatMoney(40,"EUR")), "account totals stay in their own currency and ignore future and voided rows");
+  assert(!html.includes("SECRET-ACC") && !html.includes("asha@okbank"), "shareable PDF omits account numbers and UPI IDs");
+  assert(!html.includes("FUTURE-LUNCH") && !html.includes("VOID-MEAL"), "future-dated and voided transactions are omitted");
+  assert(html.includes("Flexi Cap"), "holdings are in the complete report");
+  assert(!html.includes("Give & Take"), "an empty Give & Take section is omitted");
+  assert(!html.includes("sip1") && !html.includes("open1"), "internal ids are not printed");
+  const activity=mf.buildReportPdf("activity");
+  assert(activity.includes("Lunch") && !activity.includes(future), "transaction PDF follows the same date rule");
+  assert(JSON.stringify(mf.getS())===before, "building a forecast input and a PDF does not change stored records");
+  const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
+  assert(page.includes("#2563EB") && !page.includes("#9ed4cb") && !page.includes("#1c4e5a"), "the accent is blue, not teal");
+  assert(page.includes('data-pdf="all"') && page.includes('data-pdf="home"') && page.includes('data-csv'), "CSV export remains and PDF export is offered");
+  console.log("PASS reports-and-forecast");
 }
 
 console.log("ALL_REGRESSION_PASS");
