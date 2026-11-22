@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1E40AF">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-F4v9UENx85RxdT4ZEMp/VHy2g2n8PiqkAz8BL6amJ5o='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-ZoMCzFU4rzcVrNglF+E8re4waAjTNJKxnKgYIEEc99U='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -486,8 +486,9 @@ input[type="range"]{accent-color:var(--accent);min-height:32px;height:32px;paddi
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.12.5";
+const APP_VERSION = "2.12.6";
 const RELEASES = [
+  {v:"2.12.6", d:"2026-11-22", notes:"PDF buttons on a section open that report directly. A short report starts on the first page instead of a blank cover. Lending summaries again show principal, interest, the amount outstanding and the transactions. The complete report still asks what to include. The vault and CSV exports are unchanged."},
   {v:"2.12.5", d:"2026-11-22", notes:"PDF reports open in a preview with page controls before you print or save. You choose the sections, dates and layout first. The printed pages use the same report. Lending maths, the vault and CSV exports are unchanged."},
   {v:"2.12.4", d:"2026-11-22", notes:"Forecasts no longer invent SIP dates. Monthly schedules keep their original day, including month-end and leap years. The integrity check warns about more invalid records and does not change them."},
   {v:"2.12.3", d:"2026-11-22", notes:"Home, Money and Lending reuse a calculation instead of repeating it on every card. The figures are unchanged."},
@@ -3004,7 +3005,7 @@ function viewAccounts(){
     </div>`;
   }).join("");
   const forexCards=forexList.map(forexCardHtml).join("");
-  const forexBlock=forexList.length?`<div class="section-label">Forex cards</div>${forexCards}`:"";
+  const forexBlock=forexList.length?`<div class="section-label">Forex cards ${pdfBtn("forex")}</div>${forexCards}`:"";
   const creditLabel=af==="card"&&forexList.length?`<div class="section-label">Credit and debit cards</div>`:"";
   return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Accounts</h2>${sortBarHtml("accounts",[{key:"name",label:"Name"},{key:"balance",label:"Balance"}], pdfBtn("accounts"))}</div>
   <div class="mod-hero">
@@ -5062,6 +5063,69 @@ function formatMoney(amount, cur){
   }
   return (code?code+" ":"")+roundMoney(value, code).toFixed(digits);
 }
+function lendingEvents(l, asOf){
+  const cur=l.cur||"";
+  const originalTxn=(S.txns||[]).find(t=>(t.lendingId===l.id||t.loanId===l.id)&&(t.type==="lend"||t.type==="borrow"));
+  const originalAccount=originalTxn&&originalTxn.postings&&originalTxn.postings[0]?(acct(originalTxn.postings[0].acct)||{}).name||"":(acct(l.account)||{}).name||"";
+  const events=[{
+    date:l.start||"",order:0,created:l.created||"",event:l.direction==="lent"?"Original amount lent":"Original amount borrowed",principal:roundMoney(l.principal,cur),
+    interest:0,account:originalAccount,status:"Recorded",
+    note:l.note||""
+  }];
+  for(const t of (S.txns||[])){
+    if(t.status!=="posted"||t.loanId!==l.id) continue;
+    const date=t.date||l.start||"";
+    if(date && date>asOf) continue;
+    const accountName=t.postings&&t.postings[0]?(acct(t.postings[0].acct)||{}).name||"":"";
+    const early=!!(l.start && date && date<l.start);
+    let note=t.note||"";
+    if(early){
+      const hint="Recorded before the loan start date. Original date "+date+" is unchanged. Effective interest date is "+l.start+"; interest uses the loan date.";
+      note=note?note+" · "+hint:hint;
+    }
+    const earlyTag=early?" (recorded before loan start)":"";
+    if(Number(t.principalReduction)>0){
+      events.push({
+        date,order:1,created:t.created||"",event:(l.direction==="lent"?"Principal repayment received":"Principal repayment paid")+earlyTag,
+        principal:roundMoney(t.principalReduction,cur),interest:0,account:accountName,
+        status:"Posted",note
+      });
+    }
+    if(t.interestSettlement){
+      const paid=Math.abs(Number(t.postings&&t.postings[0]&&t.postings[0].amt)||0);
+      events.push({
+        date,order:2,created:t.created||"",event:(l.direction==="lent"?"Interest received":"Interest paid")+earlyTag,
+        principal:0,interest:roundMoney(paid,cur),account:accountName,
+        status:"Posted",note
+      });
+    }
+  }
+  for(const a of (l.interestAdjustments||[])){
+    if(a.date&&a.date>asOf) continue;
+    const amount=roundMoney(a.amount,cur);
+    events.push({
+      date:a.date||l.start||"",order:3,created:a.created||"",event:amount<0?"Interest waiver / reduction":"Interest added / agreed adjustment",
+      principal:0,interest:amount,account:"",
+      status:"Adjustment",note:a.note||""
+    });
+  }
+  events.sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.order-b.order||String(a.created).localeCompare(String(b.created)));
+  return events;
+}
+function loansForSummaryRows(summaryBody){
+  const used=new Set();
+  const found=[];
+  for(const r of summaryBody||[]){
+    const hit=(S.lending||[]).find(l=>{
+      if(!l||used.has(l)) return false;
+      const cur=l.cur||"";
+      const direction=l.direction==="lent"?"Lent":"Borrowed";
+      return (l.person||"")===String(r[0]||"") && direction===String(r[1]||"") && cur===String(r[2]||"") && String(l.start||"")===String(r[3]||"") && Math.abs((Number(r[4])||0)-roundMoney(Number(l.principal)||0, cur))<0.001;
+    });
+    if(hit){ used.add(hit); found.push(hit); }
+  }
+  return found;
+}
 function buildLendingExportRows(scopeValue){
   const loans=filterLendingForExport(scopeValue);
   const asOf=today();
@@ -5078,52 +5142,7 @@ function buildLendingExportRows(scopeValue){
       Number(p.rate)||0,roundMoney(p.accrued,cur),roundMoney(p.interestPaid,cur),roundMoney(p.interestAdj,cur),
       roundMoney(p.interestLeft,cur),roundMoney(p.totalOutstanding,cur),p.status||"",asOf,l.note||""
     ]);
-    const originalTxn=(S.txns||[]).find(t=>(t.lendingId===l.id||t.loanId===l.id)&&(t.type==="lend"||t.type==="borrow"));
-    const originalAccount=originalTxn&&originalTxn.postings&&originalTxn.postings[0]?(acct(originalTxn.postings[0].acct)||{}).name||"":(acct(l.account)||{}).name||"";
-    const events=[{
-      date:l.start||"",order:0,created:l.created||"",event:l.direction==="lent"?"Original amount lent":"Original amount borrowed",principal:roundMoney(l.principal,cur),
-      interest:0,account:originalAccount,status:"Recorded",
-      note:l.note||""
-    }];
-    for(const t of (S.txns||[])){
-      if(t.status!=="posted"||t.loanId!==l.id) continue;
-      const date=t.date||l.start||"";
-      if(date && date>asOf) continue;
-      const accountName=t.postings&&t.postings[0]?(acct(t.postings[0].acct)||{}).name||"":"";
-      const early=!!(l.start && date && date<l.start);
-      let note=t.note||"";
-      if(early){
-        const hint="Recorded before the loan start date. Original date "+date+" is unchanged. Effective interest date is "+l.start+"; interest uses the loan date.";
-        note=note?note+" · "+hint:hint;
-      }
-      const earlyTag=early?" (recorded before loan start)":"";
-      if(Number(t.principalReduction)>0){
-        events.push({
-          date,order:1,created:t.created||"",event:(l.direction==="lent"?"Principal repayment received":"Principal repayment paid")+earlyTag,
-          principal:roundMoney(t.principalReduction,cur),interest:0,account:accountName,
-          status:"Posted",note
-        });
-      }
-      if(t.interestSettlement){
-        const paid=Math.abs(Number(t.postings&&t.postings[0]&&t.postings[0].amt)||0);
-        events.push({
-          date,order:2,created:t.created||"",event:(l.direction==="lent"?"Interest received":"Interest paid")+earlyTag,
-          principal:0,interest:roundMoney(paid,cur),account:accountName,
-          status:"Posted",note
-        });
-      }
-    }
-    for(const a of (l.interestAdjustments||[])){
-      if(a.date&&a.date>asOf) continue;
-      const amount=roundMoney(a.amount,cur);
-      events.push({
-        date:a.date||l.start||"",order:3,created:a.created||"",event:amount<0?"Interest waiver / reduction":"Interest added / agreed adjustment",
-        principal:0,interest:amount,account:"",
-        status:"Adjustment",note:a.note||""
-      });
-    }
-    events.sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.order-b.order||String(a.created).localeCompare(String(b.created)));
-    for(const e of events){
+    for(const e of lendingEvents(l, asOf)){
       ledger.push([l.person||"",l.direction==="lent"?"Lent":"Borrowed",cur,l.start||"",roundMoney(l.principal,cur),e.date,e.event,e.principal,e.interest,e.account,e.status,asOf,e.note]);
     }
   }
@@ -5141,100 +5160,85 @@ function cleanShareText(value){
 function pdfEsc(v){ return esc(cleanShareText(v)); }
 function pdfBaseCss(landscape){
   const size=landscape?"A4 landscape":"A4 portrait";
-  return `*{box-sizing:border-box}html{print-color-adjust:exact;-webkit-print-color-adjust:exact}body{font:10px/1.4 Arial,Helvetica,sans-serif;color:#172554;margin:0;background:#fff}.sheet{break-after:page;page-break-after:always;background:#fff}h1{font-size:22px;line-height:1.2;margin:0 0 4px;color:#1E40AF}h2{font-size:13px;margin:0 0 6px;color:#1E40AF}a{color:#1D4ED8}p,li{color:#334155}.meta{color:#5B6B86;font-size:9px}.section-note{margin:0 0 8px;font-size:9px;color:#334155}.run{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;border-bottom:2px solid #1E40AF;padding:0 0 8px;margin:0 0 10px}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8px;margin:0 0 8px}th,td{border:1px solid #D9E2F0;padding:4px;vertical-align:top;overflow-wrap:break-word;word-break:normal;hyphens:manual}th{background:#EFF6FF;text-align:left;font-weight:700;color:#1E3A8A}tbody tr:nth-child(even){background:#F8FAFC}td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.strong{font-weight:700}.sheet-foot{display:flex;justify-content:space-between;gap:8px;margin-top:10px;border-top:1px solid #D9E2F0;padding-top:6px;color:#5B6B86;font-size:8px}.toc{margin:0 0 10px}.toc ol{margin:4px 0 0;padding-left:18px}@page{size:${size};margin:12mm 10mm 14mm;@bottom-center{content:"Page " counter(page);font-family:Arial,Helvetica,sans-serif;font-size:8px;color:#5B6B86}}@media print{body{margin:0;background:#fff}thead{display:table-header-group}tfoot{display:table-footer-group}tr{break-inside:avoid;page-break-inside:avoid}.sheet{break-after:page;page-break-after:always}.totals,.closing{break-inside:avoid}}`;
+  return `*{box-sizing:border-box}html{print-color-adjust:exact;-webkit-print-color-adjust:exact}body{font:10px/1.4 Arial,Helvetica,sans-serif;color:#172554;margin:0;background:#fff}h1{font-size:20px;line-height:1.2;margin:0 0 4px;color:#1E40AF}h2{font-size:13px;margin:0 0 4px;color:#1E40AF}h3{font-size:11px;margin:8px 0 4px;color:#1E3A8A}a{color:#1D4ED8;text-decoration:none}p{color:#334155}.meta{color:#5B6B86;font-size:9px}.section-note{margin:0 0 8px;font-size:9px;color:#334155}.run{border-bottom:2px solid #1E40AF;padding:0 0 8px;margin:0 0 8px}.toc{margin:0 0 10px}.toc h2{font-size:10px;margin:0 0 2px}.toc a{display:inline-block;margin:0 10px 3px 0;font-size:9px}.metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 10px}body[data-orient="landscape"] .metrics{grid-template-columns:1fr 1fr 1fr}.metric{border:1px solid #D9E2F0;border-left:3px solid #1E40AF;border-radius:8px;padding:8px 10px;background:#fff;break-inside:avoid;page-break-inside:avoid}.metric-k{font-weight:700;color:#1E40AF;font-size:11px;margin:0 0 4px}.metric-row{display:flex;justify-content:space-between;gap:10px;font-size:9px;padding:2px 0}.metric-row b{font-variant-numeric:tabular-nums;text-align:right}.metric-foot{margin-top:4px;color:#5B6B86;font-size:8px}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8px;margin:0 0 10px}th,td{border:1px solid #D9E2F0;padding:4px;vertical-align:top;overflow-wrap:anywhere;word-break:normal;hyphens:manual}th{background:#EFF6FF;text-align:left;font-weight:700;color:#1E3A8A}tbody tr:nth-child(even){background:#F8FAFC}td.num{text-align:right;font-variant-numeric:tabular-nums}tr.pdf-pad td{border:0;background:transparent;padding:0}.keep{break-after:avoid;page-break-after:avoid}.end-note{margin:8px 0 0;color:#5B6B86;font-size:8px}@page{size:${size};margin:12mm 10mm 16mm;@bottom-center{content:"Page " counter(page);font-family:Arial,Helvetica,sans-serif;font-size:8px;color:#5B6B86}}@media print{body{margin:0;background:#fff;height:auto!important;overflow:visible!important;width:auto!important}#report{transform:none!important;width:auto!important}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}tr.allow-split{break-inside:auto;page-break-inside:auto}h2,h3,.section-note,.keep{break-after:avoid;page-break-after:avoid}.metric{break-inside:avoid;page-break-inside:avoid}}`;
 }
 function pdfTableHtml(headers, rows, numeric){
   const nums=new Set(numeric||[]);
-  const head=`<thead><tr>${(headers||[]).map(h=>`<th>${pdfEsc(h)}</th>`).join("")}</tr></thead>`;
-  const body=`<tbody>${(rows||[]).map(r=>`<tr>${r.map((c,i)=>`<td class="${nums.has(i)?"num":"text"}">${pdfEsc(c==null?"":c)}</td>`).join("")}</tr>`).join("")}</tbody>`;
-  return `<table>${head}${body}</table>`;
+  const count=Math.max(1,(headers||[]).length);
+  const numW=count<=4?16:13;
+  const textCount=Math.max(1, count-nums.size);
+  let textW=Math.max(8, Math.floor((100-numW*nums.size)/textCount));
+  const cols=(headers||[]).map((_,i)=>`<col style="width:${nums.has(i)?numW:textW}%">`).join("");
+  const head=`<thead class="pdf-unit"><tr>${(headers||[]).map(h=>`<th>${pdfEsc(h)}</th>`).join("")}</tr></thead>`;
+  const body=`<tbody>${(rows||[]).map(r=>{
+    const long=(r||[]).some(c=>String(c==null?"":c).length>320);
+    return `<tr class="pdf-unit${long?" allow-split":""}">${(r||[]).map((c,i)=>`<td class="${nums.has(i)?"num":"text"}">${pdfEsc(c==null?"":c)}</td>`).join("")}</tr>`;
+  }).join("")}</tbody>`;
+  return `<table><colgroup>${cols}</colgroup>${head}${body}</table>`;
 }
-function pdfRowGroups(headers, rows, rowCap, wide){
-  const totalChars=wide?140:100;
-  const width=Math.max(12, Math.floor(totalChars/Math.max(1,(headers||[]).length)));
-  const groups=[];
-  let cur=[], units=0;
-  for(const row of rows||[]){
-    let lines=1;
-    for(const cell of row){
-      const n=String(cell==null?"":cell).length;
-      lines=Math.max(lines, Math.ceil(n/width)||1);
-    }
-    if(cur.length && (lines>rowCap || units+lines>rowCap || cur.length>=rowCap)){
-      groups.push({rows:cur, units}); cur=[]; units=0;
-    }
-    cur.push(row);
-    units+=lines;
-    if(units>=rowCap){ groups.push({rows:cur, units}); cur=[]; units=0; }
+function pdfMetricGrid(items){
+  const cards=(items||[]).map(item=>{
+    const lines=(item.lines||[]).map(pair=>`<div class="metric-row"><span>${pdfEsc(pair[0])}</span><b>${pdfEsc(pair[1])}</b></div>`).join("");
+    const foot=item.foot?`<div class="metric-foot">${pdfEsc(item.foot)}</div>`:"";
+    return `<div class="metric pdf-unit"><div class="metric-k">${pdfEsc(item.k||"")}</div>${lines}${foot}</div>`;
+  }).join("");
+  return cards?`<div class="metrics">${cards}</div>`:"";
+}
+function pdfBlockHtml(block){
+  const id=block.id||"";
+  const bits=[];
+  bits.push(`<div class="pdf-unit keep"><h2${id?` id="${pdfEsc(id)}"`:""}>${pdfEsc(block.heading||"")}</h2>${block.note?`<p class="section-note">${pdfEsc(block.note)}</p>`:""}</div>`);
+  if(block.metrics&&block.metrics.length) bits.push(pdfMetricGrid(block.metrics));
+  const tables=block.tables&&block.tables.length?block.tables:(block.html?[{html:block.html}]:[]);
+  for(const table of tables){
+    if(table.title) bits.push(`<h3 class="pdf-unit keep">${pdfEsc(table.title)}</h3>`);
+    if(table.headers){
+      if(table.headers.length===2 && table.headers[0]==="Item" && (table.rows||[]).length<=12){
+        bits.push(pdfMetricGrid([{k:"Summary", lines:(table.rows||[]).map(r=>[r[0], r[1]])}]));
+      }else bits.push(pdfTableHtml(table.headers, table.rows||[], table.numeric||[]));
+    }else if(table.html) bits.push(`<div class="pdf-unit">${table.html}</div>`);
   }
-  if(cur.length) groups.push({rows:cur, units});
-  return groups;
+  const cls=id==="sec-outstanding"?"totals":id==="sec-closing"?"closing":"block";
+  return `<section class="${cls}">${bits.join("")}</section>`;
 }
 function pdfSheetsHtml(title, asOf, landscape, blocks, scope){
-  const rowCap=landscape?18:24;
-  const pages=[{cover:true, items:[]}];
-  let bucket=[], used=0;
-  const flush=()=>{ if(bucket.length){ pages.push({items:bucket}); bucket=[]; used=0; } };
-  const place=(item, cost)=>{
-    if(bucket.length && used+cost>rowCap) flush();
-    bucket.push(item);
-    used+=cost;
-    if(used>=rowCap) flush();
-  };
-  for(const block of blocks){
-    const tables=block.tables&&block.tables.length?block.tables:(block.html?[{html:block.html}]:[]);
-    let seen=false;
-    tables.forEach(table=>{
-      if(!table.headers){
-        place({heading:seen?"":block.heading, id:seen?"":block.id, note:seen?"":block.note, html:table.html||""}, 8);
-        seen=true;
-        return;
-      }
-      const groups=pdfRowGroups(table.headers, table.rows||[], rowCap, landscape);
-      (groups.length?groups:[{rows:[], units:2}]).forEach((group, ci)=>{
-        const firstPiece=!seen && ci===0;
-        const continued=table.title?table.title+(ci?" (continued)":""):(block.heading+(firstPiece?"":" (continued)"));
-        place({
-          heading:firstPiece?block.heading:continued,
-          id:firstPiece?block.id:"",
-          note:firstPiece?(block.note||""):"",
-          headers:table.headers,
-          rows:group.rows,
-          numeric:table.numeric||[]
-        }, group.units+2);
-        seen=true;
-      });
-    });
-  }
-  flush();
-  if(pages.length===1) pages.push({items:[]});
-  const toc=`<nav class="toc"><h2>Contents</h2><ol>${blocks.map(b=>`<li><a href="#${pdfEsc(b.id)}">${pdfEsc(b.heading)}</a></li>`).join("")}</ol></nav>`;
-  const body=pages.map((page, i)=>{
-    const bits=(page.items||[]).map(item=>{
-      if(item.tables){
-        return item.tables.map((table, ti)=>{
-          const heading=ti===0?item.heading:(table.title||"");
-          const id=ti===0?item.id:"";
-          const note=ti===0?item.note:"";
-          const cls=id==="sec-outstanding"?"totals":id==="sec-closing"?"closing":"block";
-          return `<section class="${cls}">${heading?`<h2${id?` id="${pdfEsc(id)}"`:""}>${pdfEsc(heading)}</h2>`:""}${note?`<p class="section-note">${pdfEsc(note)}</p>`:""}${table.headers?pdfTableHtml(table.headers, table.rows||[], table.numeric):(table.html||"")}</section>`;
-        }).join("");
-      }
-      const cls=item.id==="sec-outstanding"?"totals":item.id==="sec-closing"?"closing":"block";
-      const table=item.headers?pdfTableHtml(item.headers, item.rows||[], item.numeric):(item.html||"");
-      return `<section class="${cls}">${item.heading?`<h2${item.id?` id="${pdfEsc(item.id)}"`:""}>${pdfEsc(item.heading)}</h2>`:""}${item.note?`<p class="section-note">${pdfEsc(item.note)}</p>`:""}${table}</section>`;
-    }).join("");
-    const head=page.cover
-      ? `<header class="run"><div><h1>${pdfEsc(title)}</h1><p class="meta">Report date ${pdfEsc(asOf)} · My Finance · generated on this device${scope?" · "+pdfEsc(scope):""}</p></div></header>${toc}`
-      : `<header class="run"><strong>${pdfEsc(title)}</strong><span class="meta">Report date ${pdfEsc(asOf)}</span></header>`;
-    const foot=`<footer class="sheet-foot"><span>Private financial information · Generated locally in your browser · Amounts are not combined across currencies</span><span>Page ${i+1} of ${pages.length}</span></footer>`;
-    return `<article class="sheet" id="page-${i+1}">${head}${bits}${foot}</article>`;
-  }).join("");
-  return {css:pdfBaseCss(landscape), body};
+  const list=(blocks||[]).filter(Boolean);
+  const toc=list.length?`<nav class="toc pdf-unit"><h2>Contents</h2><p>${list.map(b=>`<a href="#${pdfEsc(b.id)}">${pdfEsc(b.heading)}</a>`).join("")}</p></nav>`:"";
+  const head=`<header class="run pdf-unit"><div><h1>${pdfEsc(title)}</h1><p class="meta">Report date ${pdfEsc(asOf)} · My Finance · generated on this device${scope?" · "+pdfEsc(scope):""}</p></div></header>`;
+  const sections=list.map(pdfBlockHtml).join("");
+  const tail=`<p class="end-note pdf-unit">Private financial information · Generated locally in your browser · Amounts are not combined across currencies. Readable report only. This is not an encrypted backup. Account numbers, UPI IDs and internal record IDs are omitted.</p>`;
+  return {css:pdfBaseCss(!!landscape), body:`<article class="report" id="report">${head}${toc}${sections}${tail}</article>`};
 }
 function pdfDocument(title, asOf, landscape, blocks, scope){
   const built=pdfSheetsHtml(title, asOf, !!landscape, blocks||[], scope||"");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${pdfEsc(title)} · ${pdfEsc(asOf)}</title><style>${built.css}</style></head><body>${built.body}<p class="meta">Readable report only. This is not an encrypted backup. Account numbers, UPI IDs and internal record IDs are omitted. Contents links jump to a section inside this document.</p></body></html>`;
+  const orient=landscape?"landscape":"portrait";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${pdfEsc(title)} · ${pdfEsc(asOf)}</title><style>${built.css}</style></head><body data-orient="${orient}">${built.body}</body></html>`;
+}
+function lendingSummaryMetrics(totalRows){
+  return totalRows.map(t=>({
+    k:t.cur+" · "+t.direction,
+    lines:[
+      ["Principal outstanding", t.principalText],
+      ["Interest outstanding", t.interestText],
+      ["Total outstanding", t.totalText]
+    ],
+    foot:t.count+(Number(t.count)===1?" loan record":" loan records")
+  }));
+}
+function lendingActivityRows(summaryBody, asOf){
+  const rows=[];
+  for(const l of loansForSummaryRows(summaryBody)){
+    const cur=l.cur||"";
+    const direction=l.direction==="lent"?"Lent":"Borrowed";
+    for(const e of lendingEvents(l, asOf)){
+      let text=e.event||"";
+      const note=e.note||"";
+      if(note && !text.includes(note)) text=text+" — "+note;
+      rows.push([e.date, l.person||"", direction, cur, text, formatMoney(e.principal, cur), formatMoney(e.interest, cur)]);
+    }
+  }
+  rows.sort((a,b)=>String(a[0]).localeCompare(String(b[0]))||String(a[1]).localeCompare(String(b[1]))||String(a[4]).localeCompare(String(b[4])));
+  return rows;
 }
 function buildLendingPdfHtml(rows, kind, asOf, summaryRows, positions){
   const isSummary=kind==="summary";
@@ -5254,25 +5258,54 @@ function buildLendingPdfHtml(rows, kind, asOf, summaryRows, positions){
   }else{
     for(const r of summaryBody) addTotal(String(r[2]||"Unknown"), String(r[1]||"Lent"), r[6], r[11], r[12]);
   }
-  const totalRows=[...totals.values()].sort((a,b)=>a.cur.localeCompare(b.cur)||a.direction.localeCompare(b.direction));
+  const totalRows=[...totals.values()].sort((a,b)=>a.cur.localeCompare(b.cur)||a.direction.localeCompare(b.direction)).map(t=>({
+    cur:t.cur, direction:t.direction, count:t.count,
+    principalText:money(t.principal, t.cur), interestText:money(t.interest, t.cur), totalText:money(t.total, t.cur)
+  }));
+  const loanRows=summaryBody.map(r=>[r[0], r[1], r[2], r[3], money(r[4], r[2]), money(r[6], r[2]), money(r[11], r[2]), money(r[12], r[2]), r[13]]);
+  const loanTable={headers:["Person","Direction","Currency","Loan date","Original principal","Principal outstanding","Interest outstanding","Total outstanding","Status"], rows:loanRows, numeric:[4,5,6,7]};
   const blocks=[{
     id:"sec-outstanding",
     heading:"Outstanding position",
-    note:"Balances as of "+asOf+". Each currency and direction is totalled on its own. Figures are added before rounding. Repayments after this date are not included.",
-    tables:[{headers:["Currency","Direction","Loan records","Principal outstanding","Interest outstanding","Total outstanding"], rows:totalRows.map(t=>[t.cur, t.direction, String(t.count), money(t.principal, t.cur), money(t.interest, t.cur), money(t.total, t.cur)]), numeric:[2,3,4,5]}]
+    note:"Balances as of "+asOf+". Each currency and each direction is totalled on its own. Figures are added before rounding. Repayments after this date are not included.",
+    metrics:lendingSummaryMetrics(totalRows)
+  },{
+    id:"sec-records",
+    heading:"Individual loan summary",
+    note:"One row per loan. Lent and borrowed are not combined.",
+    tables:[loanTable]
   }];
   if(isSummary){
-    const compactRows=summaryBody.map(r=>[r[0], r[1], r[2], r[3], money(r[4], r[2]), money(r[6], r[2]), money(r[11], r[2]), money(r[12], r[2]), r[13]]);
-    blocks.push({id:"sec-records", heading:"Individual lending records", note:"", tables:[{headers:["Person","Direction","Currency","Loan date","Original principal","Principal outstanding","Interest outstanding","Total outstanding","Status"], rows:compactRows, numeric:[4,5,6,7]}]});
+    const activity=lendingActivityRows(summaryBody, asOf);
+    if(activity.length){
+      blocks.push({
+        id:"sec-activity",
+        heading:"Recent transactions",
+        note:"Original lending or borrowing, principal repayments, interest settlements and interest adjustments. Each movement is listed once. Voided and future-dated rows are left out.",
+        tables:[{headers:["Date","Person","Direction","Currency","Description","Principal movement","Interest movement"], rows:activity, numeric:[5,6]}]
+      });
+    }
   }else{
     const headers=rows[0]||[];
-    const body=rows.slice(1).map(r=>r.map((v,i)=>([4,7,8].includes(i)&&typeof v==="number")?money(v, r[2]):(v==null?"":v)));
-    blocks.push({id:"sec-history", heading:"Transaction history", note:"Each row stays with its loan. A repayment dated before the loan keeps its original date.", tables:[{headers, rows:body, numeric:[4,7,8]}]});
-    blocks.push({id:"sec-closing", heading:"Closing balance by loan", note:"", tables:[{headers:["Person","Direction","Currency","Principal outstanding","Interest outstanding","Total outstanding"], rows:summaryBody.map(r=>[r[0], r[1], r[2], money(r[6], r[2]), money(r[11], r[2]), money(r[12], r[2])]), numeric:[3,4,5]}]});
+    const body=(rows.slice(1)||[]).map(r=>r.map((v,i)=>([4,7,8].includes(i)&&typeof v==="number")?money(v, r[2]):(v==null?"":v)));
+    blocks.push({
+      id:"sec-history",
+      heading:"Transaction history",
+      note:"Complete chronological ledger for the same selection. A repayment dated before the loan keeps its original date. Each movement is listed once.",
+      tables:[{headers, rows:body, numeric:[4,7,8]}]
+    });
+    blocks.push({
+      id:"sec-closing",
+      heading:"Closing balance by loan",
+      note:"",
+      tables:[{headers:["Person","Direction","Currency","Principal outstanding","Interest outstanding","Total outstanding"], rows:summaryBody.map(r=>[r[0], r[1], r[2], money(r[6], r[2]), money(r[11], r[2]), money(r[12], r[2])]), numeric:[3,4,5]}]
+    });
   }
   return pdfDocument(title, asOf, !isSummary, blocks, "");
 }
-let pdfPreviewHtml="", pdfPreviewToken=0, pdfZoom=1, pdfPage=1;
+let pdfPreviewHtml="", pdfPreviewToken=0, pdfZoom=1, pdfPage=1, pdfPageCount=1;
+let pdfMetrics={contentW:718, contentH:1016};
+let pdfPreviewKind="all", pdfPreviewLending=false, pdfLendingScope="all";
 function closePdfPreview(){
   pdfPreviewToken++;
   pdfPreviewHtml="";
@@ -5280,7 +5313,7 @@ function closePdfPreview(){
   if(el) el.remove();
 }
 function pdfLimitNote(){
-  return "Contents links in the preview jump to each section. Print and Save PDF use this same report. Choose Save as PDF in the print dialog. The saved file does not get a separate bookmark list; this browser cannot add one from a printed page.";
+  return "Page count follows this A4 preview. Contents links jump to a section. Print / Save PDF opens the print dialog for this same report — choose Save as PDF there. A saved PDF does not gain a bookmark list.";
 }
 function showPdfOverlay(state, message){
   let root=document.getElementById("pdfPreview");
@@ -5303,16 +5336,24 @@ function showPdfOverlay(state, message){
     <button type="button" data-pdfui="in" aria-label="Zoom in"${busy?" disabled":""}>+</button>
     <button type="button" data-pdfui="fit"${busy?" disabled":""}>Fit width</button>
     <button type="button" data-pdfui="print"${busy?" disabled":""}>Print</button>
-    <button type="button" data-pdfui="download"${busy?" disabled":""}>Save PDF</button>
+    <button type="button" data-pdfui="download"${busy?" disabled":""}>Print / Save PDF</button>
+    <button type="button" data-pdfui="customize"${busy?" disabled":""}>Customize</button>
     <button type="button" data-pdfui="close">Close</button>
   </div>
   <div id="pdfStage" class="pdf-stage">${state==="ready"?"":`<div class="pdf-status"><h2>${state==="error"?"Report unavailable":state==="empty"?"Nothing to include":"Preparing report"}</h2><p>${pdfEsc(message||"")}</p></div>`}</div>
   <p class="pdf-limit">${pdfEsc(pdfLimitNote())}</p>`;
 }
+function pdfPaper(landscape){
+  const mm=96/25.4;
+  const pageW=(landscape?297:210)*mm;
+  const pageH=(landscape?210:297)*mm;
+  return {contentW:pageW-20*mm, contentH:pageH-28*mm};
+}
 function mountPdfPreview(html, token){
   if(token!=null && token!==pdfPreviewToken) return;
   pdfPreviewHtml=html||"";
   pdfPage=1;
+  pdfPageCount=1;
   pdfZoom=1;
   showPdfOverlay("ready", "");
   const stage=document.getElementById("pdfStage");
@@ -5323,16 +5364,109 @@ function mountPdfPreview(html, token){
   frame.setAttribute("referrerpolicy","no-referrer");
   stage.innerHTML="";
   stage.appendChild(frame);
-  frame.onload=()=>{ if(token!=null && token!==pdfPreviewToken) return; fitPdfWidth(); updatePdfPager(); };
+  frame.onload=()=>{
+    if(token!=null && token!==pdfPreviewToken) return;
+    const doc=pdfFrameDoc();
+    const landscape=!!(doc&&doc.body&&doc.body.getAttribute("data-orient")==="landscape");
+    pdfMetrics=pdfPaper(landscape);
+    layoutPdfPages(doc);
+    bindPdfLinks(doc);
+    fitPdfWidth();
+    showPdfPage(1);
+  };
   frame.srcdoc=pdfPreviewHtml;
 }
 function pdfFrameDoc(){
   const frame=document.getElementById("pdfFrame");
   try{ return frame&&frame.contentDocument?frame.contentDocument:null; }catch(e){ return null; }
 }
+function insertPdfGap(el, gap){
+  if(!el||!el.parentNode||!(gap>1)) return;
+  const doc=el.ownerDocument;
+  if(el.tagName==="TR"){
+    const tr=doc.createElement("tr");
+    tr.className="pdf-pad";
+    const td=doc.createElement("td");
+    td.colSpan=Math.max(1, el.children.length);
+    td.style.cssText="height:"+gap.toFixed(2)+"px;padding:0;border:0;background:#fff;line-height:0;font-size:0";
+    tr.appendChild(td);
+    el.parentNode.insertBefore(tr, el);
+    return;
+  }
+  const host=el.tagName==="THEAD"&&el.parentNode&&el.parentNode.parentNode?el.parentNode:el;
+  const div=doc.createElement("div");
+  div.className="pdf-pad";
+  div.style.cssText="height:"+gap.toFixed(2)+"px";
+  if(host.parentNode) host.parentNode.insertBefore(div, host);
+}
+function layoutPdfPages(doc){
+  pdfPageCount=1;
+  if(!doc) return;
+  const report=doc.getElementById("report");
+  if(!report) return;
+  try{
+    doc.querySelectorAll(".pdf-pad").forEach(n=>n.remove());
+    report.style.transform="none";
+    doc.body.style.height="auto";
+    doc.body.style.overflow="visible";
+    doc.body.style.width=pdfMetrics.contentW+"px";
+    doc.body.style.margin="0 auto";
+    doc.body.style.background="#fff";
+    if(doc.documentElement) doc.documentElement.style.zoom="1";
+    const pageH=pdfMetrics.contentH;
+    if(!(pageH>40)) return;
+    const units=[...report.querySelectorAll(".pdf-unit")];
+    const base=report.getBoundingClientRect().top;
+    const items=units.map(el=>{
+      const r=el.getBoundingClientRect();
+      return {el, top:r.top-base, height:r.height};
+    }).filter(x=>x.height>0.5);
+    let shift=0, pageEnd=pageH;
+    for(const item of items){
+      let top=item.top+shift;
+      const h=item.height;
+      const splittable=item.el.classList.contains("allow-split")||h>pageH+1;
+      while(top>=pageEnd-0.5) pageEnd+=pageH;
+      const bottom=top+h;
+      if(!splittable && bottom>pageEnd+0.5 && top<pageEnd-0.5){
+        const gap=pageEnd-top;
+        insertPdfGap(item.el, gap);
+        shift+=gap;
+        top+=gap;
+        pageEnd+=pageH;
+        if(h>pageH) pageEnd=top+Math.ceil(h/pageH)*pageH;
+      }else{
+        while(top+h>pageEnd+0.5) pageEnd+=pageH;
+      }
+    }
+    const total=report.scrollHeight||report.getBoundingClientRect().height||pageH;
+    pdfPageCount=Math.max(1, Math.ceil((total-0.5)/pageH));
+    doc.body.style.height=pageH+"px";
+    doc.body.style.overflow="hidden";
+  }catch(e){
+    pdfPageCount=1;
+  }
+}
+function bindPdfLinks(doc){
+  if(!doc||doc.__mfPdfLinks) return;
+  doc.__mfPdfLinks=true;
+  doc.addEventListener("click", ev=>{
+    const a=ev.target&&ev.target.closest&&ev.target.closest("a[href^='#']");
+    if(!a) return;
+    ev.preventDefault();
+    const id=decodeURIComponent((a.getAttribute("href")||"").slice(1));
+    const el=doc.getElementById(id);
+    const report=doc.getElementById("report");
+    if(!el||!report) return;
+    const visual=el.getBoundingClientRect().top-report.getBoundingClientRect().top;
+    const docTop=visual+(pdfPage-1)*(pdfMetrics.contentH||1);
+    showPdfPage(Math.floor(Math.max(0, docTop)/(pdfMetrics.contentH||1))+1);
+  });
+}
 function updatePdfPager(){
-  const doc=pdfFrameDoc();
-  const n=doc?doc.querySelectorAll(".sheet").length:Math.max(1, (pdfPreviewHtml.match(/class="sheet"/g)||[]).length);
+  const n=Math.max(1, pdfPageCount||1);
+  if(pdfPage>n) pdfPage=n;
+  if(pdfPage<1) pdfPage=1;
   const label=document.getElementById("pdfPageLabel");
   if(label) label.textContent="Page "+pdfPage+" of "+n;
   const zoom=document.getElementById("pdfZoomLabel");
@@ -5341,12 +5475,11 @@ function updatePdfPager(){
   document.querySelectorAll("#pdfPreview [data-pdfui='next']").forEach(b=>{ b.disabled=pdfPage>=n; });
 }
 function showPdfPage(n){
+  const pages=Math.max(1, pdfPageCount||1);
+  pdfPage=Math.min(pages, Math.max(1, n||1));
   const doc=pdfFrameDoc();
-  if(!doc) return;
-  const pages=[...doc.querySelectorAll(".sheet")];
-  if(!pages.length) return;
-  pdfPage=Math.min(pages.length, Math.max(1, n));
-  try{ pages[pdfPage-1].scrollIntoView({block:"start"}); }catch(e){ pages[pdfPage-1].scrollIntoView(); }
+  const report=doc&&doc.getElementById("report");
+  if(report&&pdfMetrics&&pdfMetrics.contentH) report.style.transform="translateY("+(-(pdfPage-1)*pdfMetrics.contentH)+"px)";
   updatePdfPager();
 }
 function setPdfZoom(z){
@@ -5356,14 +5489,12 @@ function setPdfZoom(z){
   updatePdfPager();
 }
 function fitPdfWidth(){
-  const doc=pdfFrameDoc();
   const stage=document.getElementById("pdfStage");
-  if(!doc||!stage) return;
-  const sheet=doc.querySelector(".sheet");
-  if(!sheet) return;
-  if(doc.documentElement) doc.documentElement.style.zoom="1";
-  const w=sheet.getBoundingClientRect().width||sheet.offsetWidth||794;
-  const avail=Math.max(280, stage.clientWidth-12);
+  if(!stage) return;
+  const doc=pdfFrameDoc();
+  if(doc&&doc.documentElement) doc.documentElement.style.zoom="1";
+  const w=pdfMetrics.contentW||718;
+  const avail=Math.max(280, stage.clientWidth-16);
   setPdfZoom(avail/w);
 }
 function printPdfPreview(){
@@ -5379,6 +5510,22 @@ function printPdfPreview(){
     if(win.document.readyState==="complete") setTimeout(kick, 200);
     else win.addEventListener("load", ()=>setTimeout(kick, 200));
   }catch(e){ setTimeout(kick, 300); }
+}
+function openPdfCustomize(){
+  const kind=pdfPreviewKind||"all";
+  const lending=pdfPreviewLending;
+  const scope=pdfLendingScope||"all";
+  closePdfPreview();
+  if(lending){
+    const loanId=typeof scope==="string"&&scope.startsWith("loan:")?scope.slice(5):"";
+    openLendingExportSheet(loanId||undefined);
+    if(!loanId && scope && scope!=="all"){
+      const sel=document.getElementById("lendExportScope");
+      if(sel) sel.value=scope;
+    }
+    return;
+  }
+  openPdfOptions(kind);
 }
 function openPrintReport(html){
   if(!html){ showPdfOverlay("empty", "Nothing to include in this report."); return; }
@@ -5608,23 +5755,31 @@ function buildPdfDocument(title, sections, landscape, opts){
   }));
   return pdfDocument(title, asOf, !!landscape, blocks, opts&&opts.scope||"");
 }
+function reportWantsLandscape(kind){
+  return kind==="activity"||kind==="all"||kind==="holdings";
+}
 function buildReportPdf(kind, opts){
   const sections=reportSections(kind, opts).filter(Boolean);
   if(!sections.length) return "";
   const titles={home:"Financial summary", accounts:"Accounts", activity:"Transactions", givetake:"Give & Take", holdings:"Investments", sips:"SIPs", salaries:"Salaries", policies:"Insurance", contacts:"Contacts", forex:"Forex wallets", all:"Complete financial report"};
-  const landscape=opts&&typeof opts.landscape==="boolean"?opts.landscape:(kind==="activity"||kind==="all"||kind==="lending");
+  const landscape=opts&&typeof opts.landscape==="boolean"?opts.landscape:reportWantsLandscape(kind);
   return buildPdfDocument(titles[kind]||"Financial report", sections, landscape, opts);
 }
 function exportReportPdf(kind, opts){
   opts=opts||{};
   if(kind==="all" && !opts.confirmed){ openPdfOptions(kind); return; }
+  pdfPreviewKind=kind||"all";
+  pdfPreviewLending=false;
   try{ closeSheet(); }catch(e){}
   beginPdfJob(()=>buildReportPdf(kind, opts), {empty:"Nothing to include in this report."});
 }
 function exportLendingPDF(kind){
-  const selected=$("#lendExportScope")?.value||"all";
+  const selected=$("#lendExportScope")?.value||pdfLendingScope||"all";
+  pdfLendingScope=selected;
   let scope=selected;
   if(typeof selected==="string"&&selected.startsWith("loan:")) scope={type:"loan",loanId:selected.slice(5)};
+  pdfPreviewKind="lending";
+  pdfPreviewLending=true;
   try{ closeSheet(); }catch(e){}
   beginPdfJob(()=>{
     const data=buildLendingExportRows(scope);
@@ -5642,7 +5797,7 @@ function pdfScopeSentence(){
   const mode=(document.getElementById("pdfMode")||{}).value==="summary"?"Summary":"Detailed";
   const orient=(document.getElementById("pdfOrient")||{}).value||"auto";
   const kind=box.getAttribute("data-kind")||"all";
-  const landscape=orient==="land"?true:orient==="port"?false:(kind==="activity"||kind==="all");
+  const landscape=orient==="land"?true:orient==="port"?false:reportWantsLandscape(kind);
   const from=(document.getElementById("pdfFrom")||{}).value||"";
   const to=(document.getElementById("pdfTo")||{}).value||"";
   const bits=[labels.join(", ")||"No sections", mode, (from||to)?((from||"start")+" to "+(to||"today")):"All dates through today", landscape?"Landscape":"Portrait"];
@@ -5659,7 +5814,7 @@ function readPdfOptions(kind){
   const modules=[...box.querySelectorAll("[data-pdfmod]:checked")].map(el=>el.value);
   const mode=(document.getElementById("pdfMode")||{}).value||"detailed";
   const orient=(document.getElementById("pdfOrient")||{}).value||"auto";
-  const landscape=orient==="land"?true:orient==="port"?false:(kind==="activity"||kind==="all");
+  const landscape=orient==="land"?true:orient==="port"?false:reportWantsLandscape(kind);
   const labels=[...box.querySelectorAll("[data-pdfmod]:checked")].map(el=>el.getAttribute("data-label"));
   const from=(document.getElementById("pdfFrom")||{}).value||"";
   const to=(document.getElementById("pdfTo")||{}).value||"";
@@ -5678,14 +5833,15 @@ function openPdfOptions(kind){
   const on=new Set(kind==="all"?PDF_MODULES.map(m=>m[0]):kind==="home"?["summary","accounts"]:kind==="forex"?["forex"]:[kind]);
   const cats=new Set([...(typeof expenseCats==="function"?expenseCats():[]), ...(typeof incomeCats==="function"?incomeCats():[])]);
   for(const t of (S.txns||[])) if(t&&t.cat) cats.add(t.cat);
-  const catOpts=[...cats].sort((a,b)=>String(a).localeCompare(String(b))).map(c=>`<option value="${esc(c)}"${c===filterType?"":""}>${esc(c)}</option>`).join("");
+  const catOpts=[...cats].sort((a,b)=>String(a).localeCompare(String(b))).map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
   const typeKeys=["expense","income","transfer","refund","givetake","buy","sell","lend","borrow","lendback","adjust","adjustment","open"];
   const accounts=(S.accounts||[]).filter(a=>a&&!a.archived).map(a=>`<option value="${esc(a.id)}"${a.id===filterAcct?" selected":""}>${esc(a.name||"Account")} · ${esc(a.cur||"")}</option>`).join("");
   const detailed=kind==="home"?"summary":"detailed";
-  const orient=kind==="activity"||kind==="all"?"land":kind==="home"?"port":"auto";
+  const orient=reportWantsLandscape(kind)?"land":kind==="home"?"port":"auto";
+  const heading=kind==="all"?"Complete financial report":"Customize report";
   openSheet(`<div id="pdfOptions" class="pdf-options" data-kind="${esc(kind)}">
-    <h2 style="margin-top:0">Save PDF</h2>
-    <p class="muted">${esc(titles[kind]||"Report")}. This is a readable copy, not an encrypted backup. Account numbers and UPI IDs are left out. Nothing is uploaded.</p>
+    <h2 style="margin-top:0">${esc(heading)}</h2>
+    <p class="muted">${esc(titles[kind]||"Report")}. Choose what this copy includes. It is readable, not an encrypted backup. Account numbers and UPI IDs are left out. Nothing is uploaded.</p>
     <label>Amount of detail</label>
     <select id="pdfMode"><option value="summary"${detailed==="summary"?" selected":""}>Summary</option><option value="detailed"${detailed==="detailed"?" selected":""}>Detailed</option></select>
     <label>Page layout</label>
@@ -5729,10 +5885,9 @@ document.addEventListener("click", e=>{
   else if(act==="in") setPdfZoom(pdfZoom+0.1);
   else if(act==="out") setPdfZoom(pdfZoom-0.1);
   else if(act==="fit") fitPdfWidth();
-  else if(act==="print") printPdfPreview();
-  else if(act==="download"){ toast("Choose Save as PDF in the print dialog. It uses this same report."); printPdfPreview(); }
+  else if(act==="print"||act==="download") printPdfPreview();
+  else if(act==="customize") openPdfCustomize();
 });
-
 function balanceAsOf(a, asOf){
   if(!a || a.type==="forex") return null;
   let v=Number(a.opening)||0;
@@ -6602,7 +6757,7 @@ if(d.delmethod){
     if(!confirm("This CSV is not encrypted. Notes and amounts will be saved as plain text. Continue?")) return;
     exportCSV(); return;
   }
-  if(d.pdf){ openPdfOptions(d.pdf); return; }
+  if(d.pdf){ if(d.pdf==="all") openPdfOptions("all"); else exportReportPdf(d.pdf); return; }
   if("import" in d){ $("#file").click(); return; }
   if("check" in d){ runCheck(); return; }
   if("wipe" in d){
