@@ -163,3 +163,10 @@ Several forms had UI but **no `submit` handler** for their `form id`.
 
 ### v2.9.6 upload
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
+
+
+## 2.9.7 — Lending PDF layout and totals (2026-11-22)
+- Regression coverage verifies summary PDF principal, interest and total outstanding labels.
+- Regression coverage verifies totals remain separated by currency and Lent/Borrowed direction.
+- Regression coverage verifies A4 portrait summary layout, A4 landscape detailed layout, normal word wrapping and per-loan closing balances.
+- Full `node regression.mjs` suite passed after implementation.

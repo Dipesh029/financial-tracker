@@ -637,7 +637,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.9.6");
+  const versionAt = home.indexOf("v" + "2.9.7");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -1020,7 +1020,7 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v86"), "service worker cache version is bumped for the UI/export release");
+  assert(sw.includes("myfinance-shell-v87"), "service worker cache version is bumped for the UI/export release");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
   const csp=page.match(/Content-Security-Policy" content="([^"]+)"/i)?.[1]||"";
   const scriptPolicy=csp.split(";").find(x=>x.trim().startsWith("script-src"))||"";
@@ -1085,8 +1085,14 @@ console.log("PASS calendar-dst-end");
   assert(csv.startsWith("\"Person\",\"Type\""), "lending CSV starts with readable report headings");
   assert(mf.cleanShareText("  Asha\u200B\u202E  ")==="Asha", "shareable person names remove invisible formatting characters");
   assert(mf.cleanShareText("Jos\uFFFD") === "Jos", "shareable names remove replacement-character encoding artefacts");
-  const pdf=mf.buildLendingPdfHtml(all.summary,"summary",day);
+  const pdf=mf.buildLendingPdfHtml(all.summary,"summary",day,all.summary);
   assert(pdf.includes("<h1>Lending Summary</h1>")&&pdf.includes("Report date")&&pdf.includes("Asha"), "PDF summary contains a readable title, report date and person data");
+  assert(pdf.includes("Outstanding position")&&pdf.includes("Principal outstanding")&&pdf.includes("Interest outstanding")&&pdf.includes("Total outstanding"), "PDF summary includes principal, interest and total outstanding metrics");
+  assert(pdf.includes("INR")&&pdf.includes("EUR")&&pdf.includes("Lent")&&pdf.includes("Borrowed"), "PDF totals preserve currency and lending direction separation");
+  assert(pdf.includes("A4 portrait")&&pdf.includes("table-layout:fixed")&&pdf.includes("word-break:normal"), "summary PDF uses A4 portrait, fixed columns and normal word wrapping");
+  const ledgerPdf=mf.buildLendingPdfHtml(all.ledger,"ledger",day,all.summary);
+  assert(ledgerPdf.includes("A4 landscape")&&ledgerPdf.includes("Closing balance by loan")&&ledgerPdf.includes("Transaction history"), "detailed PDF uses landscape layout and loan closing balances");
+  assert(ledgerPdf.includes("Principal outstanding")&&ledgerPdf.includes("Interest outstanding"), "detailed PDF repeats closing principal and interest balances");
   assert(pageSource.includes('data-lendpdf="summary"')&&pageSource.includes('data-lendpdf="ledger"'), "lending export sheet exposes both PDF formats");
   assert(pageSource.includes('class="section-title-actions"')&&!pageSource.includes('sort-caption">Arrange'), "sortable page headings use inline action rows without Arrange label");
 

@@ -156,3 +156,10 @@ Validation in this archive:
 
 ### v2.9.6 upload
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
+
+
+## 2.9.7 — Lending PDF output
+- PDF rendering only; no changes to lending data structures, calculations, encryption, vault key, origin or backup format.
+- Summary totals are grouped by currency and direction (Lent/Borrowed). Do not add amounts across currencies.
+- Detailed PDF includes per-loan closing balances derived from the summary export rows.
+- Print-to-PDF is still browser-driven; browser print settings may override CSS page-size hints.

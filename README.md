@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.9.6
+**Current version:** 2.9.7
 
 ---
 
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Replace **only** `index.html` and `sw.js` at the **same HTTPS path** as before. Keep `manifest.webmanifest`, `icon.svg`, the site origin, and the existing vault data unchanged.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.9.6**).
+5. Confirm the unlock screen shows the expected version (**v2.9.7**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -254,4 +254,20 @@ node regression.mjs
 - Service worker shell cache advanced to v86.
 
 ### v2.9.6 upload
+Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
+
+
+### 2.9.7 — 2026-11-22
+- Redesigned Lending Summary PDF as a compact A4 portrait overview with principal outstanding, interest outstanding and total outstanding.
+- Totals are grouped by currency and Lent/Borrowed direction; currencies are never combined.
+- Redesigned Detailed Lending Statement for A4 landscape, with fixed column widths, normal word wrapping, repeated table headers and a closing-balance table per loan.
+- PDF figures continue to use the existing `lendingPosition()` output via the lending export rows; no lending, storage, encryption or backup logic changed.
+- Service-worker shell cache advanced to v87.
+
+## v2.9.7 — Lending PDF readability and totals
+- Summary PDF: A4 portrait, compact per-loan table, currency/direction-specific principal, interest and total outstanding.
+- Detailed PDF: A4 landscape transaction history and per-loan closing balances.
+- Improved fixed-width tables, wrapping and print pagination.
+
+### v2.9.7 upload
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.

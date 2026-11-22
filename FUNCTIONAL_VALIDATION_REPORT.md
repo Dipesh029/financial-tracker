@@ -552,3 +552,13 @@ No claim is made that the full browser/device regression suite passed.
 
 ### v2.9.6 upload
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
+
+
+## Update 2.9.7 — Lending PDF readability and totals (2026-11-22)
+- Summary PDF redesigned for A4 portrait with compact columns and an outstanding-position table.
+- Principal, interest and total outstanding are grouped by currency and lending direction; no cross-currency grand total is produced.
+- Detailed statement redesigned for A4 landscape and includes per-loan closing principal, interest and total balances.
+- Print tables use fixed widths, normal word wrapping, repeated headers and row/page-break protections.
+- PDF calculations continue to derive from the existing lending export rows, which use `lendingPosition()`; no stored data or lending transaction logic changed.
+- Regression suite: `node regression.mjs` — ALL_REGRESSION_PASS.
+- Service-worker cache advanced to v87; CSP hash refreshed for the modified inline application script.
