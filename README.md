@@ -133,10 +133,11 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 ## Changelog
 
 ### 2.9.9 — 2026-11-22
-- **Fix:** Lending PDF and CSV ledgers leave out repayments dated after today, matching the balance on screen. A repayment dated before the loan explains that interest still starts on the loan date.
+- **Fix:** Lending PDF and CSV ledgers leave out repayments dated after today, matching the balance on screen. A repayment dated before the loan keeps its original date and states the effective interest date. The stored transaction is not changed.
 - **Fix:** Currency totals add the unrounded balances, then round once. INR, EUR and USD each use their own grouping. Currencies are not added together.
-- **Fix:** The check under More reports duplicate transaction ids, missing loans, unbalanced transfers, currency mismatches and contact names that no longer match. It does not change or delete records.
-- **UI:** Plan and Money tabs wrap on a narrow screen. Wider layout on tablet. Lending summary states that exports keep currencies separate.
+- **Fix:** Exports drop invisible control characters but keep real joiners (ZWJ and ZWNJ), so Hindi and emoji names stay intact.
+- **Fix:** The check under More reports duplicate transaction ids, missing loans, unbalanced transfers, a posting currency that does not match its account, an amount that is not a real number, and contact names that no longer match. It does not change or delete records.
+- **UI:** Plan and Money tabs wrap on a narrow screen. Wider layout on tablet. Lending summary states that exports keep currencies separate. Printed lending rows stay together where the browser allows it.
 
 ### 2.9.8 — 2026-11-22
 - **Fix:** Give & Take outstanding amounts stay in net worth. Giving money no longer looks like spending, and receiving money you owe no longer looks like income.

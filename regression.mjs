@@ -1116,6 +1116,16 @@ console.log("PASS calendar-dst-end");
   assert(csv.startsWith("\"Person\",\"Type\""), "lending CSV starts with readable report headings");
   assert(mf.cleanShareText("  Asha\u200B\u202E  ")==="Asha", "shareable person names remove invisible formatting characters");
   assert(mf.cleanShareText("Jos\uFFFD") === "Jos", "shareable names remove replacement-character encoding artefacts");
+  const zwnj="क\u200C्ष";
+  const zwj="👨\u200D👩\u200D👧";
+  assert(mf.cleanShareText(zwnj)===zwnj, "Hindi ZWNJ is preserved");
+  assert(mf.cleanShareText(zwj)===zwj, "emoji ZWJ sequences are preserved");
+  assert(mf.cleanShareText("नमस्ते")==="नमस्ते", "Devanagari text is preserved");
+  assert(mf.cleanShareText("مرحبا")==="مرحبا", "Arabic text is preserved");
+  assert(mf.cleanShareText("日本語")==="日本語", "Japanese text is preserved");
+  assert(mf.cleanShareText("José café")==="José café", "Latin accents are preserved");
+  assert(mf.cleanShareText("A\u200Dsha")==="A\u200Dsha" && mf.cleanShareText("A\u200Csha")==="A\u200Csha", "ZWJ and ZWNJ inside a name are preserved");
+  assert(mf.cleanShareText("A\u200Bsha")==="Asha" && !mf.cleanShareText("Hi\u202Ethere").includes("\u202E"), "zero-width space and bidi override are still removed");
   const pdf=mf.buildLendingPdfHtml(all.summary,"summary",day,all.summary,all.positions);
   assert(pdf.includes("<h1>Lending Summary</h1>")&&pdf.includes("Report date")&&pdf.includes("Asha"), "PDF summary contains a readable title, report date and person data");
   assert(pdf.includes("Outstanding position")&&pdf.includes("Principal outstanding")&&pdf.includes("Interest outstanding")&&pdf.includes("Total outstanding"), "PDF summary includes principal, interest and total outstanding metrics");
@@ -1161,7 +1171,10 @@ console.log("PASS calendar-dst-end");
     {id:"dup",status:"posted",type:"expense",date:day,postings:[{acct:"a",amt:-1,cur:"INR"}]},
     {id:"orphan-loan",status:"posted",type:"lendback",loanId:"missing-loan",date:day,principalReduction:5,postings:[{acct:"a",amt:5,cur:"INR"}]},
     {id:"bad-cur",status:"posted",type:"income",loanId:"eur-loan",date:day,interestSettlement:true,postings:[{acct:"a",amt:3,cur:"INR"}]},
-    {id:"unbalanced",status:"posted",type:"transfer",date:day,postings:[{acct:"a",amt:-10,cur:"INR"},{acct:"b",amt:4,cur:"INR"}]}
+    {id:"unbalanced",status:"posted",type:"transfer",date:day,postings:[{acct:"a",amt:-10,cur:"INR"},{acct:"b",amt:4,cur:"INR"}]},
+    {id:"mismatch-exp",status:"posted",type:"expense",date:day,postings:[{acct:"a",amt:-2,cur:"EUR"}]},
+    {id:"bad-amt",status:"posted",type:"expense",date:day,postings:[{acct:"a",amt:"nope",cur:"INR"}]},
+    {id:"inf-amt",status:"posted",type:"expense",date:day,postings:[{acct:"a",amt:Infinity,cur:"INR"}]}
   ];
   const before=JSON.stringify(st);
   mf.setS(st);
@@ -1170,7 +1183,11 @@ console.log("PASS calendar-dst-end");
   const pos=mf.lendingPosition(st.lending.find(l=>l.id==="future-loan"));
   assert(futureLoan[6]===pos.principalLeft && futureLoan[6]===750, "export principal outstanding matches lendingPosition and ignores the future repayment");
   assert(!rows.ledger.some(r=>r[7]===100 && r[0]==="C"), "future-dated repayment is omitted from the detailed ledger");
-  assert(rows.ledger.some(r=>r[0]==="C" && r[7]===50 && String(r[12]).includes("interest uses the loan date")), "a repayment before the loan date stays in the ledger and explains the interest date");
+  const earlyRow=rows.ledger.find(r=>r[0]==="C" && r[7]===50);
+  assert(earlyRow && earlyRow[5]===early, "ledger keeps the original repayment date");
+  assert(String(earlyRow[6]).includes("recorded before loan start"), "the description says the repayment was recorded before the loan start");
+  assert(String(earlyRow[12]).includes(early) && String(earlyRow[12]).includes(start) && String(earlyRow[12]).includes("Effective interest date") && String(earlyRow[12]).includes("interest uses the loan date"), "the note keeps the original date and states the effective interest date");
+  assert(st.txns.find(t=>t.id==="early-pay").date===early && st.txns.find(t=>t.id==="early-pay").note==="Early", "the stored repayment date and note are not rewritten");
   assert(rows.ledger.some(r=>r[0]==="C" && r[5]===day && r[7]===200), "a repayment on the report date stays in the ledger");
   assert(Math.abs(rows.positions.reduce((s,p)=>p.cur==="INR"&&p.direction==="Lent"?s+p.interestLeft:s,0)-0.008)<1e-9, "currency totals keep the unrounded interest");
   assert(rows.summary.filter(r=>r[2]==="INR"&&r[1]==="Lent").every(r=>r[11]===0 || r[0]==="C"), "each CSV row is rounded on its own");
@@ -1178,7 +1195,8 @@ console.log("PASS calendar-dst-end");
   assert(pdf.includes(mf.formatMoney(0.008,"INR")), "PDF currency total rounds only after adding the unrounded balances");
   assert(pdf.includes("A4 portrait") && pdf.includes("counter(page)") && pdf.includes(day), "summary PDF keeps portrait layout, page numbers and the report date");
   const detail=mf.buildLendingPdfHtml(rows.ledger,"ledger",day,rows.summary,rows.positions);
-  assert(detail.includes("A4 landscape") && detail.includes("Closing balance by loan") && detail.includes("Page "), "detailed PDF keeps landscape layout, closing balances and page numbers");
+  assert(detail.includes("A4 landscape") && !detail.includes("A4 portrait") && detail.includes("tr{break-inside:avoid;page-break-inside:avoid}"), "detailed PDF stays landscape and keeps each row on one printed page where the browser supports it");
+  assert(pdf.includes("A4 portrait") && !pdf.includes("A4 landscape"), "summary PDF stays portrait");
   assert(!detail.includes(future), "detailed PDF omits the future repayment date");
   assert(mf.formatMoney(12345678.9,"INR").includes("1,23,45,678"), "INR uses Indian grouping");
   assert(mf.formatMoney(12345678.9,"INR").includes("90"), "INR keeps two decimal places");
@@ -1196,6 +1214,9 @@ console.log("PASS calendar-dst-end");
   assert(report.includes("does not balance"), "an unbalanced transfer is reported");
   assert(report.includes("currency does not match the loan"), "a repayment in the wrong currency is reported");
   assert(report.includes("does not match contact"), "a renamed contact leaves a visible mismatch");
+  assert(report.includes("currency EUR does not match account Cash (INR)"), "an ordinary posting currency that differs from its account is reported");
+  assert(report.includes("Transaction bad-amt has an invalid amount") && report.includes("Transaction inf-amt has an invalid amount"), "non-finite posting amounts are reported");
+  assert(st.txns.find(t=>t.id==="mismatch-exp").postings[0].cur==="EUR" && st.txns.find(t=>t.id==="bad-amt").postings[0].amt==="nope", "warnings do not correct the posting");
   assert(!report.includes("Transaction gt-only references a missing lending record"), "Give & Take is not treated as a loan");
   assert(JSON.stringify(mf.getS())===before, "the integrity check does not change financial records");
   assert(st.txns.some(t=>t.giveTake&&t.person==="Old Name") && !st.lending.some(l=>l.person==="Old Name"), "Give & Take stays separate from formal lending");

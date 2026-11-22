@@ -160,9 +160,11 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 
 ## 2.9.9 — Lending reports, currency formatting and integrity warnings
 - Detailed lending CSV and PDF omit principal repayments and interest settlements dated after the report date. `lendingPosition()` already ignored those rows. Closing balances in the PDF are the same `lendingPosition()` figures.
-- A repayment stored before the loan date is still shown. The note says interest is calculated from the loan date. Stored transactions are not rewritten.
+- A repayment stored before the loan date stays on its original date. The ledger description and note state that date and the effective interest date (the loan start). Stored transactions are not rewritten.
+- `cleanShareText()` removes invisible controls, zero-width spaces, bidi overrides and byte-order marks. It keeps U+200C ZWNJ and U+200D ZWJ so Indic names and emoji sequences survive export.
 - PDF currency totals sum the unrounded outstanding principal, interest and total per currency and direction, then format once. INR uses `en-IN`, EUR uses `de-DE`, USD uses `en-US`. JPY uses no decimal fraction. CSV amount cells stay numeric, rounded to the currency's decimal places.
-- `runCheck()` adds warnings for duplicate or missing ids, missing loan links, invalid repayments, currency mismatches, unbalanced same-currency transfers, and contact names that disagree with the contact record. It does not modify the vault.
+- Printed lending rows use `break-inside:avoid` and `page-break-inside:avoid`. The summary remains A4 portrait and the statement remains A4 landscape.
+- `runCheck()` warns about duplicate or missing ids, missing loan links, invalid repayments, currency mismatches (including an ordinary posting whose currency differs from its non-Forex account), non-finite posting amounts, unbalanced same-currency transfers, and contact names that disagree with the contact record. It does not modify the vault.
 - Vault key, AES-GCM envelope, backup format and service-worker strategy are unchanged. Shell cache is v89.
 
 ## 2.9.8 — Give & Take net worth and save/cache fixes

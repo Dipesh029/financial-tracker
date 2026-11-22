@@ -1,8 +1,8 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.8.2  
+**App version at last update:** 2.9.9  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
-**Last audit date:** 2026-11-19  
+**Last audit date:** 2026-11-22  
 
 Status legend: **OK** working · **PARTIAL** limited · **FIXED** was broken, repaired this cycle · **N/A** not in product scope
 
@@ -170,3 +170,15 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 - Regression coverage verifies totals remain separated by currency and Lent/Borrowed direction.
 - Regression coverage verifies A4 portrait summary layout, A4 landscape detailed layout, normal word wrapping and per-loan closing balances.
 - Full `node regression.mjs` suite passed after implementation.
+
+
+## 2.9.9 — Lending reports, Unicode exports and integrity warnings (2026-11-22)
+- PASS: future-dated principal repayments and interest settlements are omitted from the lending ledger. Closing figures match `lendingPosition()`.
+- PASS: a repayment recorded before the loan start keeps that original date. The description and note name the original date and the effective interest date. The stored transaction is not changed.
+- PASS: PDF totals add unrounded balances per currency and direction, then format once. INR, EUR and USD grouping is checked. Currencies are not added together.
+- PASS: `cleanShareText()` keeps Devanagari, Arabic, Japanese, accented Latin, ZWNJ and ZWJ (including an emoji family). Zero-width space, bidi override and the replacement character are still removed.
+- PASS: the integrity check reports a posting currency that differs from its account, and non-finite amounts (`"nope"` and `Infinity`). It does not rewrite those postings.
+- PASS: detailed PDF HTML is A4 landscape and summary PDF HTML is A4 portrait. Print CSS asks the browser not to split a table row.
+- PASS: Give & Take remains separate from formal lending.
+- Automated coverage: `node regression.mjs` and `node --check` on `regression.mjs` and `sw.js`.
+- Not run: a real browser print preview, a device screen, and a personal encrypted vault.
