@@ -158,6 +158,12 @@ Validation in this archive:
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
 
 
+## 2.12.0 — Mutual fund forecast and near-black dark theme
+- `projectHolding()` grows the current market value, then adds that month’s cash. Monthly rate remains `(1+annual)^(1/12)-1`.
+- A SIP with `next` is walked with `advanceSipNext()` and `sipTermsAt()`. Past dates are skipped. `end` or `until` is honoured only if already stored. Stopped, paused, cancelled and completed SIPs contribute nothing. A different currency is excluded.
+- The SIP form still does not collect a step-up or an end date. Revisions already saved on the SIP change later instalments.
+- Dark tokens are near-black with blue `#3B82F6`. Light tokens are unchanged. Vault key and backup format are unchanged. Shell cache is v92.
+
 ## 2.11.0 — Blue theme, PDF reports and fund forecast
 - One blue token set for light, dark and system. The later teal override was removed.
 - Shareable PDFs reuse `netWorth()`, `wealthBreakdown()`, `lendingPosition()` via `buildLendingExportRows()`, `holdPos()` and `balanceAsOf()` (posted rows on or before today). They do not replace `balance()` on screen.

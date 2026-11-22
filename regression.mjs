@@ -637,7 +637,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.11.0");
+  const versionAt = home.indexOf("v" + "2.12.0");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -1049,7 +1049,7 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v91"), "service worker cache version is bumped for this release");
+  assert(sw.includes("myfinance-shell-v92"), "service worker cache version is bumped for this release");
   const htmlCache = sw.slice(sw.indexOf("if (isHTML)"));
   assert(htmlCache.indexOf("const forRequest = response.clone()") >= 0 && htmlCache.indexOf("const forRequest = response.clone()") < htmlCache.indexOf("caches.open(CACHE)"), "HTML is cloned before the cache is opened");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
@@ -1299,6 +1299,87 @@ console.log("PASS calendar-dst-end");
   assert(page.includes("#2563EB") && !page.includes("#9ed4cb") && !page.includes("#1c4e5a"), "the accent is blue, not teal");
   assert(page.includes('data-pdf="all"') && page.includes('data-pdf="home"') && page.includes('data-csv'), "CSV export remains and PDF export is offered");
   console.log("PASS reports-and-forecast");
+}
+
+{
+  const close=(a,b,msg)=>{ if(!(Math.abs(a-b)<0.02)) throw new Error((msg||"close")+" got "+a+" expected "+b); };
+  const ex=mf.projectHolding({startValue:200000, annualPct:0, months:60, monthlyExtra:3000, includeSips:false, sips:[], startDate:"2026-01-01"});
+  close(ex.contributed, 180000, "sixty extra instalments");
+  close(ex.endValue, 380000, "zero return keeps the starting value plus contributions");
+  close(ex.endValue, ex.start+ex.contributed+ex.gain, "identity at zero return");
+  const r=Math.pow(1.12, 1/12)-1;
+  const annuity=200000*Math.pow(1+r,60)+3000*((Math.pow(1+r,60)-1)/r);
+  const grown=mf.projectHolding({startValue:200000, annualPct:12, months:60, monthlyExtra:3000, includeSips:false, sips:[], startDate:"2026-01-01"});
+  close(grown.endValue, annuity, "each of the 60 instalments compounds for the months left");
+  close(grown.gain, grown.endValue-200000-180000, "growth is the remainder after principal and contributions");
+  close(grown.contributed, 180000, "the return does not change how much cash is contributed");
+  for(const y of grown.years) close(y.opening+y.contributed+y.gain, y.value, "year "+y.year+" reconciles");
+  const monthlyA={amt:3000, freq:1, status:"active", next:"2026-01-01", cur:"INR"};
+  const monthlyB={amt:5000, freq:1, status:"active", next:"2026-01-20", cur:"INR"};
+  const two=mf.projectHolding({startValue:0, annualPct:0, months:12, monthlyExtra:0, includeSips:true, sips:[monthlyA, monthlyB], startDate:"2026-01-01"});
+  close(two.contributed, 96000, "two monthly SIPs on different days both count twelve times");
+  const quarterly={amt:10000, freq:3, status:"active", next:"2026-01-01", cur:"INR"};
+  const q=mf.projectHolding({startValue:0, annualPct:0, months:12, monthlyExtra:0, includeSips:true, sips:[quarterly], startDate:"2026-01-01"});
+  close(q.contributed, 40000, "a quarterly SIP pays four times in a year");
+  const plus=mf.projectHolding({startValue:0, annualPct:0, months:12, monthlyExtra:5000, includeSips:true, sips:[monthlyA], startDate:"2026-01-01"});
+  close(plus.sipContributed, 36000, "the linked SIP is separate");
+  close(plus.extraContributed, 60000, "the hypothetical top-up is separate");
+  close(plus.contributed, 96000, "SIP plus top-up");
+  const later={amt:1000, freq:1, status:"active", next:"2026-07-01", cur:"INR"};
+  const future=mf.projectHolding({startValue:0, annualPct:0, months:12, monthlyExtra:0, includeSips:true, sips:[later], startDate:"2026-01-01"});
+  close(future.contributed, 6000, "a SIP that starts in July is not backfilled");
+  const ending={amt:1000, freq:1, status:"active", next:"2026-01-15", end:"2026-03-15", cur:"INR"};
+  const ended=mf.projectHolding({startValue:0, annualPct:0, months:12, monthlyExtra:0, includeSips:true, sips:[ending], startDate:"2026-01-01"});
+  close(ended.contributed, 3000, "instalments stop after the stored end date");
+  for(const status of ["stopped","paused","cancelled","completed"]){
+    const skipped=mf.projectHolding({startValue:100, annualPct:0, months:12, monthlyExtra:0, includeSips:true, sips:[{amt:1000, freq:1, status, next:"2026-01-01"}], startDate:"2026-01-01"});
+    close(skipped.contributed, 0, status+" SIP contributes nothing");
+    close(skipped.endValue, 100, status+" SIP does not change the portfolio at zero return");
+  }
+  const stepped={amt:2000, freq:1, status:"active", next:"2026-01-01", revisions:[{date:"2026-06-01", prev:{amt:1000, freq:1}}], cur:"INR"};
+  const step=mf.projectHolding({startValue:0, annualPct:0, months:12, monthlyExtra:0, includeSips:true, sips:[stepped], startDate:"2026-01-01"});
+  close(step.contributed, 19000, "a saved revision changes later instalments only");
+  const januaryOnly=mf.projectHolding({startValue:0, annualPct:0, months:1, monthlyExtra:0, includeSips:true, sips:[
+    {amt:1000, freq:1, status:"active", next:"2026-01-05"},
+    {amt:1000, freq:1, status:"active", next:"2026-02-15"}
+  ], startDate:"2026-01-01"});
+  close(januaryOnly.contributed, 1000, "a February debit is outside a one-month horizon");
+  const untouched=mf.projectHolding({startValue:5000, annualPct:10, months:24, monthlyExtra:0, includeSips:false, sips:[], startDate:"2026-01-01"});
+  close(untouched.contributed, 0, "no future cash is invented");
+  close(untouched.endValue, 5000*1.1*1.1, "two years of growth and nothing else");
+  const empty=mf.projectHolding({startValue:0, annualPct:12, months:12, monthlyExtra:1000, includeSips:false, sips:[], startDate:"2026-01-01"});
+  assert(empty.endValue>12000, "contributions on a zero balance still compound");
+  const large=mf.projectHolding({startValue:10000000, annualPct:12, months:12, monthlyExtra:0, includeSips:false, sips:[], startDate:"2026-01-01"});
+  close(large.endValue, 11200000, "a large value grows by the annual rate");
+  const loss=mf.projectHolding({startValue:1000, annualPct:-10, months:12, monthlyExtra:0, includeSips:false, sips:[], startDate:"2026-01-01"});
+  close(loss.endValue, 900, "negative return");
+  assert(mf.forecastDonutParts(loss)===null, "negative growth does not draw a donut");
+  const donut=mf.forecastDonutParts(grown);
+  assert(donut && donut.parts.length===3, "positive forecast has portfolio, contributions and growth");
+  close(donut.sum, grown.endValue, "donut parts equal the projected value");
+  const low=mf.projectHolding({startValue:200000, annualPct:8, months:60, monthlyExtra:3000, includeSips:true, sips:[monthlyA], startDate:"2026-01-01"});
+  const high=mf.projectHolding({startValue:200000, annualPct:16, months:60, monthlyExtra:3000, includeSips:true, sips:[monthlyA], startDate:"2026-01-01"});
+  close(low.contributed, high.contributed, "scenarios use the same contributions");
+  assert(high.endValue>low.endValue, "a higher return produces a higher future value");
+  const before=JSON.stringify(stepped);
+  mf.projectHolding({startValue:1, annualPct:12, months:12, monthlyExtra:1, includeSips:true, sips:[stepped], startDate:"2026-01-01"});
+  assert(JSON.stringify(stepped)===before, "forecasting does not rewrite the SIP");
+  const st=mf.blank();
+  st.holdings=[{id:"h1", name:"Flexi", type:"fund", cur:"INR", price:10}];
+  st.sips=[
+    {id:"ok", hold:"h1", amt:1000, cur:"INR", freq:1, status:"active", next:"2026-01-01"},
+    {id:"fx", hold:"h1", amt:50, cur:"EUR", freq:1, status:"active", next:"2026-01-01"},
+    {id:"bad", hold:"h1", amt:0, cur:"INR", freq:1, status:"active", next:"2026-01-01"}
+  ];
+  mf.setS(st);
+  const review=mf.holdingSipReview(st.holdings[0]);
+  assert(review.find(x=>x.id==="ok").eligible, "matching SIP is eligible");
+  assert(review.find(x=>x.id==="fx").reason==="Different currency", "a different currency is excluded");
+  assert(review.find(x=>x.id==="bad").reason==="No valid amount", "a zero SIP amount is excluded");
+  const page=fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert(page.includes("Mutual fund forecast") && page.includes("forecast-donut") && page.includes("#09090B"), "forecast screen and near-black dark tokens are present");
+  assert(page.includes("#F5F7FB") && page.includes("#2563EB"), "light theme stays blue on a light background");
+  console.log("PASS forecast-schedule");
 }
 
 console.log("ALL_REGRESSION_PASS");

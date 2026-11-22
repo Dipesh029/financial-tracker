@@ -1,6 +1,6 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.11.0  
+**App version at last update:** 2.12.0  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
 **Last audit date:** 2026-11-22  
 
@@ -201,3 +201,11 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 - PASS: accent colour in the source is blue, not teal. CSV export remains.
 - PASS: `node regression.mjs` — ALL_REGRESSION_PASS.
 - Not run: a real browser print of the PDF, phone/tablet/desktop layout, and a personal encrypted vault.
+
+
+## 2.12.0 — Forecast schedule (2026-11-22)
+- PASS: ₹2,00,000 plus ₹3,000 a month for 5 years is ₹3,80,000 at 0%, and matches the closed-form 12% annuity.
+- PASS: two monthly SIPs, a quarterly SIP, SIP plus a top-up, a future start, a stored end date, stopped/paused/cancelled/completed, a revision, and a debit outside the horizon.
+- PASS: scenarios share contributions. The donut sums to the projected value. Negative growth hides the donut. The SIP object is not rewritten. A euro SIP and a zero amount are excluded.
+- PASS: `node --check` and `node regression.mjs` — ALL_REGRESSION_PASS.
+- Not run: a visual check of the calculator on a phone, tablet or desktop, and no personal vault.
