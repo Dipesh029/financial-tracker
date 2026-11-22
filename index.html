@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1E40AF">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-YL5+S0dUKVRkQZvloRjOnwZVOyKRSCZQqjx3qpYb0Tk='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-nyqB5ABcApUMY0KbwydjDWPOykwD1QhkP7+SmKVOvHU='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -473,8 +473,9 @@ input[type="range"]{accent-color:var(--accent);min-height:32px;height:32px;paddi
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.12.0";
+const APP_VERSION = "2.12.1";
 const RELEASES = [
+  {v:"2.12.1", d:"2026-11-22", notes:"Home and Activity no longer go blank when a transaction is missing a date, a created time, or its postings. The broken row is skipped. Nothing is rewritten."},
   {v:"2.12.0", d:"2026-11-22", notes:"Mutual fund forecast rebuilt. It starts from market value, compounds each future SIP on its own date, and shows a donut, three scenarios and a year table. Dark mode is now near-black with blue accents."},
   {v:"2.11.0", d:"2026-11-22", notes:"Blue theme across the app. PDF reports for the main sections and one complete report. Mutual fund forecast now shows conservative, expected and optimistic paths without changing your records."},
   {v:"2.10.0", d:"2026-11-22", notes:"Visual redesign across Home, Money, Plan, Activity and More. Same calculations, exports, vault and navigation. Quieter surfaces, clearer amounts, and layouts that hold together on a phone and a laptop."},
@@ -1833,14 +1834,16 @@ function giveTakeSheet(){
   dir?.addEventListener("change",refresh);
   refresh();
 }
-function monthKey(d){ return d.slice(0,7); }
+function monthKey(d){ return String(d||"").slice(0,7); }
 function monthTotals(m,owner){
   let inc=0, exp=0;
-  for(const t of S.txns){
+  for(const t of S.txns||[]){
     if(t.status!=="posted" || monthKey(t.date)!==m || (owner&&t.owner!==owner)) continue;
-    if(t.type==="income") inc += toDisplayAt(t.postings[0].amt, t.postings[0].cur,t.fxRate);
-    if(t.type==="expense") exp += toDisplayAt(-t.postings[0].amt, t.postings[0].cur,t.fxRate);
-    if(t.type==="refund") exp -= toDisplayAt(t.postings[0].amt, t.postings[0].cur,t.fxRate);
+    const p=t.postings&&t.postings[0];
+    if(!p || !Number.isFinite(Number(p.amt))) continue;
+    if(t.type==="income") inc += toDisplayAt(p.amt, p.cur,t.fxRate);
+    if(t.type==="expense") exp += toDisplayAt(-p.amt, p.cur,t.fxRate);
+    if(t.type==="refund") exp -= toDisplayAt(p.amt, p.cur,t.fxRate);
   }
   return {inc,exp};
 }
@@ -2643,9 +2646,20 @@ function viewHome0(){
   if(!owners.includes(homeOwner))homeOwner="All family";
   const owner=homeOwner==="All family"?null:homeOwner;
   const nw=netWorth(owner), wb=wealthBreakdown(owner), t=monthTotals(monthKey(today()),owner);
-  const recent=S.txns.filter(x=>!owner||x.owner===owner).slice().sort((a,b)=>b.date.localeCompare(a.date)||b.created.localeCompare(a.created)).slice(0,5);
-  const cats={}; for(const x of S.txns){ if(x.status==="posted"&&x.type==="expense"&&monthKey(x.date)===monthKey(today())&&(!owner||x.owner===owner)){ cats[x.cat]=(cats[x.cat]||0)+toDisplayAt(-x.postings[0].amt,x.postings[0].cur,x.fxRate);} }
-  for(const x of S.txns){ if(x.status==="posted"&&x.type==="refund"&&monthKey(x.date)===monthKey(today())&&(!owner||x.owner===owner)&&cats[x.cat]!=null) cats[x.cat]-=toDisplayAt(x.postings[0].amt,x.postings[0].cur,x.fxRate); }
+  const recent=(S.txns||[]).filter(x=>!owner||x.owner===owner).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))||String(b.created||"").localeCompare(String(a.created||""))).slice(0,5);
+  const cats={};
+  for(const x of S.txns||[]){
+    if(x.status!=="posted"||x.type!=="expense"||monthKey(x.date)!==monthKey(today())||(owner&&x.owner!==owner)) continue;
+    const p=x.postings&&x.postings[0];
+    if(!p||!Number.isFinite(Number(p.amt))) continue;
+    cats[x.cat]=(cats[x.cat]||0)+toDisplayAt(-p.amt,p.cur,x.fxRate);
+  }
+  for(const x of S.txns||[]){
+    if(x.status!=="posted"||x.type!=="refund"||monthKey(x.date)!==monthKey(today())||(owner&&x.owner!==owner)||cats[x.cat]==null) continue;
+    const p=x.postings&&x.postings[0];
+    if(!p||!Number.isFinite(Number(p.amt))) continue;
+    cats[x.cat]-=toDisplayAt(p.amt,p.cur,x.fxRate);
+  }
   const top=Object.entries(cats).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]).slice(0,4),max=top.length?top[0][1]:1;
   const memberNw = homeOwner==="All family" ? owners.filter(o=>o!=="All family").map(o=>{ const n=netWorth(o); return {o, total:n.total}; }) : [];
   const nwFilter = homeNwFilter||"all";
@@ -2716,12 +2730,20 @@ function viewHome0(){
 }
 
 function txnRow(t){
-  const p=t.postings[0]||{amt:t.cost,cur:(S.holdings.find(h=>h.id===t.hold)||{}).cur||"INR"}, a=acct(p.acct);
+  const postings=Array.isArray(t.postings)?t.postings:[];
+  const p=postings[0]||{amt:Number(t.cost)||0,cur:(S.holdings.find(h=>h.id===t.hold)||{}).cur||S.display||"INR"};
+  const a=acct(p.acct);
   let amt, cls, title;
-  if(t.type==="transfer"){ const to=t.postings[1]; title=`${esc(a?a.name:"?")} → ${esc(acct(to.acct)?acct(to.acct).name:"?")}`; amt=fmtHide(-p.amt,p.cur); cls=""; }
-  else { title=t.type in LBL?LBL[t.type]+esc(t.person||(S.holdings.find(h=>h.id===t.hold)||{}).name||t.cat||""):esc(t.cat||t.type); amt=(p.amt<0?"−":"+")+fmtHide(Math.abs(p.amt),p.cur); cls=p.amt<0?"out":"in"; }
+  if(t.type==="transfer"){
+    const to=postings[1];
+    const toAcct=to?acct(to.acct):null;
+    title=`${esc(a?a.name:"?")} → ${esc(toAcct?toAcct.name:"?")}`;
+    amt=fmtHide(-Number(p.amt)||0,p.cur);
+    cls="";
+  }
+  else { title=t.type in LBL?LBL[t.type]+esc(t.person||(S.holdings.find(h=>h.id===t.hold)||{}).name||t.cat||""):esc(t.cat||t.type); amt=(Number(p.amt)<0?"−":"+")+fmtHide(Math.abs(Number(p.amt)||0),p.cur); cls=Number(p.amt)<0?"out":"in"; }
   return `<div class="row ${t.status==="voided"?"void":""}" data-txn="${esc(t.id)}">
-    <div><div>${title}</div><div class="muted">${esc(t.date)}${t.note?" · "+esc(t.note):""}${a&&t.type!=="transfer"?" · "+esc(a.name):""}${a&&a.owner&&a.owner!=="Me"?" · "+esc(a.owner):""}</div></div>
+    <div><div>${title}</div><div class="muted">${esc(t.date||"")}${t.note?" · "+esc(t.note):""}${a&&t.type!=="transfer"?" · "+esc(a.name):""}${a&&a.owner&&a.owner!=="Me"?" · "+esc(a.owner):""}</div></div>
     <b class="${cls} num">${amt}</b></div>`;
 }
 
@@ -4429,7 +4451,7 @@ function newAcctSheet(){
 
 function txnSheet(id){
   const t=S.txns.find(x=>x.id===id); if(!t) return;
-  const p=t.postings[0]||{amt:t.cost,cur:"INR"};
+  const p=(Array.isArray(t.postings)&&t.postings[0])||{amt:t.cost,cur:"INR"};
   openSheet(`<h2 style="margin-top:0">${esc(t.giveTake?"Give & Take":(t.type==="transfer"?"Transfer":(t.cat||t.type)))}</h2>
   <div class="muted">${esc(t.date)} · ${t.status}</div>
   <div class="big num" style="font-size:28px">${fmt(Math.abs(p.amt),p.cur)}</div>
@@ -4510,13 +4532,13 @@ function giveTakeEditSheet(id){
 function txnEditSheet(id){
   const t=S.txns.find(x=>x.id===id);if(!t||t.status!=="posted")return;
   if(t.giveTake){ giveTakeEditSheet(id); return; }
-  const p=t.postings[0]||{},isTransfer=t.type==="transfer";
+  const p=(Array.isArray(t.postings)&&t.postings[0])||{},isTransfer=t.type==="transfer";
   const purpose=isTransfer?"either":(t.type==="income"?"in":"expense");
   const from=acct(p.acct);
   const initialWallet=from&&from.type==="forex"?(t.walletId||forexWallets(from)[0]?.id||""):"";
   const walletOptions=from&&from.type==="forex"?forexWallets(from).map(w=>`<option value="${esc(w.id)}" ${w.id===initialWallet?"selected":""}>${esc(w.cur)} · ${fmtHide(w.balance,w.cur)}</option>`).join(""):"";
   openSheet(`<h2 style="margin-top:0">Edit transaction</h2><form id="fedit"><input type="hidden" id="editId" value="${id}"><label>Date</label><input id="edDate" type="date" value="${esc(t.date)}" required>
-  ${isTransfer?`<label>From account</label>${paySelectHtml("edFrom", p.acct, "either")}<label>To account</label>${paySelectHtml("edTo", t.postings[1]?.acct, "either")}<label>Amount sent</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}"><label>Amount received (only if currencies differ)</label><input id="edRecv" inputmode="decimal" value="${Math.abs(t.postings[1]?.amt||0)}">`:`<label>Category</label><input id="edCat" value="${esc(t.cat||"")}" required><label>Account</label>${paySelectHtml("edFrom", p.acct, purpose)}<div id="editForexWalletBox" style="display:${from&&from.type==="forex"?"block":"none"};margin-top:8px"><label>Currency wallet</label><select id="edForexWallet">${walletOptions}</select><div class="muted">The expense is recorded and deducted in this wallet's currency.</div></div><label>Amount</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}" required>`}
+  ${isTransfer?`<label>From account</label>${paySelectHtml("edFrom", p.acct, "either")}<label>To account</label>${paySelectHtml("edTo", (t.postings||[])[1]?.acct, "either")}<label>Amount sent</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt||0)}"><label>Amount received (only if currencies differ)</label><input id="edRecv" inputmode="decimal" value="${Math.abs((t.postings||[])[1]?.amt||0)}">`:`<label>Category</label><input id="edCat" value="${esc(t.cat||"")}" required><label>Account</label>${paySelectHtml("edFrom", p.acct, purpose)}<div id="editForexWalletBox" style="display:${from&&from.type==="forex"?"block":"none"};margin-top:8px"><label>Currency wallet</label><select id="edForexWallet">${walletOptions}</select><div class="muted">The expense is recorded and deducted in this wallet's currency.</div></div><label>Amount</label><input id="edAmt" inputmode="decimal" value="${Math.abs(p.amt)}" required>`}
   <label>Note</label><input id="edNote" maxlength="80" value="${esc(t.note||"")}"><button class="btn" type="submit">Save changes</button></form>`);
 }
 function passphraseSheet(){openSheet(`<h2 style="margin-top:0">Change passphrase</h2><p class="muted">Your data will be re-encrypted with a new random salt and key. The old passphrase will no longer unlock this copy.</p><form id="fpass"><label>Current passphrase</label><input id="oldPass" type="password" autocomplete="current-password" required><label>New passphrase (at least 12 characters recommended)</label><input id="newPass" type="password" autocomplete="new-password" required><label>Repeat new passphrase</label><input id="newPass2" type="password" autocomplete="new-password" required><button class="btn" type="submit">Re-encrypt and change</button></form>`);}
@@ -5823,6 +5845,7 @@ if(d.delmethod){
     const a=o.forexAcct?acct(o.forexAcct):null;
     const wallet=o.walletId&&a?(a.wallets||[]).find(w=>w.id===o.walletId):null;
     if(o.forexAcct&&(!a||!wallet)){alert("The original Forex wallet is missing. No refund was recorded.");return;}
+    if(!o.postings?.[0]?.acct){alert("This expense has no account, so a refund was not recorded.");return;}
     const refund={type:"refund",date:today(),cat:o.cat,note:o.note||"",refundOf:o.id,postings:[{acct:o.postings[0].acct,amt:v,cur:o.postings[0].cur}]};
     if(wallet){refund.forexAcct=a.id;refund.walletId=wallet.id;refund.walletCur=wallet.cur;refund.amount=v;refund.fxRate=o.fxRate||S.rate||1;refund.forexMovementApplied=true;}
     (async()=>{
@@ -7329,7 +7352,7 @@ if(globalThis.__MF_TEST){
     dematPosition, investmentTotals, dematClaims, paymentAccounts, payAccountAllowed, preferredPayId, paySelectHtml, sortMenuHtml,
     maskCardLast4, collectForexWallets, applyForexWallets, forexDisplayValue, fmt, viewAccounts, viewSettings, forexVisible,
     openBackupPayload, commitRestore, vaultShapeOk, buildHoldPlanRow, applySectionSort,
-    getNwPrefs, forgetBackupFolder, viewPlan, viewHome, viewActivity,
+    getNwPrefs, forgetBackupFolder, viewPlan, viewHome, viewActivity, txnRow, monthTotals,
     setPlanSeg(v){ planSeg=v; },
     setMoneySeg(v){ moneySeg=v; },
     setTab(v){ tab=v; },
