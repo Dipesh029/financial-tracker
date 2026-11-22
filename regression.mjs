@@ -637,7 +637,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.9.9");
+  const versionAt = home.indexOf("v" + "2.10.0");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -1049,7 +1049,7 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v89"), "service worker cache version is bumped for this release");
+  assert(sw.includes("myfinance-shell-v90"), "service worker cache version is bumped for this release");
   const htmlCache = sw.slice(sw.indexOf("if (isHTML)"));
   assert(htmlCache.indexOf("const forRequest = response.clone()") >= 0 && htmlCache.indexOf("const forRequest = response.clone()") < htmlCache.indexOf("caches.open(CACHE)"), "HTML is cloned before the cache is opened");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
@@ -1221,6 +1221,30 @@ console.log("PASS calendar-dst-end");
   assert(JSON.stringify(mf.getS())===before, "the integrity check does not change financial records");
   assert(st.txns.some(t=>t.giveTake&&t.person==="Old Name") && !st.lending.some(l=>l.person==="Old Name"), "Give & Take stays separate from formal lending");
   console.log("PASS lending-report-integrity");
+}
+
+{
+  const st=mf.blank();
+  st.accounts=[{id:"a",name:"Cash",type:"cash",cur:"INR",opening:100,archived:false}];
+  st.txns=[{id:"t1",status:"posted",type:"expense",date:mf.today(),created:"1",cat:"Food",note:"Lunch",postings:[{acct:"a",amt:-10,cur:"INR"}]}];
+  mf.setS(st);
+  const home=mf.viewHome();
+  assert(home.includes("hero-nw") && home.includes("wealth-grid") && home.includes("quick-grid") && home.includes("actual net worth"), "home keeps net worth, breakdown and quick actions");
+  const activity=mf.viewActivity();
+  assert(activity.includes('id="q"') && activity.includes('id="fa"') && activity.includes('id="ft"') && activity.includes("ledger"), "activity keeps search, filters and the ledger");
+  const settings=mf.viewSettings();
+  assert(settings.includes("data-export") && settings.includes("data-check") && settings.includes("data-wipe") && settings.includes('id="themePref"') && settings.includes("Show Forex features"), "settings keeps backup, integrity, theme and forex controls");
+  mf.setPlanSeg("lending");
+  const lending=mf.viewPlan();
+  assert(lending.includes("data-lendexport-open") && lending.includes("lend-hero"), "lending keeps its summary and export");
+  mf.setPlanSeg("givetake");
+  assert(mf.viewPlan().includes("Give & Take") && !mf.viewPlan().includes("data-lendexport-open"), "Give & Take stays on its own screen");
+  mf.setMoneySeg("accounts");
+  assert(mf.viewAccounts().includes("data-moneyseg"), "money keeps account, investment and contact navigation");
+  const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
+  assert(page.includes("prefers-reduced-motion") && page.includes("focus-visible") && page.includes("--hero:"), "the design system keeps motion, focus and colour tokens");
+  assert(page.includes('max-width:840px') && page.includes("min-width:900px"), "wide screens use a bounded layout and centred sheets");
+  console.log("PASS design-system-shell");
 }
 
 console.log("ALL_REGRESSION_PASS");

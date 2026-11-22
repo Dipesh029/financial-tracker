@@ -158,6 +158,11 @@ Validation in this archive:
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
 
 
+## 2.10.0 — Visual system
+- Presentation only. CSS tokens and shared components restyle Home, Money, Plan (SIPs, salaries, Give & Take, lending, insurance), Activity, More, forms and the lock screen.
+- Net worth, lendingPosition(), exports, sorting, Forex visibility and vault storage are unchanged.
+- Shell cache is v90.
+
 ## 2.9.9 — Lending reports, currency formatting and integrity warnings
 - Detailed lending CSV and PDF omit principal repayments and interest settlements dated after the report date. `lendingPosition()` already ignored those rows. Closing balances in the PDF are the same `lendingPosition()` figures.
 - A repayment stored before the loan date stays on its original date. The ledger description and note state that date and the effective interest date (the loan start). Stored transactions are not rewritten.
