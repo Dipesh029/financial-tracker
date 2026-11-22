@@ -1,6 +1,6 @@
 # Functional audit — My Finance PWA
 
-Last reviewed against app version **2.12.4**.
+Last reviewed against app version **2.12.5**.
 
 ## Architecture
 
@@ -157,6 +157,13 @@ Validation in this archive:
 ### v2.9.6 upload
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
 
+
+## 2.12.5 — PDF preview and report scope
+- Every module PDF and the complete report are built once, then shown in an in-app preview (pages, zoom, fit width, print, save). The print dialog receives that same HTML. There is no second calculation and no upload.
+- The options sheet shows the selected sections, detail level, dates and layout before generation. Defaults match the screen: a complete report is detailed and landscape; Home starts as a portrait summary.
+- Account balances in a report use `balanceAsOf` through the chosen end date, never later than today. Future-dated and voided transactions stay out. Lending positions still come from `lendingPosition()` / `buildLendingExportRows()` as of today.
+- Contents entries are real links to section headings inside the document. A saved PDF does not gain a bookmark outline; print-to-PDF cannot add one. User text is escaped. Internal ids, account numbers and UPI IDs are not printed.
+- CSV export, vault key, encryption and backup format are unchanged.
 
 ## 2.12.4 — Schedule dates, forecast limits and integrity warnings
 - An active SIP with no valid next date is excluded from the forecast and labelled "No next date". Instalments are not invented from the frequency.

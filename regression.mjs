@@ -637,7 +637,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.12.4");
+  const versionAt = home.indexOf("v" + "2.12.5");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -1049,7 +1049,7 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v96"), "service worker cache version is bumped for this release");
+  assert(sw.includes("myfinance-shell-v97"), "service worker cache version is bumped for this release");
   const htmlCache = sw.slice(sw.indexOf("if (isHTML)"));
   assert(htmlCache.indexOf("const forRequest = response.clone()") >= 0 && htmlCache.indexOf("const forRequest = response.clone()") < htmlCache.indexOf("caches.open(CACHE)"), "HTML is cloned before the cache is opened");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
@@ -1530,6 +1530,50 @@ console.log("PASS calendar-dst-end");
   assert(page.includes('min="-50" max="50"') && page.includes('max="50" step="1"') && page.includes('max="1000000"'), "forecast sliders use the same limits as typed values");
   assert(page.includes("Current value + future contributions") && !page.includes(">Total invested</span>"), "the projection does not call market value plus future cash invested capital");
   console.log("PASS schedule-and-integrity");
+}
+
+{
+  const st=mf.blank();
+  st.display="INR";
+  st.accounts=[
+    {id:"cash",name:"Cash",type:"cash",cur:"INR",opening:100,archived:false,owner:"Me"},
+    {id:"eur",name:"Euro",type:"cash",cur:"EUR",opening:40,archived:false,owner:"Me"}
+  ];
+  const day=mf.today();
+  const earlier=mf.addDays(day, -20);
+  st.txns=[];
+  for(let i=0;i<60;i++){
+    st.txns.push({id:"row-"+i,status:"posted",type:"expense",date:day,cat:i%2?"Rent":"Food",note:i===4?"UNIQUE-LUNCH-NOTE":"Meal "+i,postings:[{acct:"cash",amt:-1,cur:"INR"}]});
+  }
+  st.txns.push({id:"old",status:"posted",type:"expense",date:earlier,cat:"Travel",note:"OLD-JOURNEY",postings:[{acct:"cash",amt:-30,cur:"INR"}]});
+  st.txns.push({id:"rent",status:"posted",type:"expense",date:day,cat:"Rent",note:"RENT-ONLY-NOTE",postings:[{acct:"cash",amt:-4,cur:"INR"}]});
+  st.accounts[0].name="A".repeat(180)+" <script>";
+  mf.setS(st);
+  const detailed=mf.buildReportPdf("activity");
+  assert(detailed.includes("UNIQUE-LUNCH-NOTE") && detailed.includes("Meal 10"), "detailed transaction PDF keeps every posted row");
+  assert((detailed.match(/class="sheet"/g)||[]).length>=3, "a long report is split across pages");
+  assert((detailed.match(/<thead>/g)||[]).length>=3, "a split table repeats its header");
+  assert(detailed.includes('href="#sec-transactions"') && detailed.includes('id="sec-transactions"'), "contents links point at the transaction section");
+  assert(detailed.includes("Page 1 of ") && detailed.includes("nth-child(even)") && detailed.includes("word-break:normal"), "pages are numbered and rows use the print table style");
+  const summary=mf.buildReportPdf("activity",{mode:"summary"});
+  assert(!summary.includes("UNIQUE-LUNCH-NOTE") && summary.includes("Food") && summary.includes("Rent"), "summary PDF totals categories and leaves out individual notes");
+  const ranged=mf.buildReportPdf("activity",{explicit:true, from:day, to:day});
+  assert(ranged.includes("UNIQUE-LUNCH-NOTE") && !ranged.includes("OLD-JOURNEY"), "a date range keeps the end date and drops earlier transactions");
+  const food=mf.buildReportPdf("activity",{explicit:true, category:"Food"});
+  assert(food.includes("UNIQUE-LUNCH-NOTE") && !food.includes("RENT-ONLY-NOTE"), "a category filter does not mix in other categories");
+  const accounts=mf.buildReportPdf("accounts",{explicit:true, modules:["accounts"], to:earlier, landscape:false});
+  assert(accounts.includes("A4 portrait") && !accounts.includes("A4 landscape"), "an accounts report can be forced to portrait");
+  assert(accounts.includes(mf.formatMoney(70,"INR")) && !accounts.includes(mf.formatMoney(100-30-60,"INR")), "account balance uses the end date and ignores later postings");
+  assert(accounts.includes("A".repeat(180)) && accounts.includes("&"+"lt;script&"+"gt;") && !accounts.includes("<"+"script>"), "long names wrap as text and markup is escaped");
+  const onlySummary=mf.buildReportPdf("all",{explicit:true, modules:["summary"], confirmed:true});
+  assert(onlySummary.includes("Financial summary") && !onlySummary.includes("UNIQUE-LUNCH-NOTE"), "module selection leaves out sections that were not chosen");
+  const again=mf.buildReportPdf("activity");
+  assert(again.includes("UNIQUE-LUNCH-NOTE") && !again.includes("OLD-FILTER-GHOST"), "a later export does not reuse an earlier report");
+  mf.setS(mf.blank());
+  assert(mf.buildReportPdf("contacts")==="", "an empty section does not invent a document");
+  const page=fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert(page.includes('data-pdfgo=') && page.includes("Fit width") && page.includes("Save PDF") && page.includes("pdf-preview"), "the preview offers paging, fit width, print and save");
+  console.log("PASS pdf-preview-and-scope");
 }
 
 console.log("ALL_REGRESSION_PASS");

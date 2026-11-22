@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1E40AF">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-oPJTxtYpDwe0n40CkAO6q/g7W2B5+3k3L/5eM9V/cXA='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-F4v9UENx85RxdT4ZEMp/VHy2g2n8PiqkAz8BL6amJ5o='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -462,6 +462,19 @@ input[type="range"]{accent-color:var(--accent);min-height:32px;height:32px;paddi
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 }
+.pdf-preview{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;background:#0F172A;color:#E2E8F0}
+.pdf-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;background:#0B1220;border-bottom:1px solid #1E293B}
+.pdf-bar button{appearance:none;border:1px solid #334155;background:#1E293B;color:#F8FAFC;border-radius:999px;padding:8px 10px;min-height:36px;font:600 13px/1 system-ui,sans-serif}
+.pdf-bar button:disabled{opacity:.45}
+.pdf-bar span{font-size:13px;min-width:4.5em;text-align:center}
+.pdf-stage{flex:1;min-height:0;background:#1E293B}
+.pdf-stage iframe{width:100%;height:100%;border:0;background:#fff}
+.pdf-status{padding:32px 18px;max-width:440px}
+.pdf-status h2{margin:0 0 8px;color:#F8FAFC;font-size:20px}
+.pdf-limit{margin:0;padding:6px 10px 8px;font-size:11px;line-height:1.4;color:#94A3B8}
+.pdf-options label{margin-top:10px}
+.pdf-mods{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;margin:6px 0 2px}
+.pdf-mods label{display:flex;gap:8px;align-items:center;margin:0;font-size:14px}
 </style>
 </head>
 <body>
@@ -473,8 +486,9 @@ input[type="range"]{accent-color:var(--accent);min-height:32px;height:32px;paddi
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.12.4";
+const APP_VERSION = "2.12.5";
 const RELEASES = [
+  {v:"2.12.5", d:"2026-11-22", notes:"PDF reports open in a preview with page controls before you print or save. You choose the sections, dates and layout first. The printed pages use the same report. Lending maths, the vault and CSV exports are unchanged."},
   {v:"2.12.4", d:"2026-11-22", notes:"Forecasts no longer invent SIP dates. Monthly schedules keep their original day, including month-end and leap years. The integrity check warns about more invalid records and does not change them."},
   {v:"2.12.3", d:"2026-11-22", notes:"Home, Money and Lending reuse a calculation instead of repeating it on every card. The figures are unchanged."},
   {v:"2.12.2", d:"2026-11-22", notes:"Editing a Forex expense no longer treats the money already in that expense as gone. An automatic SIP or salary is skipped when its currency does not match the account."},
@@ -5124,6 +5138,104 @@ function cleanShareText(value){
     .replace(/â€“/g,"–").replace(/â€”/g,"—").replace(/Â(?=\s|$)/g,"")
     .trim();
 }
+function pdfEsc(v){ return esc(cleanShareText(v)); }
+function pdfBaseCss(landscape){
+  const size=landscape?"A4 landscape":"A4 portrait";
+  return `*{box-sizing:border-box}html{print-color-adjust:exact;-webkit-print-color-adjust:exact}body{font:10px/1.4 Arial,Helvetica,sans-serif;color:#172554;margin:0;background:#fff}.sheet{break-after:page;page-break-after:always;background:#fff}h1{font-size:22px;line-height:1.2;margin:0 0 4px;color:#1E40AF}h2{font-size:13px;margin:0 0 6px;color:#1E40AF}a{color:#1D4ED8}p,li{color:#334155}.meta{color:#5B6B86;font-size:9px}.section-note{margin:0 0 8px;font-size:9px;color:#334155}.run{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;border-bottom:2px solid #1E40AF;padding:0 0 8px;margin:0 0 10px}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8px;margin:0 0 8px}th,td{border:1px solid #D9E2F0;padding:4px;vertical-align:top;overflow-wrap:break-word;word-break:normal;hyphens:manual}th{background:#EFF6FF;text-align:left;font-weight:700;color:#1E3A8A}tbody tr:nth-child(even){background:#F8FAFC}td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.strong{font-weight:700}.sheet-foot{display:flex;justify-content:space-between;gap:8px;margin-top:10px;border-top:1px solid #D9E2F0;padding-top:6px;color:#5B6B86;font-size:8px}.toc{margin:0 0 10px}.toc ol{margin:4px 0 0;padding-left:18px}@page{size:${size};margin:12mm 10mm 14mm;@bottom-center{content:"Page " counter(page);font-family:Arial,Helvetica,sans-serif;font-size:8px;color:#5B6B86}}@media print{body{margin:0;background:#fff}thead{display:table-header-group}tfoot{display:table-footer-group}tr{break-inside:avoid;page-break-inside:avoid}.sheet{break-after:page;page-break-after:always}.totals,.closing{break-inside:avoid}}`;
+}
+function pdfTableHtml(headers, rows, numeric){
+  const nums=new Set(numeric||[]);
+  const head=`<thead><tr>${(headers||[]).map(h=>`<th>${pdfEsc(h)}</th>`).join("")}</tr></thead>`;
+  const body=`<tbody>${(rows||[]).map(r=>`<tr>${r.map((c,i)=>`<td class="${nums.has(i)?"num":"text"}">${pdfEsc(c==null?"":c)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  return `<table>${head}${body}</table>`;
+}
+function pdfRowGroups(headers, rows, rowCap, wide){
+  const totalChars=wide?140:100;
+  const width=Math.max(12, Math.floor(totalChars/Math.max(1,(headers||[]).length)));
+  const groups=[];
+  let cur=[], units=0;
+  for(const row of rows||[]){
+    let lines=1;
+    for(const cell of row){
+      const n=String(cell==null?"":cell).length;
+      lines=Math.max(lines, Math.ceil(n/width)||1);
+    }
+    if(cur.length && (lines>rowCap || units+lines>rowCap || cur.length>=rowCap)){
+      groups.push({rows:cur, units}); cur=[]; units=0;
+    }
+    cur.push(row);
+    units+=lines;
+    if(units>=rowCap){ groups.push({rows:cur, units}); cur=[]; units=0; }
+  }
+  if(cur.length) groups.push({rows:cur, units});
+  return groups;
+}
+function pdfSheetsHtml(title, asOf, landscape, blocks, scope){
+  const rowCap=landscape?18:24;
+  const pages=[{cover:true, items:[]}];
+  let bucket=[], used=0;
+  const flush=()=>{ if(bucket.length){ pages.push({items:bucket}); bucket=[]; used=0; } };
+  const place=(item, cost)=>{
+    if(bucket.length && used+cost>rowCap) flush();
+    bucket.push(item);
+    used+=cost;
+    if(used>=rowCap) flush();
+  };
+  for(const block of blocks){
+    const tables=block.tables&&block.tables.length?block.tables:(block.html?[{html:block.html}]:[]);
+    let seen=false;
+    tables.forEach(table=>{
+      if(!table.headers){
+        place({heading:seen?"":block.heading, id:seen?"":block.id, note:seen?"":block.note, html:table.html||""}, 8);
+        seen=true;
+        return;
+      }
+      const groups=pdfRowGroups(table.headers, table.rows||[], rowCap, landscape);
+      (groups.length?groups:[{rows:[], units:2}]).forEach((group, ci)=>{
+        const firstPiece=!seen && ci===0;
+        const continued=table.title?table.title+(ci?" (continued)":""):(block.heading+(firstPiece?"":" (continued)"));
+        place({
+          heading:firstPiece?block.heading:continued,
+          id:firstPiece?block.id:"",
+          note:firstPiece?(block.note||""):"",
+          headers:table.headers,
+          rows:group.rows,
+          numeric:table.numeric||[]
+        }, group.units+2);
+        seen=true;
+      });
+    });
+  }
+  flush();
+  if(pages.length===1) pages.push({items:[]});
+  const toc=`<nav class="toc"><h2>Contents</h2><ol>${blocks.map(b=>`<li><a href="#${pdfEsc(b.id)}">${pdfEsc(b.heading)}</a></li>`).join("")}</ol></nav>`;
+  const body=pages.map((page, i)=>{
+    const bits=(page.items||[]).map(item=>{
+      if(item.tables){
+        return item.tables.map((table, ti)=>{
+          const heading=ti===0?item.heading:(table.title||"");
+          const id=ti===0?item.id:"";
+          const note=ti===0?item.note:"";
+          const cls=id==="sec-outstanding"?"totals":id==="sec-closing"?"closing":"block";
+          return `<section class="${cls}">${heading?`<h2${id?` id="${pdfEsc(id)}"`:""}>${pdfEsc(heading)}</h2>`:""}${note?`<p class="section-note">${pdfEsc(note)}</p>`:""}${table.headers?pdfTableHtml(table.headers, table.rows||[], table.numeric):(table.html||"")}</section>`;
+        }).join("");
+      }
+      const cls=item.id==="sec-outstanding"?"totals":item.id==="sec-closing"?"closing":"block";
+      const table=item.headers?pdfTableHtml(item.headers, item.rows||[], item.numeric):(item.html||"");
+      return `<section class="${cls}">${item.heading?`<h2${item.id?` id="${pdfEsc(item.id)}"`:""}>${pdfEsc(item.heading)}</h2>`:""}${item.note?`<p class="section-note">${pdfEsc(item.note)}</p>`:""}${table}</section>`;
+    }).join("");
+    const head=page.cover
+      ? `<header class="run"><div><h1>${pdfEsc(title)}</h1><p class="meta">Report date ${pdfEsc(asOf)} · My Finance · generated on this device${scope?" · "+pdfEsc(scope):""}</p></div></header>${toc}`
+      : `<header class="run"><strong>${pdfEsc(title)}</strong><span class="meta">Report date ${pdfEsc(asOf)}</span></header>`;
+    const foot=`<footer class="sheet-foot"><span>Private financial information · Generated locally in your browser · Amounts are not combined across currencies</span><span>Page ${i+1} of ${pages.length}</span></footer>`;
+    return `<article class="sheet" id="page-${i+1}">${head}${bits}${foot}</article>`;
+  }).join("");
+  return {css:pdfBaseCss(landscape), body};
+}
+function pdfDocument(title, asOf, landscape, blocks, scope){
+  const built=pdfSheetsHtml(title, asOf, !!landscape, blocks||[], scope||"");
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${pdfEsc(title)} · ${pdfEsc(asOf)}</title><style>${built.css}</style></head><body>${built.body}<p class="meta">Readable report only. This is not an encrypted backup. Account numbers, UPI IDs and internal record IDs are omitted. Contents links jump to a section inside this document.</p></body></html>`;
+}
 function buildLendingPdfHtml(rows, kind, asOf, summaryRows, positions){
   const isSummary=kind==="summary";
   const title=isSummary?"Lending Summary":"Lending Statement";
@@ -5143,35 +5255,484 @@ function buildLendingPdfHtml(rows, kind, asOf, summaryRows, positions){
     for(const r of summaryBody) addTotal(String(r[2]||"Unknown"), String(r[1]||"Lent"), r[6], r[11], r[12]);
   }
   const totalRows=[...totals.values()].sort((a,b)=>a.cur.localeCompare(b.cur)||a.direction.localeCompare(b.direction));
-  const escHtml=v=>esc(cleanShareText(v));
-  const summaryHtml=`<section class="totals"><h2>Outstanding position</h2><p class="section-note">Balances as of ${escHtml(asOf)}. Each currency and direction is totalled on its own. Figures are added before rounding. Repayments after this date are not included.</p><table class="totals-table"><thead><tr><th>Currency</th><th>Direction</th><th>Loan records</th><th>Principal outstanding</th><th>Interest outstanding</th><th>Total outstanding</th></tr></thead><tbody>${totalRows.map(t=>`<tr><td>${escHtml(t.cur)}</td><td>${escHtml(t.direction)}</td><td class="num">${t.count}</td><td class="num">${escHtml(money(t.principal,t.cur))}</td><td class="num">${escHtml(money(t.interest,t.cur))}</td><td class="num strong">${escHtml(money(t.total,t.cur))}</td></tr>`).join("")}</tbody></table></section>`;
-  let table="";
+  const blocks=[{
+    id:"sec-outstanding",
+    heading:"Outstanding position",
+    note:"Balances as of "+asOf+". Each currency and direction is totalled on its own. Figures are added before rounding. Repayments after this date are not included.",
+    tables:[{headers:["Currency","Direction","Loan records","Principal outstanding","Interest outstanding","Total outstanding"], rows:totalRows.map(t=>[t.cur, t.direction, String(t.count), money(t.principal, t.cur), money(t.interest, t.cur), money(t.total, t.cur)]), numeric:[2,3,4,5]}]
+  }];
   if(isSummary){
-    const compactHeaders=["Person","Direction","Currency","Loan date","Original principal","Principal outstanding","Interest outstanding","Total outstanding","Status"];
-    const compactRows=summaryBody.map(r=>[r[0],r[1],r[2],r[3],r[4],r[6],r[11],r[12],r[13]]);
-    table=`<table class="summary-table"><colgroup><col style="width:15%"><col style="width:9%"><col style="width:7%"><col style="width:9%"><col style="width:12%"><col style="width:13%"><col style="width:12%"><col style="width:13%"><col style="width:10%"></colgroup><thead><tr>${compactHeaders.map(h=>`<th>${escHtml(h)}</th>`).join("")}</tr></thead><tbody>${compactRows.map(r=>`<tr>${r.map((v,i)=>`<td class="${i>=4&&i<=7?"num":""}">${escHtml(i>=4&&i<=7?money(v,r[2]):v==null?"":v)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    const compactRows=summaryBody.map(r=>[r[0], r[1], r[2], r[3], money(r[4], r[2]), money(r[6], r[2]), money(r[11], r[2]), money(r[12], r[2]), r[13]]);
+    blocks.push({id:"sec-records", heading:"Individual lending records", note:"", tables:[{headers:["Person","Direction","Currency","Loan date","Original principal","Principal outstanding","Interest outstanding","Total outstanding","Status"], rows:compactRows, numeric:[4,5,6,7]}]});
   }else{
     const headers=rows[0]||[];
-    const body=rows.slice(1);
-    table=`<table class="ledger-table"><colgroup><col style="width:10%"><col style="width:6%"><col style="width:5%"><col style="width:7%"><col style="width:8%"><col style="width:7%"><col style="width:13%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:5%"><col style="width:6%"><col style="width:11%"></colgroup><thead><tr>${headers.map(h=>`<th>${escHtml(h)}</th>`).join("")}</tr></thead><tbody>${body.map(r=>`<tr>${r.map((v,i)=>{const isMoney=[4,7,8].includes(i)&&typeof v==="number";const cls=isMoney?"num":(i===6||i===12?"text":"");return `<td class="${cls}">${escHtml(isMoney?money(v,r[2]):v==null?"":v)}</td>`;}).join("")}</tr>`).join("")}</tbody></table>`;
-    const closing=summaryBody.map(r=>`<tr><td>${escHtml(r[0])}</td><td>${escHtml(r[1])}</td><td>${escHtml(r[2])}</td><td class="num">${escHtml(money(r[6],r[2]))}</td><td class="num">${escHtml(money(r[11],r[2]))}</td><td class="num strong">${escHtml(money(r[12],r[2]))}</td></tr>`).join("");
-    table+=`<section class="closing"><h2>Closing balance by loan</h2><table><thead><tr><th>Person</th><th>Direction</th><th>Currency</th><th>Principal outstanding</th><th>Interest outstanding</th><th>Total outstanding</th></tr></thead><tbody>${closing}</tbody></table></section>`;
+    const body=rows.slice(1).map(r=>r.map((v,i)=>([4,7,8].includes(i)&&typeof v==="number")?money(v, r[2]):(v==null?"":v)));
+    blocks.push({id:"sec-history", heading:"Transaction history", note:"Each row stays with its loan. A repayment dated before the loan keeps its original date.", tables:[{headers, rows:body, numeric:[4,7,8]}]});
+    blocks.push({id:"sec-closing", heading:"Closing balance by loan", note:"", tables:[{headers:["Person","Direction","Currency","Principal outstanding","Interest outstanding","Total outstanding"], rows:summaryBody.map(r=>[r[0], r[1], r[2], money(r[6], r[2]), money(r[11], r[2]), money(r[12], r[2])]), numeric:[3,4,5]}]});
   }
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · ${escHtml(asOf)}</title><style>
-  *{box-sizing:border-box}html{print-color-adjust:exact;-webkit-print-color-adjust:exact}body{font:10px/1.4 Arial,Helvetica,sans-serif;color:#20242b;margin:0;background:#fff}
-  header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #263445;padding:0 0 10px;margin-bottom:14px}h1{font-size:21px;margin:0 0 3px}h2{font-size:13px;margin:0 0 7px;color:#263445}p{margin:0;color:#606975}.meta{text-align:right;color:#606975}.section-note{margin:0 0 8px;font-size:9px}
-  .totals{margin:0 0 16px;padding:10px 11px;background:#f6f8fa;border:1px solid #d9dee5;border-radius:5px}.closing{margin-top:16px;break-inside:avoid}
-  table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5px}th{background:#eef1f5;text-align:left;font-weight:700;color:#303b49}th,td{padding:5px 5px;border:1px solid #d9dee5;vertical-align:top;overflow-wrap:break-word;word-break:normal;hyphens:manual}td.text{overflow-wrap:break-word}tbody tr:nth-child(even){background:#fafbfc}.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.strong{font-weight:700}.summary-table{font-size:8px}.summary-table th,.summary-table td{padding:5px 4px}.ledger-table{font-size:7.5px}.ledger-table th,.ledger-table td{padding:4px 3px}.totals-table{font-size:8.5px}.totals-table th,.totals-table td{padding:6px 5px}
-  footer{margin-top:14px;border-top:1px solid #d9dee5;padding-top:7px;color:#707782;font-size:8px}
-  @page{size:${isSummary?"A4 portrait":"A4 landscape"};margin:${isSummary?"14mm 12mm 16mm":"12mm 10mm 14mm"};@bottom-center{content:"Page " counter(page);font-family:Arial,Helvetica,sans-serif;font-size:8px;color:#707782}}
-  @media print{body{margin:0}thead{display:table-header-group}tfoot{display:table-footer-group}tr{break-inside:avoid;page-break-inside:avoid}.totals,.closing{break-inside:avoid;page-break-inside:avoid}footer{position:static}}
-  </style></head><body><header><div><h1>${title}</h1><p>Prepared from your Finance Tracker · ${isSummary?"Portfolio overview":"Transaction history and closing balances"}</p></div><div class="meta">Report date<br><strong>${escHtml(asOf)}</strong></div></header>${summaryHtml}${isSummary?"<h2>Individual lending records</h2>":"<h2>Transaction history</h2>"}${table}<footer>Private financial information · Generated locally in your browser · Amounts are not combined across currencies</footer></body></html>`;
+  return pdfDocument(title, asOf, !isSummary, blocks, "");
+}
+let pdfPreviewHtml="", pdfPreviewToken=0, pdfZoom=1, pdfPage=1;
+function closePdfPreview(){
+  pdfPreviewToken++;
+  pdfPreviewHtml="";
+  const el=document.getElementById("pdfPreview");
+  if(el) el.remove();
+}
+function pdfLimitNote(){
+  return "Contents links in the preview jump to each section. Print and Save PDF use this same report. Choose Save as PDF in the print dialog. The saved file does not get a separate bookmark list; this browser cannot add one from a printed page.";
+}
+function showPdfOverlay(state, message){
+  let root=document.getElementById("pdfPreview");
+  if(!root){
+    root=document.createElement("div");
+    root.id="pdfPreview";
+    root.className="pdf-preview";
+    root.setAttribute("role","dialog");
+    root.setAttribute("aria-modal","true");
+    root.setAttribute("aria-label","Report preview");
+    document.body.appendChild(root);
+  }
+  const busy=state!=="ready";
+  root.innerHTML=`<div class="pdf-bar">
+    <button type="button" data-pdfui="prev"${busy?" disabled":""}>Previous</button>
+    <span id="pdfPageLabel">${busy?"—":"Page 1 of 1"}</span>
+    <button type="button" data-pdfui="next"${busy?" disabled":""}>Next</button>
+    <button type="button" data-pdfui="out" aria-label="Zoom out"${busy?" disabled":""}>−</button>
+    <span id="pdfZoomLabel">${busy?"—":"100%"}</span>
+    <button type="button" data-pdfui="in" aria-label="Zoom in"${busy?" disabled":""}>+</button>
+    <button type="button" data-pdfui="fit"${busy?" disabled":""}>Fit width</button>
+    <button type="button" data-pdfui="print"${busy?" disabled":""}>Print</button>
+    <button type="button" data-pdfui="download"${busy?" disabled":""}>Save PDF</button>
+    <button type="button" data-pdfui="close">Close</button>
+  </div>
+  <div id="pdfStage" class="pdf-stage">${state==="ready"?"":`<div class="pdf-status"><h2>${state==="error"?"Report unavailable":state==="empty"?"Nothing to include":"Preparing report"}</h2><p>${pdfEsc(message||"")}</p></div>`}</div>
+  <p class="pdf-limit">${pdfEsc(pdfLimitNote())}</p>`;
+}
+function mountPdfPreview(html, token){
+  if(token!=null && token!==pdfPreviewToken) return;
+  pdfPreviewHtml=html||"";
+  pdfPage=1;
+  pdfZoom=1;
+  showPdfOverlay("ready", "");
+  const stage=document.getElementById("pdfStage");
+  if(!stage) return;
+  const frame=document.createElement("iframe");
+  frame.id="pdfFrame";
+  frame.title="Report preview";
+  frame.setAttribute("referrerpolicy","no-referrer");
+  stage.innerHTML="";
+  stage.appendChild(frame);
+  frame.onload=()=>{ if(token!=null && token!==pdfPreviewToken) return; fitPdfWidth(); updatePdfPager(); };
+  frame.srcdoc=pdfPreviewHtml;
+}
+function pdfFrameDoc(){
+  const frame=document.getElementById("pdfFrame");
+  try{ return frame&&frame.contentDocument?frame.contentDocument:null; }catch(e){ return null; }
+}
+function updatePdfPager(){
+  const doc=pdfFrameDoc();
+  const n=doc?doc.querySelectorAll(".sheet").length:Math.max(1, (pdfPreviewHtml.match(/class="sheet"/g)||[]).length);
+  const label=document.getElementById("pdfPageLabel");
+  if(label) label.textContent="Page "+pdfPage+" of "+n;
+  const zoom=document.getElementById("pdfZoomLabel");
+  if(zoom) zoom.textContent=Math.round(pdfZoom*100)+"%";
+  document.querySelectorAll("#pdfPreview [data-pdfui='prev']").forEach(b=>{ b.disabled=pdfPage<=1; });
+  document.querySelectorAll("#pdfPreview [data-pdfui='next']").forEach(b=>{ b.disabled=pdfPage>=n; });
+}
+function showPdfPage(n){
+  const doc=pdfFrameDoc();
+  if(!doc) return;
+  const pages=[...doc.querySelectorAll(".sheet")];
+  if(!pages.length) return;
+  pdfPage=Math.min(pages.length, Math.max(1, n));
+  try{ pages[pdfPage-1].scrollIntoView({block:"start"}); }catch(e){ pages[pdfPage-1].scrollIntoView(); }
+  updatePdfPager();
+}
+function setPdfZoom(z){
+  pdfZoom=Math.max(0.5, Math.min(2, Math.round(z*100)/100));
+  const doc=pdfFrameDoc();
+  if(doc&&doc.documentElement) doc.documentElement.style.zoom=String(pdfZoom);
+  updatePdfPager();
+}
+function fitPdfWidth(){
+  const doc=pdfFrameDoc();
+  const stage=document.getElementById("pdfStage");
+  if(!doc||!stage) return;
+  const sheet=doc.querySelector(".sheet");
+  if(!sheet) return;
+  if(doc.documentElement) doc.documentElement.style.zoom="1";
+  const w=sheet.getBoundingClientRect().width||sheet.offsetWidth||794;
+  const avail=Math.max(280, stage.clientWidth-12);
+  setPdfZoom(avail/w);
+}
+function printPdfPreview(){
+  const html=pdfPreviewHtml;
+  if(!html){ toast("Nothing to print yet"); return; }
+  const win=window.open("","_blank");
+  if(!win){ toast("Allow pop-ups to print or save the PDF"); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  const kick=()=>{ try{ win.focus(); win.print(); }catch(e){} };
+  try{
+    if(win.document.readyState==="complete") setTimeout(kick, 200);
+    else win.addEventListener("load", ()=>setTimeout(kick, 200));
+  }catch(e){ setTimeout(kick, 300); }
 }
 function openPrintReport(html){
-  const win=window.open("","_blank");
-  if(!win){toast("Allow pop-ups to create the PDF");return;}
-  win.document.open();win.document.write(html);win.document.close();win.addEventListener("load",()=>setTimeout(()=>win.print(),250));
+  if(!html){ showPdfOverlay("empty", "Nothing to include in this report."); return; }
+  const token=++pdfPreviewToken;
+  mountPdfPreview(html, token);
 }
+function beginPdfJob(work, messages){
+  const token=++pdfPreviewToken;
+  pdfPreviewHtml="";
+  showPdfOverlay("loading", (messages&&messages.loading)||"Preparing your report…");
+  setTimeout(()=>{
+    if(token!==pdfPreviewToken) return;
+    let html="";
+    try{ html=work()||""; }
+    catch(e){
+      if(token===pdfPreviewToken) showPdfOverlay("error", "This report could not be prepared. Your records were not changed.");
+      return;
+    }
+    if(token!==pdfPreviewToken) return;
+    if(!html) showPdfOverlay("empty", (messages&&messages.empty)||"Nothing to include in this report.");
+    else mountPdfPreview(html, token);
+  }, 40);
+}
+function pdfTable(headers, rows, numericCols){
+  return pdfTableHtml(headers, rows, numericCols||[]);
+}
+function moneyLabel(amount, cur){ return formatMoney(amount, cur); }
+function reportDateRange(opts){
+  opts=opts||{};
+  const toRaw=(opts.to && /^\d{4}-\d{2}-\d{2}$/.test(String(opts.to)))?String(opts.to):"";
+  const asOf=(toRaw && toRaw<today())?toRaw:today();
+  const from=(opts.from && /^\d{4}-\d{2}-\d{2}$/.test(String(opts.from)) && opts.from<=asOf)?String(opts.from):"";
+  return {asOf, from, toRaw, ranged:!!(from||toRaw)};
+}
+function reportSections(kind, opts){
+  opts=opts||{};
+  const range=reportDateRange(opts);
+  const asOf=range.asOf, from=range.from;
+  const mode=opts.mode==="summary"?"summary":"detailed";
+  const explicit=!!opts.explicit;
+  const moduleSet=Array.isArray(opts.modules)?new Set(opts.modules):null;
+  const want=kind==="all"?null:kind;
+  const take=(id)=>{
+    if(moduleSet) return moduleSet.has(id);
+    return !want || want===id || (kind==="home" && (id==="summary"||id==="accounts"));
+  };
+  const sections=[];
+  const rangeBit=range.ranged?(" Included dates run from "+(from||"the earliest")+" through "+asOf+".") : "";
+  const note="Figures are as of "+asOf+". Future-dated and voided transactions are left out. Different currencies are not added together."+rangeBit;
+  const push=(heading, sectionNote, tables)=>{
+    if(!tables || !tables.length) return;
+    sections.push({heading, note:sectionNote, tables});
+  };
+  if(take("summary")){
+    const nw=netWorth(null), wb=wealthBreakdown(null);
+    const cur=S.display||"";
+    push("Financial summary", "Net worth is shown in "+cur+" using your saved conversion rates. It is not a mix of raw currencies.", [
+      {headers:["Item","Amount"], numeric:[1], rows:[
+        ["Net worth ("+cur+")", moneyLabel(nw.total, S.display)],
+        ["Assets ("+cur+")", moneyLabel(nw.assets, S.display)],
+        ["Liabilities ("+cur+")", moneyLabel(nw.owed, S.display)],
+        ["Cash and bank ("+cur+")", moneyLabel(wb.cash+wb.bank+wb.cardAsset, S.display)],
+        ["Investments ("+cur+")", moneyLabel(wb.holdings+wb.demat, S.display)],
+        ["Owed to you ("+cur+")", moneyLabel(wb.owedToYou, S.display)],
+        ["You owe ("+cur+")", moneyLabel(wb.loansPayable+wb.iouOut, S.display)]
+      ]}
+    ]);
+  }
+  if(take("accounts") || take("forex") || (kind==="forex" && !moduleSet)){
+    const accountRows=[], forexRows=[];
+    const accountTotals=new Map(), forexTotals=new Map();
+    const wantAccounts=!!(take("accounts") || (!moduleSet && kind!=="forex" && kind!=="activity"));
+    const wantForex=!!((moduleSet && take("forex")) || kind==="forex" || kind==="all" || (!moduleSet && forexVisible() && take("accounts")));
+    for(const a of (S.accounts||[])){
+      if(!a || (a.archived && a.type!=="forex")) continue;
+      if(a.type==="forex"){
+        if(!wantForex) continue;
+        if(!forexVisible() && kind!=="all" && kind!=="forex" && !(moduleSet && take("forex"))) continue;
+        for(const w of (a.wallets||[])){
+          const bal=forexWalletAsOf(a, w, asOf);
+          forexRows.push([a.name||"Forex card", "Forex wallet", a.owner||"Me", w.cur||"", moneyLabel(bal, w.cur)]);
+          forexTotals.set(w.cur, (forexTotals.get(w.cur)||0)+bal);
+        }
+      }else if(wantAccounts && kind!=="forex"){
+        const bal=balanceAsOf(a, asOf);
+        accountRows.push([a.name||"Account", a.type||"", a.owner||"Me", a.cur||"", moneyLabel(bal, a.cur)]);
+        accountTotals.set(a.cur, (accountTotals.get(a.cur)||0)+bal);
+      }
+    }
+    if(accountRows.length){
+      const totalRows=[...accountTotals.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0]))).map(([cur,amt])=>[cur||"Unknown", moneyLabel(amt, cur)]);
+      push("Accounts and balances", note, [
+        {headers:["Name","Type","Owner","Currency","Balance"], rows:accountRows, numeric:[4]},
+        {title:"Totals by currency", headers:["Currency","Balance"], rows:totalRows, numeric:[1]}
+      ]);
+    }
+    if(forexRows.length && (kind==="forex" || kind==="all" || take("forex") || forexVisible())){
+      const totalRows=[...forexTotals.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0]))).map(([cur,amt])=>[cur||"Unknown", moneyLabel(amt, cur)]);
+      push("Forex wallets", note, [
+        {headers:["Name","Type","Owner","Currency","Balance"], rows:forexRows, numeric:[4]},
+        {title:"Totals by currency", headers:["Currency","Balance"], rows:totalRows, numeric:[1]}
+      ]);
+    }
+  }
+  if(take("activity")){
+    let list=(S.txns||[]).filter(t=>t && t.status==="posted" && t.date && t.date<=asOf && (!from || t.date>=from));
+    if(explicit){
+      if(opts.accountId) list=list.filter(t=>t.postings&&t.postings.some(p=>p.acct===opts.accountId));
+      if(opts.type) list=list.filter(t=>t.type===opts.type);
+      if(opts.category) list=list.filter(t=>t.cat===opts.category);
+      if(opts.query){ const s=String(opts.query).toLowerCase(); list=list.filter(t=>((t.cat||"")+" "+(t.note||"")+" "+t.type+" "+(t.person||"")).toLowerCase().includes(s)); }
+    }else if(kind==="activity"){
+      if(filterAcct) list=list.filter(t=>t.postings&&t.postings.some(p=>p.acct===filterAcct));
+      if(filterType) list=list.filter(t=>t.type===filterType);
+      if(q){ const s=q.toLowerCase(); list=list.filter(t=>((t.cat||"")+" "+(t.note||"")+" "+t.type+" "+(t.person||"")).toLowerCase().includes(s)); }
+    }
+    list=list.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+    if(list.length){
+      if(mode==="summary"){
+        const groups=new Map();
+        for(const t of list){
+          const p=t.postings&&t.postings[0];
+          const cur=p&&p.cur||"";
+          const key=(t.cat||transactionTypeLabel(t.type))+"\u0000"+cur;
+          if(!groups.has(key)) groups.set(key,{cat:t.cat||transactionTypeLabel(t.type), cur, n:0, amt:0});
+          const g=groups.get(key);
+          g.n++;
+          g.amt+=Number(p&&p.amt)||0;
+        }
+        const rows=[...groups.values()].sort((a,b)=>a.cat.localeCompare(b.cat)||a.cur.localeCompare(b.cur)).map(g=>[g.cat, g.cur, String(g.n), moneyLabel(g.amt, g.cur)]);
+        push("Transactions", note+" This summary totals each category in its own currency. Transfers stay in their own rows and are not counted again as income or spending.", [
+          {headers:["Category","Currency","Rows","Amount"], rows, numeric:[2,3]}
+        ]);
+      }else{
+        const rows=list.map(t=>{
+          const p=t.postings&&t.postings[0];
+          const name=p&&acct(p.acct)?acct(p.acct).name:"";
+          return [t.date, transactionTypeLabel(t.type), t.cat||"", cleanShareText(t.note||t.person||""), name, p?moneyLabel(p.amt, p.cur):""];
+        });
+        push("Transactions", note+" Transfers are listed as transfers and are not counted again as income or spending.", [
+          {headers:["Date","Type","Category","Description","Account","Amount"], rows, numeric:[5]}
+        ]);
+      }
+    }
+  }
+  if(take("givetake")){
+    const map=new Map();
+    for(const t of (S.txns||[])){
+      if(t.status!=="posted"||!t.giveTake||!t.person||(t.date&&t.date>today())) continue;
+      const cur=(t.postings&&t.postings[0]&&t.postings[0].cur)||S.display||"";
+      const amt=Number(t.pd);
+      if(!Number.isFinite(amt)) continue;
+      const key=normalizeContactName(t.person)+"\u0000"+cur;
+      if(!map.has(key)) map.set(key,{name:t.person, cur, balance:0});
+      map.get(key).balance+=amt;
+    }
+    const rows=[...map.values()].sort((a,b)=>a.name.localeCompare(b.name)||a.cur.localeCompare(b.cur)).map(x=>[x.name, x.cur, moneyLabel(x.balance, x.cur)]);
+    if(rows.length) push("Give & Take", "Informal balances only. Formal loans are in the lending section. Each currency stays separate."+(range.ranged?" These balances are the current position and are not limited to the date range.":""), [
+      {headers:["Person","Currency","Balance"], rows, numeric:[2]}
+    ]);
+  }
+  if(take("lending") || (kind==="all" && !moduleSet)){
+    const data=buildLendingExportRows("all");
+    if(data.loanCount){
+      const summary=data.summary.slice(1).map(r=>[r[0], r[1], r[2], r[3], moneyLabel(r[6], r[2]), moneyLabel(r[11], r[2]), moneyLabel(r[12], r[2]), r[13]]);
+      const totals=new Map();
+      for(const p of data.positions){
+        const key=p.cur+"|"+p.direction;
+        if(!totals.has(key)) totals.set(key,{cur:p.cur, direction:p.direction, total:0});
+        totals.get(key).total+=Number(p.totalOutstanding)||0;
+      }
+      const totalRows=[...totals.values()].map(t=>[t.cur, t.direction, moneyLabel(t.total, t.cur)]);
+      push("Lending and borrowing", "Balances come from the same lending position used on screen. Lent and borrowed are not combined."+(range.ranged?" Lending stays as of today and is not restated for a custom date range.":""), [
+        {headers:["Person","Direction","Currency","Loan date","Principal left","Interest left","Total","Status"], rows:summary, numeric:[4,5,6]},
+        {title:"Totals", headers:["Currency","Direction","Total outstanding"], rows:totalRows, numeric:[2]}
+      ]);
+    }
+  }
+  if(take("holdings") || (kind==="all" && !moduleSet)){
+    const rows=(S.holdings||[]).map(h=>{
+      const p=holdPos(h);
+      return [h.name||"", h.type==="stock"?"Stock":"Mutual fund", h.owner||"Me", h.cur||"", String(p.u), moneyLabel(p.c, h.cur), moneyLabel(p.v, h.cur)];
+    });
+    if(rows.length) push("Investments", "Market value uses the price saved on the holding. Folio numbers are omitted. This is the current position, not a historical reconstruction.", [
+      {headers:["Name","Type","Owner","Currency","Units","Cost","Market value"], rows, numeric:[4,5,6]}
+    ]);
+  }
+  if(take("sips") || (kind==="all" && !moduleSet)){
+    const rows=(S.sips||[]).map(x=>{
+      const h=(S.holdings||[]).find(v=>v.id===x.hold)||{};
+      const freq={1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1]||("Every "+(x.freq||1)+" months");
+      return [h.name||"Fund", moneyLabel(x.amt, x.cur), x.cur||"", freq, x.next||"", x.status||"active"];
+    });
+    if(rows.length) push("SIPs", "Schedule only. Past contributions already sit in the holding and are not listed again here.", [
+      {headers:["Holding","Amount","Currency","Frequency","Next","Status"], rows, numeric:[1]}
+    ]);
+  }
+  if(take("salaries") || (kind==="all" && !moduleSet)){
+    const rows=(S.salaries||[]).map(x=>[x.label||"Salary", x.person||"Me", moneyLabel(x.amt, x.cur), x.cur||"", x.next||"", x.status||"active"]);
+    if(rows.length) push("Salaries", "Expected credits. Account numbers are omitted.", [
+      {headers:["Name","Person","Amount","Currency","Next","Status"], rows, numeric:[2]}
+    ]);
+  }
+  if(take("policies") || (kind==="all" && !moduleSet)){
+    const rows=(S.policies||[]).map(p=>[p.name||"", p.owner||"Me", p.provider||"", moneyLabel(p.premium, p.cur), moneyLabel(p.sum, p.cur), p.cur||"", p.next||"", p.maturity||""]);
+    if(rows.length) push("Insurance", "Premium and cover are shown in the policy currency.", [
+      {headers:["Policy","Owner","Provider","Premium","Cover","Currency","Next due","Maturity"], rows, numeric:[3,4]}
+    ]);
+  }
+  if((take("contacts") || (kind==="all" && !moduleSet)) && (kind!=="home" || moduleSet)){
+    const rows=(S.contacts||[]).map(c=>[c.name||"", cleanShareText(c.notes||"")]);
+    if(rows.length && (kind==="contacts" || kind==="all" || moduleSet)) push("Contacts", "Names and notes only. Bank accounts and UPI IDs are not included.", [
+      {headers:["Name","Notes"], rows, numeric:[]}
+    ]);
+  }
+  if(kind==="forex" && !moduleSet) return sections.filter(s=>s.heading==="Forex wallets" || s.heading==="Accounts and balances");
+  return sections;
+}
+function buildPdfDocument(title, sections, landscape, opts){
+  const asOf=today();
+  const blocks=(sections||[]).filter(Boolean).map(s=>({
+    id:s.id||("sec-"+String(s.heading||"section").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")),
+    heading:s.heading,
+    note:s.note,
+    tables:s.tables,
+    html:s.html
+  }));
+  return pdfDocument(title, asOf, !!landscape, blocks, opts&&opts.scope||"");
+}
+function buildReportPdf(kind, opts){
+  const sections=reportSections(kind, opts).filter(Boolean);
+  if(!sections.length) return "";
+  const titles={home:"Financial summary", accounts:"Accounts", activity:"Transactions", givetake:"Give & Take", holdings:"Investments", sips:"SIPs", salaries:"Salaries", policies:"Insurance", contacts:"Contacts", forex:"Forex wallets", all:"Complete financial report"};
+  const landscape=opts&&typeof opts.landscape==="boolean"?opts.landscape:(kind==="activity"||kind==="all"||kind==="lending");
+  return buildPdfDocument(titles[kind]||"Financial report", sections, landscape, opts);
+}
+function exportReportPdf(kind, opts){
+  opts=opts||{};
+  if(kind==="all" && !opts.confirmed){ openPdfOptions(kind); return; }
+  try{ closeSheet(); }catch(e){}
+  beginPdfJob(()=>buildReportPdf(kind, opts), {empty:"Nothing to include in this report."});
+}
+function exportLendingPDF(kind){
+  const selected=$("#lendExportScope")?.value||"all";
+  let scope=selected;
+  if(typeof selected==="string"&&selected.startsWith("loan:")) scope={type:"loan",loanId:selected.slice(5)};
+  try{ closeSheet(); }catch(e){}
+  beginPdfJob(()=>{
+    const data=buildLendingExportRows(scope);
+    if(!data.loanCount) return "";
+    const rows=kind==="summary"?data.summary:data.ledger;
+    return buildLendingPdfHtml(rows, kind, data.asOf, data.summary, data.positions);
+  }, {empty:"No lending records match this selection."});
+}
+const PDF_MODULES=[["summary","Summary"],["accounts","Accounts"],["activity","Transactions"],["givetake","Give & Take"],["lending","Lending"],["holdings","Investments"],["sips","SIPs"],["salaries","Salaries"],["policies","Insurance"],["contacts","Contacts"],["forex","Forex"]];
+function pdfScopeSentence(){
+  const box=document.getElementById("pdfOptions");
+  const out=document.getElementById("pdfScope");
+  if(!box||!out) return;
+  const labels=[...box.querySelectorAll("[data-pdfmod]:checked")].map(el=>el.getAttribute("data-label"));
+  const mode=(document.getElementById("pdfMode")||{}).value==="summary"?"Summary":"Detailed";
+  const orient=(document.getElementById("pdfOrient")||{}).value||"auto";
+  const kind=box.getAttribute("data-kind")||"all";
+  const landscape=orient==="land"?true:orient==="port"?false:(kind==="activity"||kind==="all");
+  const from=(document.getElementById("pdfFrom")||{}).value||"";
+  const to=(document.getElementById("pdfTo")||{}).value||"";
+  const bits=[labels.join(", ")||"No sections", mode, (from||to)?((from||"start")+" to "+(to||"today")):"All dates through today", landscape?"Landscape":"Portrait"];
+  const cat=(document.getElementById("pdfCat")||{}).value||"";
+  const type=(document.getElementById("pdfType")||{}).value||"";
+  const qv=(document.getElementById("pdfQuery")||{}).value||"";
+  if(cat) bits.push(cat);
+  if(type) bits.push(transactionTypeLabel(type));
+  if(qv) bits.push("matching “"+qv+"”");
+  out.textContent="Included: "+bits.join(" · ");
+}
+function readPdfOptions(kind){
+  const box=document.getElementById("pdfOptions");
+  const modules=[...box.querySelectorAll("[data-pdfmod]:checked")].map(el=>el.value);
+  const mode=(document.getElementById("pdfMode")||{}).value||"detailed";
+  const orient=(document.getElementById("pdfOrient")||{}).value||"auto";
+  const landscape=orient==="land"?true:orient==="port"?false:(kind==="activity"||kind==="all");
+  const labels=[...box.querySelectorAll("[data-pdfmod]:checked")].map(el=>el.getAttribute("data-label"));
+  const from=(document.getElementById("pdfFrom")||{}).value||"";
+  const to=(document.getElementById("pdfTo")||{}).value||"";
+  const category=(document.getElementById("pdfCat")||{}).value||"";
+  const type=(document.getElementById("pdfType")||{}).value||"";
+  const accountId=(document.getElementById("pdfAcct")||{}).value||"";
+  const query=(document.getElementById("pdfQuery")||{}).value||"";
+  const scope=[labels.join(", ")||"No sections", mode==="summary"?"Summary":"Detailed", (from||to)?((from||"start")+" to "+(to||"today")):"All dates through today", landscape?"Landscape":"Portrait"];
+  if(category) scope.push(category);
+  if(type) scope.push(transactionTypeLabel(type));
+  if(query) scope.push("matching "+query);
+  return {explicit:true, confirmed:true, modules, mode, from, to, category, type, accountId, query, landscape, scope:scope.join(" · ")};
+}
+function openPdfOptions(kind){
+  const titles={home:"Financial summary", accounts:"Accounts", activity:"Transactions", givetake:"Give & Take", holdings:"Investments", sips:"SIPs", salaries:"Salaries", policies:"Insurance", contacts:"Contacts", forex:"Forex wallets", all:"Complete financial report"};
+  const on=new Set(kind==="all"?PDF_MODULES.map(m=>m[0]):kind==="home"?["summary","accounts"]:kind==="forex"?["forex"]:[kind]);
+  const cats=new Set([...(typeof expenseCats==="function"?expenseCats():[]), ...(typeof incomeCats==="function"?incomeCats():[])]);
+  for(const t of (S.txns||[])) if(t&&t.cat) cats.add(t.cat);
+  const catOpts=[...cats].sort((a,b)=>String(a).localeCompare(String(b))).map(c=>`<option value="${esc(c)}"${c===filterType?"":""}>${esc(c)}</option>`).join("");
+  const typeKeys=["expense","income","transfer","refund","givetake","buy","sell","lend","borrow","lendback","adjust","adjustment","open"];
+  const accounts=(S.accounts||[]).filter(a=>a&&!a.archived).map(a=>`<option value="${esc(a.id)}"${a.id===filterAcct?" selected":""}>${esc(a.name||"Account")} · ${esc(a.cur||"")}</option>`).join("");
+  const detailed=kind==="home"?"summary":"detailed";
+  const orient=kind==="activity"||kind==="all"?"land":kind==="home"?"port":"auto";
+  openSheet(`<div id="pdfOptions" class="pdf-options" data-kind="${esc(kind)}">
+    <h2 style="margin-top:0">Save PDF</h2>
+    <p class="muted">${esc(titles[kind]||"Report")}. This is a readable copy, not an encrypted backup. Account numbers and UPI IDs are left out. Nothing is uploaded.</p>
+    <label>Amount of detail</label>
+    <select id="pdfMode"><option value="summary"${detailed==="summary"?" selected":""}>Summary</option><option value="detailed"${detailed==="detailed"?" selected":""}>Detailed</option></select>
+    <label>Page layout</label>
+    <select id="pdfOrient"><option value="auto"${orient==="auto"?" selected":""}>Automatic</option><option value="port"${orient==="port"?" selected":""}>Portrait</option><option value="land"${orient==="land"?" selected":""}>Landscape</option></select>
+    <div class="form-section-title" style="margin-top:12px">Sections</div>
+    <div class="pdf-mods">${PDF_MODULES.map(m=>`<label><input type="checkbox" data-pdfmod value="${m[0]}" data-label="${esc(m[1])}"${on.has(m[0])?" checked":""}> ${esc(m[1])}</label>`).join("")}</div>
+    <label>From</label><input type="date" id="pdfFrom">
+    <label>To</label><input type="date" id="pdfTo" value="">
+    <label>Transaction category</label>
+    <select id="pdfCat"><option value="">All categories</option>${catOpts}</select>
+    <label>Transaction type</label>
+    <select id="pdfType"><option value="">All types</option>${typeKeys.map(k=>`<option value="${k}"${filterType===k&&kind==="activity"?" selected":""}>${esc(transactionTypeLabel(k))}</option>`).join("")}</select>
+    <label>Account</label>
+    <select id="pdfAcct"><option value="">All accounts</option>${accounts}</select>
+    <label>Description contains</label>
+    <input id="pdfQuery" value="${kind==="activity"?esc(q||""):""}" placeholder="Optional">
+    <p class="muted">Summary turns the transaction list into category totals. Other sections stay position summaries. Category, type, account and search apply only to transactions. Account balances use the end date. Lending stays as of today. Different currencies are not added together.</p>
+    <div class="card" id="pdfScope"></div>
+    <button type="button" class="btn" data-pdfgo="${esc(kind)}">Preview report</button>
+    <button type="button" class="btn alt" data-close>Cancel</button>
+  </div>`);
+  pdfScopeSentence();
+}
+document.addEventListener("change", e=>{ if(e.target && e.target.closest && e.target.closest("#pdfOptions")) pdfScopeSentence(); });
+document.addEventListener("click", e=>{
+  const go=e.target && e.target.closest && e.target.closest("[data-pdfgo]");
+  if(go){
+    e.preventDefault();
+    const kind=go.getAttribute("data-pdfgo")||"all";
+    const opts=readPdfOptions(kind);
+    if(!opts.modules.length){ toast("Choose at least one section"); return; }
+    exportReportPdf(kind, opts);
+    return;
+  }
+  const ui=e.target && e.target.closest && e.target.closest("[data-pdfui]");
+  if(!ui || !document.getElementById("pdfPreview")) return;
+  const act=ui.getAttribute("data-pdfui");
+  if(act==="close") closePdfPreview();
+  else if(act==="prev") showPdfPage(pdfPage-1);
+  else if(act==="next") showPdfPage(pdfPage+1);
+  else if(act==="in") setPdfZoom(pdfZoom+0.1);
+  else if(act==="out") setPdfZoom(pdfZoom-0.1);
+  else if(act==="fit") fitPdfWidth();
+  else if(act==="print") printPdfPreview();
+  else if(act==="download"){ toast("Choose Save as PDF in the print dialog. It uses this same report."); printPdfPreview(); }
+});
+
 function balanceAsOf(a, asOf){
   if(!a || a.type==="forex") return null;
   let v=Number(a.opening)||0;
@@ -5191,177 +5752,7 @@ function forexWalletAsOf(a, w, asOf){
   }
   return Math.round(expected*100)/100;
 }
-function pdfTable(headers, rows){
-  const escHtml=v=>esc(cleanShareText(v));
-  return `<table><thead><tr>${headers.map(h=>`<th>${escHtml(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td class="${typeof c==="string" && /^[A-Z]{3} /.test(c)?"num":"text"}">${escHtml(c==null?"":c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
-}
-function moneyLabel(amount, cur){ return formatMoney(amount, cur); }
-function reportSections(kind){
-  const asOf=today();
-  const want=kind==="all"?null:kind;
-  const take=(id)=>!want || want===id || (kind==="home" && (id==="summary"||id==="accounts"));
-  const sections=[];
-  const note="Figures are as of "+asOf+". Future-dated and voided transactions are left out. Different currencies are not added together.";
-  if(take("summary")){
-    const nw=netWorth(null), wb=wealthBreakdown(null);
-    sections.push({heading:"Financial summary", note:"Net worth is shown in "+(S.display||"INR")+" using your saved conversion rates. It is not a mix of raw currencies.", html:pdfTable(
-      ["Item","Amount"],
-      [
-        ["Net worth ("+(S.display||"")+")", moneyLabel(nw.total, S.display)],
-        ["Assets ("+(S.display||"")+")", moneyLabel(nw.assets, S.display)],
-        ["Liabilities ("+(S.display||"")+")", moneyLabel(nw.owed, S.display)],
-        ["Cash and bank ("+(S.display||"")+")", moneyLabel(wb.cash+wb.bank+wb.cardAsset, S.display)],
-        ["Investments ("+(S.display||"")+")", moneyLabel(wb.holdings+wb.demat, S.display)],
-        ["Owed to you ("+(S.display||"")+")", moneyLabel(wb.owedToYou, S.display)],
-        ["You owe ("+(S.display||"")+")", moneyLabel(wb.loansPayable+wb.iouOut, S.display)]
-      ]
-    )});
-  }
-  if(take("accounts") || kind==="forex"){
-    const rows=[];
-    const totals=new Map();
-    for(const a of (S.accounts||[])){
-      if(a.archived && a.type!=="forex") continue;
-      if(kind==="forex" && a.type!=="forex") continue;
-      if(a.type==="forex"){
-        if(!forexVisible() && kind!=="all" && kind!=="forex") continue;
-        for(const w of (a.wallets||[])){
-          const bal=forexWalletAsOf(a, w, asOf);
-          rows.push([a.name||"Forex card", "Forex wallet", a.owner||"Me", w.cur||"", moneyLabel(bal, w.cur)]);
-          totals.set(w.cur, (totals.get(w.cur)||0)+bal);
-        }
-      }else{
-        const bal=balanceAsOf(a, asOf);
-        rows.push([a.name||"Account", a.type||"", a.owner||"Me", a.cur||"", moneyLabel(bal, a.cur)]);
-        totals.set(a.cur, (totals.get(a.cur)||0)+bal);
-      }
-    }
-    if(rows.length){
-      const totalRows=[...totals.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0]))).map(([cur,amt])=>[cur||"Unknown", moneyLabel(amt, cur)]);
-      sections.push({heading:kind==="forex"?"Forex wallets":"Accounts and balances", note, html:pdfTable(["Name","Type","Owner","Currency","Balance"], rows)+`<h2>Totals by currency</h2>`+pdfTable(["Currency","Balance"], totalRows)});
-    }
-  }
-  if(take("activity")){
-    let list=(S.txns||[]).filter(t=>t.status==="posted" && t.date && t.date<=asOf);
-    if(kind==="activity"){
-      if(filterAcct) list=list.filter(t=>t.postings&&t.postings.some(p=>p.acct===filterAcct));
-      if(filterType) list=list.filter(t=>t.type===filterType);
-      if(q){ const s=q.toLowerCase(); list=list.filter(t=>((t.cat||"")+" "+(t.note||"")+" "+t.type+" "+(t.person||"")).toLowerCase().includes(s)); }
-    }
-    list=list.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-    if(list.length){
-      const rows=list.map(t=>{
-        const p=t.postings&&t.postings[0];
-        const name=p&&acct(p.acct)?acct(p.acct).name:"";
-        return [t.date, transactionTypeLabel(t.type), t.cat||"", cleanShareText(t.note||t.person||""), name, p?moneyLabel(p.amt, p.cur):""];
-      });
-      sections.push({heading:"Transactions", note:note+" Transfers are listed as transfers and are not counted again as income or spending.", html:pdfTable(["Date","Type","Category","Description","Account","Amount"], rows)});
-    }
-  }
-  if(take("givetake")){
-    const map=new Map();
-    for(const t of (S.txns||[])){
-      if(t.status!=="posted"||!t.giveTake||!t.person||(t.date&&t.date>asOf)) continue;
-      const cur=(t.postings&&t.postings[0]&&t.postings[0].cur)||S.display||"";
-      const amt=Number(t.pd);
-      if(!Number.isFinite(amt)) continue;
-      const key=normalizeContactName(t.person)+"\u0000"+cur;
-      if(!map.has(key)) map.set(key,{name:t.person, cur, balance:0});
-      map.get(key).balance+=amt;
-    }
-    const rows=[...map.values()].sort((a,b)=>a.name.localeCompare(b.name)||a.cur.localeCompare(b.cur)).map(x=>[x.name, x.cur, moneyLabel(x.balance, x.cur)]);
-    if(rows.length) sections.push({heading:"Give & Take", note:"Informal balances only. Formal loans are in the lending section. Each currency stays separate.", html:pdfTable(["Person","Currency","Balance"], rows)});
-  }
-  if(take("lending") || kind==="all"){
-    const data=buildLendingExportRows("all");
-    if(data.loanCount){
-      const summary=data.summary.slice(1).map(r=>[r[0], r[1], r[2], r[3], moneyLabel(r[6], r[2]), moneyLabel(r[11], r[2]), moneyLabel(r[12], r[2]), r[13]]);
-      const totals=new Map();
-      for(const p of data.positions){
-        const key=p.cur+"|"+p.direction;
-        if(!totals.has(key)) totals.set(key,{cur:p.cur, direction:p.direction, total:0});
-        totals.get(key).total+=Number(p.totalOutstanding)||0;
-      }
-      const totalRows=[...totals.values()].map(t=>[t.cur, t.direction, moneyLabel(t.total, t.cur)]);
-      sections.push({heading:"Lending and borrowing", note:"Balances come from the same lending position used on screen. Lent and borrowed are not combined.", html:pdfTable(["Person","Direction","Currency","Loan date","Principal left","Interest left","Total","Status"], summary)+`<h2>Totals</h2>`+pdfTable(["Currency","Direction","Total outstanding"], totalRows)});
-    }
-  }
-  if(take("holdings") || kind==="all"){
-    const rows=(S.holdings||[]).map(h=>{
-      const p=holdPos(h);
-      return [h.name||"", h.type==="stock"?"Stock":"Mutual fund", h.owner||"Me", h.cur||"", String(p.u), moneyLabel(p.c, h.cur), moneyLabel(p.v, h.cur)];
-    });
-    if(rows.length) sections.push({heading:"Investments", note:"Market value uses the price saved on the holding. Folio numbers are omitted.", html:pdfTable(["Name","Type","Owner","Currency","Units","Cost","Market value"], rows)});
-  }
-  if(take("sips") || kind==="all"){
-    const rows=(S.sips||[]).map(x=>{
-      const h=(S.holdings||[]).find(v=>v.id===x.hold)||{};
-      const freq={1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1]||("Every "+(x.freq||1)+" months");
-      return [h.name||"Fund", moneyLabel(x.amt, x.cur), x.cur||"", freq, x.next||"", x.status||"active"];
-    });
-    if(rows.length) sections.push({heading:"SIPs", note:"Schedule only. Past contributions already sit in the holding and are not listed again here.", html:pdfTable(["Holding","Amount","Currency","Frequency","Next","Status"], rows)});
-  }
-  if(take("salaries") || kind==="all"){
-    const rows=(S.salaries||[]).map(x=>[x.label||"Salary", x.person||"Me", moneyLabel(x.amt, x.cur), x.cur||"", x.next||"", x.status||"active"]);
-    if(rows.length) sections.push({heading:"Salaries", note:"Expected credits. Account numbers are omitted.", html:pdfTable(["Name","Person","Amount","Currency","Next","Status"], rows)});
-  }
-  if(take("policies") || kind==="all"){
-    const rows=(S.policies||[]).map(p=>[p.name||"", p.owner||"Me", p.provider||"", moneyLabel(p.premium, p.cur), moneyLabel(p.sum, p.cur), p.cur||"", p.next||"", p.maturity||""]);
-    if(rows.length) sections.push({heading:"Insurance", note:"Premium and cover are shown in the policy currency.", html:pdfTable(["Policy","Owner","Provider","Premium","Cover","Currency","Next due","Maturity"], rows)});
-  }
-  if((take("contacts") || kind==="all") && kind!=="home"){
-    const rows=(S.contacts||[]).map(c=>[c.name||"", cleanShareText(c.notes||"")]);
-    if(rows.length && (kind==="contacts" || kind==="all")) sections.push({heading:"Contacts", note:"Names and notes only. Bank accounts and UPI IDs are not included.", html:pdfTable(["Name","Notes"], rows)});
-  }
-  if(kind==="forex"){
-    return sections.filter(s=>s.heading==="Forex wallets" || s.heading==="Accounts and balances");
-  }
-  return sections;
-}
-function buildPdfDocument(title, sections, landscape){
-  const asOf=today();
-  const escHtml=v=>esc(cleanShareText(v));
-  const toc=sections.map((s,i)=>`<li>${escHtml(s.heading)}</li>`).join("");
-  const body=sections.map(s=>`<section class="block"><h2>${escHtml(s.heading)}</h2>${s.note?`<p class="section-note">${escHtml(s.note)}</p>`:""}${s.html}</section>`).join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title><style>
-  *{box-sizing:border-box}body{font:10px/1.4 Arial,Helvetica,sans-serif;color:#172554;margin:0}
-  h1{font-size:22px;margin:0 0 4px}h2{font-size:13px;margin:16px 0 6px;color:#1E40AF}
-  p,li{color:#334155}.section-note{margin:0 0 8px;font-size:9px}
-  table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8px;margin:0 0 8px}
-  th,td{border:1px solid #D9E2F0;padding:4px;vertical-align:top;overflow-wrap:break-word;word-break:normal}
-  th{background:#EFF6FF;text-align:left}td.num{text-align:right;white-space:nowrap}
-  @page{size:${landscape?"A4 landscape":"A4 portrait"};margin:14mm 12mm 16mm;@bottom-center{content:"Page " counter(page);font-size:8px;color:#64748B}}
-  @media print{thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}.block{break-inside:auto}}
-  </style></head><body>
-  <header><h1>${escHtml(title)}</h1><p>My Finance · report date ${escHtml(asOf)} · generated on this device</p></header>
-  <section><h2>Contents</h2><ol>${toc}</ol></section>
-  ${body}
-  <p>Readable report only. This is not an encrypted backup. Account numbers, UPI IDs and internal record IDs are omitted.</p>
-  </body></html>`;
-}
-function buildReportPdf(kind){
-  const sections=reportSections(kind).filter(Boolean);
-  if(!sections.length) return "";
-  const titles={home:"Financial summary", accounts:"Accounts", activity:"Transactions", givetake:"Give & Take", holdings:"Investments", sips:"SIPs", salaries:"Salaries", policies:"Insurance", contacts:"Contacts", forex:"Forex wallets", all:"Complete financial report"};
-  const landscape=kind==="activity"||kind==="all"||kind==="lending";
-  return buildPdfDocument(titles[kind]||"Financial report", sections, landscape);
-}
-function exportReportPdf(kind){
-  if(kind==="all" && !confirm("This PDF is a readable copy of your finances, not an encrypted backup. Account numbers and UPI IDs are left out. Continue?")) return;
-  const html=buildReportPdf(kind);
-  if(!html){ toast("Nothing to include in this report"); return; }
-  openPrintReport(html);
-}
-function exportLendingPDF(kind){
-  const selected=$("#lendExportScope")?.value||"all";
-  let scope=selected;
-  if(typeof selected==="string"&&selected.startsWith("loan:")) scope={type:"loan",loanId:selected.slice(5)};
-  const data=buildLendingExportRows(scope);
-  if(!data.loanCount){toast("No lending records match this selection");return;}
-  const rows=kind==="summary"?data.summary:data.ledger;
-  const html=buildLendingPdfHtml(rows,kind,data.asOf,data.summary,data.positions);
-  openPrintReport(html);
-}
+
 function lendingRowsToCsv(rows){
   return rows.map((r,ri)=>r.map((c,ci)=>{
     const textField=ri===0||typeof c==="string";
@@ -5436,6 +5827,7 @@ document.addEventListener("click", e=>{
 }, true);
 document.addEventListener("keydown", e=>{
   if(e.key!=="Escape") return;
+  if(document.getElementById("pdfPreview")){ e.stopPropagation(); closePdfPreview(); return; }
   if(document.querySelector(".pay-picker.open")){ e.stopPropagation(); closePayPanels(true); return; }
   if(document.querySelector("#layer .sheet")){ e.stopPropagation(); closeSheet(); }
 });
@@ -6210,7 +6602,7 @@ if(d.delmethod){
     if(!confirm("This CSV is not encrypted. Notes and amounts will be saved as plain text. Continue?")) return;
     exportCSV(); return;
   }
-  if(d.pdf){ exportReportPdf(d.pdf); return; }
+  if(d.pdf){ openPdfOptions(d.pdf); return; }
   if("import" in d){ $("#file").click(); return; }
   if("check" in d){ runCheck(); return; }
   if("wipe" in d){

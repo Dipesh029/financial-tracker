@@ -1,6 +1,6 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.12.4  
+**App version at last update:** 2.12.5  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
 **Last audit date:** 2026-11-22  
 
@@ -239,3 +239,13 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 - PASS: the integrity check reports the new invalid-record warnings and does not change the vault JSON.
 - PASS: `node --check` and `node regression.mjs` — ALL_REGRESSION_PASS, including `PASS render-caches` and `PASS schedule-and-integrity`.
 - Not run: the month-by-month toggle in a browser, and no personal vault. A schedule that already drifted without an anchor keeps its current day.
+
+
+## 2.12.5 — PDF preview, scope and layout (2026-11-22)
+- PASS: lending summary stays A4 portrait and the detailed statement stays A4 landscape. Totals still add unrounded balances per currency, then format once. A future repayment stays out. An early repayment keeps its original date.
+- PASS: the complete report still separates INR and EUR, drops future and voided rows, and omits an account number, a UPI id and internal ids.
+- PASS: 60 transaction rows produce multiple pages and a repeated table header. Contents links target the transaction section. Summary mode drops individual notes. A date range drops an older row. A category filter keeps only that category.
+- PASS: an account balance as of an earlier date ignores later postings. A long name is kept and `<` is escaped. An empty contacts report returns no document. A second export does not keep text from a filter that was not used.
+- PASS: `node --check` on `sw.js` and `regression.mjs`, and `node regression.mjs` — ALL_REGRESSION_PASS, including `PASS pdf-preview-and-scope`.
+- Not run: the preview on a phone, tablet or desktop, and no print-to-PDF from a real browser. No personal vault was opened. PDF bookmark outlines are not produced by the print dialog.
+

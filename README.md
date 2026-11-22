@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.12.4
+**Current version:** 2.12.5
 
 ---
 
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Replace **only** `index.html` and `sw.js` at the **same HTTPS path** as before. Keep `manifest.webmanifest`, `icon.svg`, the site origin, and the existing vault data unchanged.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.12.4**).
+5. Confirm the unlock screen shows the expected version (**v2.12.5**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -131,6 +131,12 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.12.5 — 2026-11-22
+- **PDF preview:** Reports open in the app first, with page controls, zoom, fit-to-width, print and save. Print and save use that same report. Choose Save as PDF in the print dialog.
+- **PDF design:** One restrained blue layout for every module and the complete report. Cover, contents links, repeating table headers, alternating rows, and page numbers. Portrait or landscape follows the report, and can be changed before you generate it.
+- **Scope:** Before a report is built you can pick sections, summary or detail, a date range, and transaction category, type, account or search. Lending figures stay the on-screen position as of today. Currencies are still not added together. Account numbers and UPI IDs stay out.
+- **Not in the PDF file:** a bookmark sidebar. Browser print does not create one. Section links work in the preview and are real links in the document.
 
 ### 2.12.4 — 2026-11-22
 - **Schedules:** Monthly SIP and salary dates keep their original day, including the 29th, 30th, 31st and leap years. A SIP with no next date is left out of the forecast instead of being given made-up instalments. An instalment that is not due is not rewritten.
