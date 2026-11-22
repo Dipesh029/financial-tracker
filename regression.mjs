@@ -632,7 +632,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.9.3");
+  const versionAt = home.indexOf("v" + "2.9.4");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -1015,7 +1015,7 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v83"), "service worker cache version is bumped for the hardened shell");
+  assert(sw.includes("myfinance-shell-v84"), "service worker cache version is bumped for the hardened shell");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
   const csp=page.match(/Content-Security-Policy" content="([^"]+)"/i)?.[1]||"";
   const scriptPolicy=csp.split(";").find(x=>x.trim().startsWith("script-src"))||"";
@@ -1026,6 +1026,55 @@ console.log("PASS calendar-dst-end");
     assert(scriptPolicy.includes("'sha256-"+digest+"'"), "each inline script has a matching CSP hash");
   }
   console.log("PASS security-and-navigation-hardening");
+}
+
+
+// ---------- Lending export summaries and ledgers ----------
+{
+  const st=mf.blank();
+  st.accounts=[{id:"cash-export",name:"Cash",cur:"INR",type:"cash"}];
+  const day=mf.today();
+  st.lending=[
+    {id:"loan-export-1",person:"Asha",contactId:"contact-asha",direction:"lent",principal:1000,rate:0,cur:"INR",start:day,account:"cash-export",note:"=2+2",interestAdjustments:[
+      {id:"adj-add",date:day,amount:25,note:"Extra agreed interest"},
+      {id:"adj-waive",date:day,amount:-5,note:"Waiver"}
+    ]},
+    {id:"loan-export-2",person:"Asha",contactId:"contact-asha",direction:"borrowed",principal:50,rate:0,cur:"EUR",start:day,account:"cash-export"},
+    {id:"loan-export-3",person:"Bina",contactId:"contact-bina",direction:"lent",principal:200,rate:0,cur:"INR",start:day,account:"cash-export"}
+  ];
+  st.txns=[
+    {id:"origin-export-1",status:"posted",type:"lend",loanId:"loan-export-1",date:day,postings:[{acct:"cash-export",amt:-1000,cur:"INR"}]},
+    {id:"principal-export-1",status:"posted",type:"lendback",loanId:"loan-export-1",date:day,principalReduction:200,postings:[{acct:"cash-export",amt:200,cur:"INR"}],note:"Part repayment"},
+    {id:"interest-export-1",status:"posted",type:"income",loanId:"loan-export-1",date:day,interestSettlement:true,postings:[{acct:"cash-export",amt:10,cur:"INR"}],note:"Interest received"},
+    {id:"voided-export-1",status:"voided",type:"lendback",loanId:"loan-export-1",date:day,principalReduction:100,postings:[{acct:"cash-export",amt:100,cur:"INR"}]}
+  ];
+  mf.setS(st);
+  const all=mf.buildLendingExportRows("all");
+  assert(all.loanCount===3 && all.summary.length===4, "lending summary exports every loan as a separate row");
+  const asha=mf.buildLendingExportRows("person:"+encodeURIComponent("contact:contact-asha"));
+  assert(asha.loanCount===2 && asha.summary[1][4]==="INR" && asha.summary[2][4]==="EUR", "person export includes multiple loans without combining currencies");
+  const lent=mf.buildLendingExportRows("lent");
+  assert(lent.loanCount===2 && lent.summary.slice(1).every(r=>r[3]==="lent"), "money-lent filter includes only lent records");
+  const borrowed=mf.buildLendingExportRows("borrowed");
+  assert(borrowed.loanCount===1 && borrowed.summary[1][3]==="borrowed", "money-borrowed filter includes only borrowed records");
+  const one=mf.buildLendingExportRows({type:"loan",loanId:"loan-export-2"});
+  assert(one.loanCount===1 && one.summary[1][0]==="loan-export-2", "individual loan export stays scoped to selected loan");
+  const row=all.summary.find(r=>r[0]==="loan-export-1");
+  assert(row[7]===200 && row[8]===800 && row[11]===10 && row[12]===20 && row[13]===10 && row[14]===810, "summary reuses lendingPosition principal, interest payment and adjustment calculations");
+  const loanLedger=all.ledger.filter(r=>r[0]==="loan-export-1");
+  assert(loanLedger.some(r=>r[5]==="Principal repayment received"&&r[6]===200), "ledger includes posted principal repayments");
+  assert(loanLedger.some(r=>r[5]==="Interest received"&&r[7]===10), "ledger includes posted interest receipts");
+  assert(loanLedger.some(r=>r[5]==="Interest added / agreed adjustment"&&r[7]===25), "ledger includes positive interest adjustments");
+  assert(loanLedger.some(r=>r[5]==="Interest waiver / reduction"&&r[7]===-5), "ledger includes interest waivers as negative adjustments");
+  assert(!loanLedger.some(r=>r[9]==="voided-export-1"), "ledger excludes voided repayments");
+  mf.setPlanSeg("lending");
+  assert(mf.viewPlan().includes("data-lendexport-open"), "Lending overview exposes the export action");
+  const pageSource=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
+  assert(pageSource.includes('data-lendstatement="${esc(l.id)}"'), "individual lending detail exposes statement export");
+  const csv=mf.lendingRowsToCsv(all.summary);
+  assert(csv.includes("\"'=2+2\""), "lending CSV neutralises formula-leading text fields");
+  assert(csv.includes("\"800\""), "numeric amounts remain numeric CSV values");
+  console.log("PASS lending-export-summaries-and-ledgers");
 }
 
 console.log("ALL_REGRESSION_PASS");

@@ -506,3 +506,22 @@ No claim is made that the full browser/device regression suite passed.
 - `sw.js` syntax: PASS.
 - `node regression.mjs`: PASS — all production-logic regression groups pass using the no-dependency DOM shim.
 - Full browser UI, Android device, WebAuthn and real encrypted-vault upgrade/restore: NOT RUN.
+
+
+## Update 2.9.4 — Lending exports (2026-11-22)
+
+| Area | Change |
+|------|--------|
+| Lending overview | Export all, money lent, money borrowed, or all loans for a selected person |
+| Individual loan | Export statement scoped to the selected loan ID |
+| Summary CSV | Principal, repayments, accrued/paid/adjusted interest, outstanding balances, rate, status and as-of date |
+| Detailed ledger CSV | Original loan record, posted principal repayments, posted interest settlements and dated interest adjustments |
+| Currency safety | Each loan remains in its original currency; no cross-currency addition |
+| Data integrity | Export is read-only; voided repayment transactions are excluded; CSV text formula injection protection reused |
+
+### Validation performed for 2.9.4
+- `node regression.mjs`: PASS — `ALL_REGRESSION_PASS`, including new lending export scope, currency separation, calculation, ledger and CSV safety tests.
+- Application inline JavaScript syntax and CSP inline-script hash validation: PASS via regression harness.
+- `sw.js` cache version incremented to v84.
+- Actual browser downloads, iOS/Android file handling, visual layout and physical-device testing: NOT RUN.
+- Storage key, encryption format, encrypted backup envelope and Lending calculation logic: unchanged.

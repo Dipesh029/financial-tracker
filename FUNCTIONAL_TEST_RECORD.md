@@ -130,3 +130,18 @@ Several forms had UI but **no `submit` handler** for their `form id`.
 - Service-worker cache writes are registered with `event.waitUntil()` and the shell cache version is incremented.
 - CSP regression verifies both inline-script SHA-256 hashes and confirms `script-src` no longer contains `unsafe-inline`.
 - Full existing regression suite rerun after changes. Browser layout, actual Android hardware Back, real biometric hardware, and deployed-host header configuration remain manual/device tests.
+
+
+## 2.9.4 — Lending export regression coverage
+
+- PASS: all-loan summary keeps every loan as an independent row.
+- PASS: person filter includes multiple loans and preserves INR/EUR as separate currencies.
+- PASS: lent and borrowed filters return only the selected direction.
+- PASS: individual-loan filter exports only the selected loan ID.
+- PASS: summary uses production `lendingPosition()` outputs for principal, interest paid, adjustments and outstanding values.
+- PASS: detailed ledger includes posted principal repayments, interest settlements, positive interest adjustments and waivers.
+- PASS: voided repayment transactions are excluded.
+- PASS: formula-leading text in lending CSV is neutralised; numeric amounts remain numeric.
+- PASS: Lending overview export action and individual detail statement action are present.
+- PASS: `node regression.mjs` — `ALL_REGRESSION_PASS`.
+- Not run: actual browser download prompts, iOS/Android file handling and visual layout on physical devices.

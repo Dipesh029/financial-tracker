@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.9.3
+**Current version:** 2.9.4
 
 ---
 
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Upload **all** of: `index.html`, `sw.js`, `manifest.webmanifest`, `icon.svg` to the **same HTTPS path** as before.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.9.3**).
+5. Confirm the unlock screen shows the expected version (**v2.9.4**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -229,3 +229,12 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 ```bash
 node regression.mjs
 ```
+
+
+### 2.9.4 — 2026-11-22
+- Lending export from the Lending overview: all records, money lent, money borrowed, or all loans for one person.
+- Individual loan detail now includes Export statement.
+- Summary CSV includes original principal, principal repaid/outstanding, annual rate, interest accrued/paid, net adjustments, interest outstanding, total outstanding, status and as-of date.
+- Detailed ledger CSV includes the original loan record, posted principal repayments, posted interest settlements, and dated manual interest adjustments/waivers.
+- Each loan remains a separate row and retains its original currency; no mixed-currency totals are calculated.
+- Voided repayment transactions are excluded. Export is read-only and uses `lendingPosition()` for summary calculations.

@@ -126,3 +126,15 @@ Validation in this archive:
 - Service-worker cache writes are attached to the fetch event lifetime and cache failures do not fail successful network responses. Cache version is v83.
 - A 15-minute visible-session inactivity lock is added, alongside the existing lock after the app has been backgrounded for more than two minutes.
 - Inline scripts are now authorised by SHA-256 CSP hashes instead of `script-src 'unsafe-inline'`. Inline styles remain permitted because the current UI uses extensive inline style attributes. `frame-ancestors` must be set as an HTTP response header by the hosting provider; a CSP meta tag cannot enforce it.
+
+
+## 2.9.4 — Lending exports
+
+- Lending overview provides CSV exports for all loans, money lent, money borrowed, and all loans associated with one contact/person.
+- Individual lending detail provides a statement export scoped to that loan ID.
+- Summary export uses the production `lendingPosition()` calculation and includes an explicit as-of date.
+- Detailed ledger includes original loan record, posted principal repayments, posted interest settlements, and dated interest adjustments/waivers.
+- Voided repayment transactions are excluded; exports do not modify the vault.
+- Currency is retained per loan; no cross-currency totals are produced.
+- CSV text fields use the existing formula-injection protection. Account names are exported, not account numbers or recipient bank/UPI details.
+- Automated regression coverage: PASS. Browser/device download behaviour: NOT RUN.

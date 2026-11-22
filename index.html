@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f4fd8">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-AvK88ZZ/veKv8MuENbzf/Pr/EF0STRi+xCh3Fa1bha8='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-clGr41VgvY6yGcM7aec0xup69Pkbbss6SV1GIz324CY='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -382,8 +382,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.9.3";
+const APP_VERSION = "2.9.4";
 const RELEASES = [
+  {v:"2.9.4", d:"2026-11-22", notes:"Added dedicated Lending exports: filtered loan summaries and detailed ledgers for all records, money lent, money borrowed, an individual person, or one loan. Includes posted principal/interest repayments and dated interest adjustments while preserving currencies separately."},
   {v:"2.9.3", d:"2026-11-21", notes:"Security and reliability hardening: validate encrypted vault and backup metadata before PBKDF2/decryption; make CSV exports spreadsheet-formula-safe; clarify passphrase-based KDF upgrades after biometric unlock; Android/browser Back closes the active sheet; await service-worker cache writes; add a 15-minute visible-session inactivity lock."},
   {v:"2.9.2", d:"2026-11-21", notes:"Added a More → Display preference to show or hide Forex features. Hiding Forex is presentation-only: it preserves existing wallets, transactions, balances, historical rates, and net-worth calculations."},
   {v:"2.9.1", d:"2026-11-21", notes:"Hardened Give & Take: historical FX conversion, specific transaction settlements, legacy balances grouped by person and currency, full per-person history, editing and safe void/restore, duplicate-contact protection, stable contact IDs for formal lending, and centre + close/cancel state reset."},
@@ -3761,6 +3762,7 @@ function lendingDetailSheet(id){
   <div class="lend-detail-actions">
     <button class="btn" data-lendrec="${esc(l.id)}">Record repayment</button>
     <button class="btn alt" data-lendadj="${esc(l.id)}">Adjust interest / round off</button>
+    <button class="btn alt" data-lendstatement="${esc(l.id)}">Export statement</button>
     <button class="btn alt" data-close>Close</button>
   </div>`);
 }
@@ -3949,7 +3951,7 @@ function viewPlan(){
         
       </div>`;
     }).join("");
-    return segBar+`<h2 style="margin-top:4px">Lending</h2>
+    return segBar+`<div class="section-hd" style="display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px"><h2 style="margin:0">Lending</h2><button type="button" class="chip" data-lendexport-open>Export</button></div>
   ${sortBarHtml("lending",[{key:"person",label:"Person"},{key:"prin",label:"Principal left"},{key:"interest",label:"Interest left"},{key:"total",label:"Total outstanding"},{key:"start",label:"Start date"}])}
   <div class="lend-hero">
     <div class="muted">Outstanding (they owe you)</div>
@@ -4474,6 +4476,129 @@ function exportCSV(){
   download(`transactions-${today()}.csv`, csv, "text/csv");
 }
 
+
+function lendingExportScopeFromValue(value){
+  const v=String(value||"all");
+  if(v==="all"||v==="lent"||v==="borrowed") return {type:v,label:v==="all"?"all-lending":v==="lent"?"money-lent":"money-borrowed"};
+  if(v.startsWith("person:")){
+    try{
+      const key=decodeURIComponent(v.slice(7));
+      return key.startsWith("contact:")?{type:"person",contactId:key.slice(8),label:"person"}:{type:"person",personKey:key.slice(5),label:"person"};
+    }catch(_){}
+  }
+  return {type:"all",label:"all-lending"};
+}
+function filterLendingForExport(scopeValue){
+  const scope=typeof scopeValue==="object"&&scopeValue?scopeValue:lendingExportScopeFromValue(scopeValue);
+  return (S.lending||[]).filter(l=>{
+    if(scope.type==="lent"||scope.type==="borrowed") return l.direction===scope.type;
+    if(scope.type==="person"){
+      if(scope.contactId) return l.contactId===scope.contactId;
+      return normalizeContactName(l.person||"")===scope.personKey;
+    }
+    if(scope.type==="loan") return l.id===scope.loanId;
+    return true;
+  });
+}
+function buildLendingExportRows(scopeValue){
+  const loans=filterLendingForExport(scopeValue);
+  const asOf=today();
+  const summary=[["loan_id","person","contact_id","direction","currency","lending_date","original_principal","principal_repaid","principal_outstanding","annual_interest_rate_pct","interest_accrued","interest_received_or_paid","interest_adjustments_net","interest_outstanding","total_outstanding","status","as_of_date","notes"]];
+  const ledger=[["loan_id","person","direction","currency","date","event","principal_amount","interest_amount","account","reference","status","notes"]];
+  const csvNum=n=>Math.round((Number(n)||0)*100)/100;
+  for(const l of loans){
+    const p=lendingPosition(l);
+    summary.push([
+      l.id||"",l.person||"",l.contactId||"",l.direction||"",l.cur||"",l.start||"",
+      csvNum(p.principalOrig),csvNum(p.principalRepaid),csvNum(p.principalLeft),
+      Number(p.rate)||0,csvNum(p.accrued),csvNum(p.interestPaid),csvNum(p.interestAdj),
+      csvNum(p.interestLeft),csvNum(p.totalOutstanding),p.status||"",asOf,l.note||""
+    ]);
+    const originalTxn=(S.txns||[]).find(t=>(t.lendingId===l.id||t.loanId===l.id)&&(t.type==="lend"||t.type==="borrow"));
+    const originalAccount=originalTxn&&originalTxn.postings&&originalTxn.postings[0]?(acct(originalTxn.postings[0].acct)||{}).name||"":(acct(l.account)||{}).name||"";
+    const events=[{
+      date:l.start||"",order:0,created:l.created||"",event:l.direction==="lent"?"Original amount lent":"Original amount borrowed",principal:csvNum(l.principal),
+      interest:0,account:originalAccount,reference:originalTxn&&originalTxn.id||l.id,status:"recorded",
+      note:l.note||""
+    }];
+    for(const t of (S.txns||[])){
+      if(t.status!=="posted"||t.loanId!==l.id) continue;
+      const accountName=t.postings&&t.postings[0]?(acct(t.postings[0].acct)||{}).name||"":"";
+      if(Number(t.principalReduction)>0){
+        events.push({
+          date:t.date||l.start||"",order:1,created:t.created||"",event:l.direction==="lent"?"Principal repayment received":"Principal repayment paid",
+          principal:csvNum(t.principalReduction),interest:0,account:accountName,reference:t.id||"",
+          status:"posted",note:t.note||""
+        });
+      }
+      if(t.interestSettlement){
+        const paid=Math.abs(Number(t.postings&&t.postings[0]&&t.postings[0].amt)||0);
+        events.push({
+          date:t.date||l.start||"",order:2,created:t.created||"",event:l.direction==="lent"?"Interest received":"Interest paid",
+          principal:0,interest:csvNum(paid),account:accountName,reference:t.id||"",
+          status:"posted",note:t.note||""
+        });
+      }
+    }
+    for(const a of (l.interestAdjustments||[])){
+      if(a.date&&a.date>asOf) continue;
+      const amount=csvNum(a.amount);
+      events.push({
+        date:a.date||l.start||"",order:3,created:a.created||"",event:amount<0?"Interest waiver / reduction":"Interest added / agreed adjustment",
+        principal:0,interest:amount,account:"",reference:a.id||"",
+        status:"recorded adjustment",note:a.note||""
+      });
+    }
+    events.sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.order-b.order||String(a.created).localeCompare(String(b.created)));
+    for(const e of events){
+      ledger.push([l.id||"",l.person||"",l.direction||"",l.cur||"",e.date,e.event,e.principal,e.interest,e.account,e.reference,e.status,e.note]);
+    }
+  }
+  return {summary,ledger,loanCount:loans.length,asOf};
+}
+function lendingRowsToCsv(rows){
+  return rows.map((r,ri)=>r.map((c,ci)=>{
+    const textField=ri===0||typeof c==="string";
+    const value=textField?csvSafeText(c):c;
+    return `"${String(value==null?"":value).replace(/"/g,'""')}"`;
+  }).join(",")).join("\r\n");
+}
+function openLendingExportSheet(loanId){
+  const fixed=loanId?S.lending.find(l=>l.id===loanId):null;
+  const people=new Map();
+  for(const l of (S.lending||[])){
+    const key=l.contactId?"contact:"+l.contactId:"name:"+normalizeContactName(l.person||"");
+    if(!people.has(key)) people.set(key,{key,name:l.person||"Unknown"});
+  }
+  const options=fixed
+    ? `<option value="loan:${esc(fixed.id)}" selected>${esc(fixed.person)} · ${esc(fixed.cur)} · ${esc(fixed.start||"")}</option>`
+    : `<option value="all">All lending records</option><option value="lent">Money lent (they owe me)</option><option value="borrowed">Money borrowed (I owe them)</option>${[...people.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="person:${encodeURIComponent(p.key)}">${esc(p.name)} · all their loans</option>`).join("")}`;
+  openSheet(`<h2 style="margin-top:0">${fixed?"Export loan statement":"Export lending"}</h2>
+    <p class="muted">${fixed?"Exports this loan only, including its posted repayments and interest adjustments.":"Choose which lending records to include. Each loan and currency stays separate."}</p>
+    <label>Records to export</label><select id="lendExportScope">${options}</select>
+    <div class="form-section" style="margin-top:12px">
+      <div class="form-section-title">Choose export</div>
+      <button type="button" class="btn" data-lendexport="summary">Download summary CSV</button>
+      <button type="button" class="btn alt" data-lendexport="ledger">Download detailed ledger CSV</button>
+    </div>
+    <div class="muted">Summary includes current principal and interest positions as of today. Ledger includes the original loan, posted repayments and recorded interest adjustments. Voided transactions are excluded.</div>
+    <button type="button" class="btn alt" data-close>Cancel</button>`);
+}
+function exportLendingCSV(kind, fixedLoanId){
+  const selected=$("#lendExportScope")?.value||"all";
+  let scope=selected;
+  if(fixedLoanId) scope={type:"loan",loanId:fixedLoanId};
+  else if(typeof selected==="string"&&selected.startsWith("loan:")) scope={type:"loan",loanId:selected.slice(5)};
+  const rows=buildLendingExportRows(scope);
+  if(!rows.loanCount){ toast("No lending records match this selection"); return; }
+  const isSummary=kind==="summary";
+  const csv=lendingRowsToCsv(isSummary?rows.summary:rows.ledger);
+  const rawSuffix=scope&&scope.type==="loan"?"loan-statement":(typeof scope==="string"&&scope!=="all"?(scope.startsWith("person:")?"person":scope):"lending");
+  const suffix=String(rawSuffix).replace(/[^a-z0-9-]/gi,"-").toLowerCase();
+  download(`lending-${isSummary?"summary":"ledger"}-${suffix}-${rows.asOf}.csv`,"\uFEFF"+csv,"text/csv;charset=utf-8");
+  toast((isSummary?"Lending summary":"Lending ledger")+" exported");
+}
+
 /* ---------- account dropdown (pay picker) ---------- */
 function closePayPanels(focusTrigger){
   document.querySelectorAll(".pay-picker.open").forEach(r=>{
@@ -4505,7 +4630,7 @@ document.addEventListener("keydown", e=>{
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-toggleforex],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-paytoggle],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-lendexport-open],[data-lendstatement],[data-lendexport],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-toggleforex],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-paytoggle],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -4625,6 +4750,9 @@ document.addEventListener("click", async e=>{
   if("toggle" in d){ S.display=S.display==="INR"?"EUR":"INR"; save(); render(); return; }
   if("snapshot" in d){ const owner=homeOwner==="All family"?null:homeOwner,nw=netWorth(owner).total,m=today().slice(0,7); const old=S.history.find(x=>x.month===m&&(x.owner||null)===owner); if(old){old.value=nw;old.date=today();old.cur=S.display;old.fxRate=S.rate;}else S.history.push({month:m,date:today(),value:nw,cur:S.display,fxRate:S.rate,owner}); save(); render(); toastSaved("Net worth snapshot saved"); return; }
   if("newlend" in d){newLendingSheet();return;}
+  if("lendexportOpen" in d){openLendingExportSheet();return;}
+  if(d.lendstatement){openLendingExportSheet(d.lendstatement);return;}
+  if(d.lendexport){exportLendingCSV(d.lendexport);return;}
   if(d.lend){ lendingDetailSheet(d.lend); return; }
   if(d.lendadj){ lendingAdjustSheet(d.lendadj); return; }
   if(d.lendrec){lendingPaymentSheet(d.lendrec);return;}
@@ -6565,7 +6693,7 @@ document.addEventListener("visibilitychange",()=>{
 if(globalThis.__MF_TEST){
   globalThis.__mf={
     parseAmt, inspectAmt, readAmt, rejectAmt, thousandsFallback,
-    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, blank, migrate,
+    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, blank, migrate,
     processDueAutomations, salaryTermsAt, advanceSalaryNext, sipTermsAt, advanceSipNext, addM, addDays, calendarDays,
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
     wealthBreakdown, netWorth, valuationNotes, holdPos, balance, addTxn,
