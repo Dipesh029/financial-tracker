@@ -562,3 +562,30 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 - PDF calculations continue to derive from the existing lending export rows, which use `lendingPosition()`; no stored data or lending transaction logic changed.
 - Regression suite: `node regression.mjs` — ALL_REGRESSION_PASS.
 - Service-worker cache advanced to v87; CSP hash refreshed for the modified inline application script.
+
+
+## v2.12.2 — Verified baseline on main
+- Forex expense edits count the amount already in that expense before warning that a wallet will go negative.
+- An automatic SIP or salary whose currency differs from the account is not posted. A matching SIP still posts.
+- Home, Activity and month totals skip a transaction that has no date, no created time or no numeric posting. The stored row is not rewritten.
+- Mutual-fund forecasts use monthly compounding `(1+annual)^(1/12)-1`, walk a SIP that has a next date, and do not change holdings or transactions.
+- Vault key remains `myfinance.v1`. Backup format is unchanged.
+- These items were already on main before the 2.12.3 and 2.12.4 fixes below.
+
+## v2.12.3 — Repeated calculations (already on main)
+- Home reuses the wealth breakdown returned with net worth. The accounts list totals balances in one pass that matches `balance()`. Investment and lending screens remember a position only while that screen is drawn.
+- PASS: one-pass balances are 85 and −16, and `netWorth().total` equals `netWorth().breakdown.total`.
+- This release was already merged as pull request #13. The schedule fixes below are 2.12.4, not another 2.12.3.
+
+## v2.12.4 — Schedule reliability (2026-11-22)
+- PASS: 31 January 2024 advances to 29 February, then 31 March, then 30 April. A 29th reaches 28 February 2025. A non-month-end 30th returns to the 30th. 30 April stays at month end. Monthly salary follows the same rule. A weekly salary still moves seven days.
+- PASS: a forecast of a 31st SIP lists 31 January, 29 February and 31 March and does not write `scheduleAnchor`.
+- PASS: a SIP or salary that is not yet due is not given an anchor and its stored JSON is unchanged.
+- PASS: a SIP with no next date contributes nothing and is marked "No next date". A quarterly SIP with a next date still contributes four instalments.
+- PASS: two forecast scenarios given one prepared schedule use the same contribution total.
+- PASS: the integrity check reports invalid opening balances, duplicate account and contact-method ids, invalid prices, dates, amounts, frequencies, units and orphan links, and the JSON of the vault is unchanged.
+- PASS: forecast slider markup uses −50 to 50 for returns, 1 to 50 years, and an extra-amount maximum of 1000000. The projection label is "Current value + future contributions".
+- PASS: `node --check` on the app script, `sw.js` and `regression.mjs`.
+- PASS: `node regression.mjs` — ALL_REGRESSION_PASS, including `PASS render-caches` and `PASS schedule-and-integrity`.
+- Not run: opening the month-by-month section in a browser, and no personal vault. The month table is built on the toggle event; the regression harness does not dispatch that event.
+- Limitation: an old schedule that already drifted and has no `scheduleAnchor` keeps the day of its current next date. The original day is not recovered, because that would rewrite history.

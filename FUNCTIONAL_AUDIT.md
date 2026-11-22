@@ -1,6 +1,6 @@
 # Functional audit — My Finance PWA
 
-Last reviewed against app version **2.9.3**.
+Last reviewed against app version **2.12.4**.
 
 ## Architecture
 
@@ -157,6 +157,16 @@ Validation in this archive:
 ### v2.9.6 upload
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
 
+
+## 2.12.4 — Schedule dates, forecast limits and integrity warnings
+- An active SIP with no valid next date is excluded from the forecast and labelled "No next date". Instalments are not invented from the frequency.
+- Monthly SIP and salary advances keep the original day. A 31st or other month-end date stays at month end, including February in leap and non-leap years. A 30th that did not start on a month end stays on the 30th. Weekly and daily salaries still move by days.
+- `addM()` is unchanged. The schedule rule is `addMonthsOnRule()`. The anchor is stored only when a schedule is saved or when a due instalment is actually advanced. Forecasting does not write it, and an instalment that is not yet due is left untouched.
+- Forecast sliders and typed checks use the same limits: 1–50 years, −50% to 50% return, and an extra monthly amount of 0–1000000.
+- The projection label is "Current value + future contributions". The calculation is unchanged. Cost-basis labels stay "Total invested amount (cost basis)" and "Total invested (cost)".
+- One SIP schedule is reused for the conservative, expected and optimistic results. The month-by-month table is built when that section is opened.
+- The integrity check reports missing and duplicate ids and invalid prices, units, amounts, dates, frequencies and orphan links for accounts, holdings, SIPs, salaries, policies, contacts and purchases. It does not correct records.
+- A schedule that already drifted and has no stored anchor keeps the day of its current next date. The forgotten original day is not reconstructed.
 
 ## 2.12.3 — Fewer repeated calculations
 - Home uses the wealth breakdown already produced for net worth.

@@ -1,6 +1,6 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.12.3  
+**App version at last update:** 2.12.4  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
 **Last audit date:** 2026-11-22  
 
@@ -230,3 +230,12 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 - PASS: `netWorth().total` equals `netWorth().breakdown.total` and `wealthBreakdown().total`.
 - PASS: `node regression.mjs` — ALL_REGRESSION_PASS.
 - Not run: a timing measurement on a phone. The change removes repeated work; it does not change a formula.
+
+
+## 2.12.4 — Schedule reliability (2026-11-22)
+- PASS: month-end, 29th, 30th and leap-year advances keep the original day rule. Weekly salary still moves by days.
+- PASS: a forecast walk of 31 January 2024 does not write `scheduleAnchor`. A SIP or salary that is not due is not rewritten.
+- PASS: a SIP with no next date is excluded. One prepared SIP schedule is shared by the 0% and 10% scenarios.
+- PASS: the integrity check reports the new invalid-record warnings and does not change the vault JSON.
+- PASS: `node --check` and `node regression.mjs` — ALL_REGRESSION_PASS, including `PASS render-caches` and `PASS schedule-and-integrity`.
+- Not run: the month-by-month toggle in a browser, and no personal vault. A schedule that already drifted without an anchor keeps its current day.
