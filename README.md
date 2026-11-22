@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.12.2
+**Current version:** 2.12.3
 
 ---
 
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Replace **only** `index.html` and `sw.js` at the **same HTTPS path** as before. Keep `manifest.webmanifest`, `icon.svg`, the site origin, and the existing vault data unchanged.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.12.2**).
+5. Confirm the unlock screen shows the expected version (**v2.12.3**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -131,6 +131,9 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.12.3 — 2026-11-22
+- **Speed:** Home reuses one wealth calculation. Money and Lending remember a balance or loan position for the rest of that screen instead of calculating it again for every card. The figures are unchanged.
 
 ### 2.12.2 — 2026-11-22
 - **Forex:** Editing an expense on a currency wallet counts the money in that expense as still available. A smaller edit no longer warns that the wallet will go negative.

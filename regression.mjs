@@ -637,7 +637,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.12.2");
+  const versionAt = home.indexOf("v" + "2.12.3");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -1049,7 +1049,7 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v94"), "service worker cache version is bumped for this release");
+  assert(sw.includes("myfinance-shell-v95"), "service worker cache version is bumped for this release");
   const htmlCache = sw.slice(sw.indexOf("if (isHTML)"));
   assert(htmlCache.indexOf("const forRequest = response.clone()") >= 0 && htmlCache.indexOf("const forRequest = response.clone()") < htmlCache.indexOf("caches.open(CACHE)"), "HTML is cloned before the cache is opened");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
@@ -1433,6 +1433,28 @@ console.log("PASS calendar-dst-end");
   near(mf.balance(ok.accounts[0]), 900, "the matching SIP still leaves the account");
   near(mf.holdPos(ok.holdings[0]).u, 10, "the matching SIP still buys units");
   console.log("PASS forex-and-schedule-currency");
+}
+
+{
+  const st=mf.blank();
+  st.accounts=[
+    {id:"a",name:"Bank",type:"bank",cur:"INR",opening:100,owner:"Me",archived:false},
+    {id:"b",name:"Card",type:"card",cur:"INR",opening:-20,owner:"Me",archived:false}
+  ];
+  st.txns=[
+    {id:"t1",status:"posted",postings:[{acct:"a",amt:-15,cur:"INR"},{acct:"b",amt:4,cur:"INR"}]},
+    {id:"t2",status:"voided",postings:[{acct:"a",amt:-1000,cur:"INR"}]}
+  ];
+  mf.setS(st);
+  const map=mf.accountBalanceMap();
+  near(map.get("a"), 85, "one-pass balance keeps the opening and ignores a voided transaction");
+  near(map.get("b"), -16, "one-pass card balance matches the ledger");
+  near(map.get("a"), mf.balance(st.accounts[0]), "one-pass bank balance matches balance()");
+  near(map.get("b"), mf.balance(st.accounts[1]), "one-pass card balance matches balance()");
+  const nw=mf.netWorth(null);
+  near(nw.total, nw.breakdown.total, "net worth and the reused breakdown are the same figure");
+  near(nw.breakdown.total, mf.wealthBreakdown(null).total, "the attached breakdown is the live wealth breakdown");
+  console.log("PASS render-caches");
 }
 
 console.log("ALL_REGRESSION_PASS");
