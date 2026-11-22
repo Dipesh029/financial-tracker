@@ -158,6 +158,14 @@ Validation in this archive:
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
 
 
+## 2.9.8 — Give & Take net worth and save/cache fixes
+- Outstanding Give & Take is included in net worth per person, after settlements net out. It does not create a lending record and is not double-counted with legacy transfer IOUs.
+- Contact lookup collapses internal whitespace. Duplicate names that differ only by spacing are reported as ambiguous instead of being treated as different people.
+- Give & Take edits wait for the save and restore the previous row if storage rejects it.
+- Service worker clones the network response before opening the cache. Shell cache is v88.
+- `balance()` skips a posted transaction that has no postings array.
+- Vault key, AES-GCM envelope, and backup format are unchanged.
+
 ## 2.9.7 — Lending PDF output
 - PDF rendering only; no changes to lending data structures, calculations, encryption, vault key, origin or backup format.
 - Summary totals are grouped by currency and direction (Lent/Borrowed). Do not add amounts across currencies.

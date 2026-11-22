@@ -1,7 +1,7 @@
 /* My Finance PWA shell cache.
    Network-first for HTML so updates appear after deploy; offline falls back to cache. */
 "use strict";
-const CACHE = "myfinance-shell-v87";
+const CACHE = "myfinance-shell-v88";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -45,12 +45,15 @@ self.addEventListener("fetch", (event) => {
     const networkResponse = fetch(req);
     const cacheWrite = networkResponse.then((response) => {
       if (!response || !response.ok) return;
-      return caches.open(CACHE).then(async (c) => {
-        await c.put(req, response.clone());
-        await c.put("./index.html", response.clone());
-      });
+      // Clone before any await. respondWith reads this same body, and a later
+      // clone throws, which used to leave the offline shell on the old page.
+      const forRequest = response.clone();
+      const forIndex = response.clone();
+      return caches.open(CACHE).then((c) => Promise.all([
+        c.put(req, forRequest).catch(() => {}),
+        c.put("./index.html", forIndex).catch(() => {})
+      ]));
     }).catch(() => {});
-    // Register lifetime work synchronously while the fetch event is active.
     event.waitUntil(cacheWrite);
     event.respondWith(networkResponse.catch(() =>
       caches.match(req).then((cached) => cached || caches.match("./index.html"))
@@ -61,7 +64,8 @@ self.addEventListener("fetch", (event) => {
   const responsePromise = caches.match(req).then((cached) => cached || fetch(req));
   const cacheWrite = responsePromise.then((response) => {
     if (!response || !response.ok) return;
-    return caches.open(CACHE).then((c) => c.put(req, response.clone()));
+    const copy = response.clone();
+    return caches.open(CACHE).then((c) => c.put(req, copy));
   }).catch(() => {});
   event.waitUntil(cacheWrite);
   event.respondWith(responsePromise);
