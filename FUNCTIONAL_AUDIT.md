@@ -138,3 +138,11 @@ Validation in this archive:
 - Currency is retained per loan; no cross-currency totals are produced.
 - CSV text fields use the existing formula-injection protection. Account names are exported, not account numbers or recipient bank/UPI details.
 - Automated regression coverage: PASS. Browser/device download behaviour: NOT RUN.
+
+
+## 2.9.5 — Sort and export presentation
+- Standardised the compact sort toolbar across Contacts, Demat, Holdings, Accounts, Salaries, Lending, Insurance policies and SIPs. Existing section-specific sort keys and persisted preferences are unchanged.
+- Sort sheets now present one compact row per sort field with ascending/descending controls; Manual order remains available.
+- Lending summary and ledger exports use human-readable headings and omit internal loan/contact/transaction/adjustment identifiers. The detailed ledger includes loan date, original principal and report date to distinguish multiple loans for one person.
+- General transaction CSV omits transaction IDs and duplicate references and labels transaction types/statuses for readers.
+- No lending calculations, account postings, encrypted vault format, storage key, or backup format changed.

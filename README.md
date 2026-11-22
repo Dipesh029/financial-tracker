@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.9.4
+**Current version:** 2.9.5
 
 ---
 
@@ -63,10 +63,10 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 ## Deploy / update (same origin)
 
 1. **Backup** from the app (Settings → Save backup file) and verify you can keep the file safe.
-2. Upload **all** of: `index.html`, `sw.js`, `manifest.webmanifest`, `icon.svg` to the **same HTTPS path** as before.
+2. Replace **only** `index.html` and `sw.js` at the **same HTTPS path** as before. Keep `manifest.webmanifest`, `icon.svg`, the site origin, and the existing vault data unchanged.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.9.4**).
+5. Confirm the unlock screen shows the expected version (**v2.9.5**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -238,3 +238,10 @@ node regression.mjs
 - Detailed ledger CSV includes the original loan record, posted principal repayments, posted interest settlements, and dated manual interest adjustments/waivers.
 - Each loan remains a separate row and retains its original currency; no mixed-currency totals are calculated.
 - Voided repayment transactions are excluded. Export is read-only and uses `lendingPosition()` for summary calculations.
+
+
+### 2.9.5 — 2026-11-22
+- Sort controls and direction menus use a consistent compact layout across Contacts, Investments, Accounts, Salaries, Lending, Insurance and SIPs, retaining each section's saved sort preference and available sort keys.
+- Lending Sort and Export now share one toolbar.
+- Lending summary and ledger CSVs use human-readable headings and omit internal loan/contact/transaction/adjustment IDs and reference columns.
+- Transaction CSV uses clear labels, removes duplicated technical IDs/references, and retains numeric amounts and formula-injection protection.

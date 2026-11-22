@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f4fd8">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-clGr41VgvY6yGcM7aec0xup69Pkbbss6SV1GIz324CY='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-00do8tkwH80fST4kJ0Ptn7HxC5/1MVP+2VMOFIyTm5s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -354,12 +354,19 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .nw-breakdown{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .nw-breakdown .wealth-pill span{font-size:11px}
 .dragging{opacity:.85;box-shadow:0 8px 24px rgba(0,0,0,.18);transform:scale(1.02);z-index:5;position:relative}
-.sort-bar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px;align-items:center}
-
-
+.sort-bar{display:flex;flex-wrap:nowrap;gap:7px;margin:0 0 10px;align-items:center;justify-content:flex-end;min-width:0}
 .drag-handle{display:none!important}
-.sort-bar{display:flex;flex-wrap:nowrap;gap:6px;margin:0 0 8px;align-items:center;justify-content:flex-end}
-.sort-chip{font-size:12px!important;padding:4px 10px!important;min-height:32px!important;font-weight:600}
+.sort-caption{font-size:11px;color:var(--muted);font-weight:650;letter-spacing:.035em;text-transform:uppercase;margin-right:auto}
+.sort-chip{font-size:12px!important;padding:5px 11px!important;min-height:34px!important;font-weight:650;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.sort-chip .sort-icon{font-size:14px;line-height:1}
+.sort-export{font-size:12px!important;padding:5px 12px!important;min-height:34px!important;font-weight:650;white-space:nowrap}
+@media(max-width:380px){.sort-bar{gap:5px}.sort-chip,.sort-export{padding:5px 8px!important;font-size:11px!important}.sort-caption{display:none}}
+.sort-menu-list{display:flex;flex-direction:column;gap:7px;margin:12px 0}
+.sort-menu-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:11px;background:var(--card)}
+.sort-menu-label{font-size:13px;font-weight:600;min-width:0}
+.sort-menu-directions{display:flex;gap:6px;flex:0 0 auto}
+.sort-dir{min-width:38px;min-height:34px;padding:5px 9px!important;font-weight:700}
+.sort-manual{width:100%;text-align:left;margin:0!important}
 .section-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:14px 0 6px}
 .section-hd h2{margin:0}
 .seg.wrap{flex-wrap:wrap}
@@ -382,8 +389,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.9.4";
+const APP_VERSION = "2.9.5";
 const RELEASES = [
+  {v:"2.9.5", d:"2026-11-22", notes:"Refined compact sort controls and direction pickers across Contacts, Investments, Accounts, Salaries, Lending, Insurance and SIPs. Lending and transaction exports now use share-friendly headings without internal IDs/references."},
   {v:"2.9.4", d:"2026-11-22", notes:"Added dedicated Lending exports: filtered loan summaries and detailed ledgers for all records, money lent, money borrowed, an individual person, or one loan. Includes posted principal/interest repayments and dated interest adjustments while preserving currencies separately."},
   {v:"2.9.3", d:"2026-11-21", notes:"Security and reliability hardening: validate encrypted vault and backup metadata before PBKDF2/decryption; make CSV exports spreadsheet-formula-safe; clarify passphrase-based KDF upgrades after biometric unlock; Android/browser Back closes the active sheet; await service-worker cache writes; add a 15-minute visible-session inactivity lock."},
   {v:"2.9.2", d:"2026-11-21", notes:"Added a More → Display preference to show or hide Forex features. Hiding Forex is presentation-only: it preserves existing wallets, transactions, balances, historical rates, and net-worth calculations."},
@@ -1929,23 +1937,23 @@ function setSortPref(section, key, dir){
 
 
 
-function sortBarHtml(section, options){
+function sortBarHtml(section, options, extraHtml=""){
   const pref=getSortPref(section);
   const opts=[{key:"manual",label:"Manual"},...options];
   const cur=opts.find(o=>o.key===pref.key)||opts[0];
-  const dirMark=pref.key!=="manual"?(pref.dir==="desc"?" ↓":" ↑"):"";
-  return `<div class="sort-bar"><button type="button" class="chip sort-chip" data-sortopen="${section}" aria-label="Sort order">Sort: ${esc(cur.label)}${dirMark}</button></div>`;
+  const dirLabel=pref.key!=="manual"?(pref.dir==="desc"?"High to low / Z–A":"Low to high / A–Z"):"Saved order";
+  const dirMark=pref.key!=="manual"?(pref.dir==="desc"?"↓":"↑"):"↕";
+  return `<div class="sort-bar"><span class="sort-caption">Arrange</span><button type="button" class="chip sort-chip" data-sortopen="${section}" aria-label="Change sort order" title="${esc(dirLabel)}"><span class="sort-icon" aria-hidden="true">${dirMark}</span><span>Sort · ${esc(cur.label)}</span></button>${extraHtml}</div>`;
 }
 
 function sortMenuHtml(section, options){
   const pref=getSortPref(section);
-  const opts=[{key:"manual",label:"Manual order"},...options];
-  return `<h2 style="margin-top:0">Sort</h2>
-  <div class="muted" style="margin-bottom:8px">Applies to this list only. Manual order is kept when you switch away and back.</div>
-  ${opts.map(o=>`
-    <button type="button" class="btn alt" style="width:100%;margin:4px 0;text-align:left" data-sortkey="${section}::${o.key}::asc">${esc(o.label)}${o.key!=="manual"?" (A→Z / low→high)":""}${pref.key===o.key&&pref.dir==="asc"?" ✓":""}</button>
-    ${o.key!=="manual"?`<button type="button" class="btn alt" style="width:100%;margin:4px 0;text-align:left" data-sortkey="${section}::${o.key}::desc">${esc(o.label)} (Z→A / high→low)${pref.key===o.key&&pref.dir==="desc"?" ✓":""}</button>`:""}
-  `).join("")}
+  return `<h2 style="margin-top:0">Sort list</h2>
+  <div class="muted" style="margin-bottom:8px">Choose a field and direction. Your choice is saved for this list only.</div>
+  <div class="sort-menu-list">
+    <button type="button" class="btn alt sort-manual" data-sortkey="${section}::manual::asc">↕ &nbsp; Manual order${pref.key==="manual"?" ✓":""}</button>
+    ${options.map(o=>`<div class="sort-menu-row"><span class="sort-menu-label">${esc(o.label)}</span><div class="sort-menu-directions"><button type="button" class="chip sort-dir ${pref.key===o.key&&pref.dir==="asc"?"on":""}" data-sortkey="${section}::${o.key}::asc" title="${esc(o.label)}: A to Z / low to high" aria-label="Sort ${esc(o.label)} ascending">↑</button><button type="button" class="chip sort-dir ${pref.key===o.key&&pref.dir==="desc"?"on":""}" data-sortkey="${section}::${o.key}::desc" title="${esc(o.label)}: Z to A / high to low" aria-label="Sort ${esc(o.label)} descending">↓</button></div></div>`).join("")}
+  </div>
   <button type="button" class="btn" data-close>Close</button>`;
 }
 function applySectionSort(arr, section, accessors){
@@ -3951,8 +3959,8 @@ function viewPlan(){
         
       </div>`;
     }).join("");
-    return segBar+`<div class="section-hd" style="display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px"><h2 style="margin:0">Lending</h2><button type="button" class="chip" data-lendexport-open>Export</button></div>
-  ${sortBarHtml("lending",[{key:"person",label:"Person"},{key:"prin",label:"Principal left"},{key:"interest",label:"Interest left"},{key:"total",label:"Total outstanding"},{key:"start",label:"Start date"}])}
+    return segBar+`<h2 style="margin:4px 0 8px">Lending</h2>
+  ${sortBarHtml("lending",[{key:"person",label:"Person"},{key:"prin",label:"Principal left"},{key:"interest",label:"Interest left"},{key:"total",label:"Total outstanding"},{key:"start",label:"Start date"}],'<button type="button" class="btn alt sort-export" data-lendexport-open><span aria-hidden="true">⇩</span> Export</button>')}
   <div class="lend-hero">
     <div class="muted">Outstanding (they owe you)</div>
     <div class="outstanding num in">${fmtHide(outstandingLent,S.display)}</div>
@@ -4468,12 +4476,21 @@ function csvSafeText(value){
   // CSV field is quoted. Prefix only text fields; numeric values remain numeric.
   return /^[\s\u0000-\u001f]*[=+\-@]/.test(text)?"'"+text:text;
 }
+function transactionTypeLabel(type){
+  const labels={expense:"Expense",income:"Income",transfer:"Transfer",givetake:"Give & Take",buy:"Investment purchase",sell:"Investment sale",lend:"Money lent",borrow:"Money borrowed",lendback:"Principal repayment",adjust:"Investment adjustment",adjustment:"Balance adjustment",open:"Opening balance",refund:"Refund"};
+  return labels[type]||String(type||"Other").replace(/[_-]+/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+}
+function transactionStatusLabel(status){
+  const labels={posted:"Posted",voided:"Voided",pending:"Pending"};
+  return labels[status]||String(status||"").replace(/[_-]+/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+}
 function exportCSV(){
-  const rows=[["id","date","type","status","category","note","account","account_owner","amount","currency","fx_rate","person","reference"]];
-  for(const t of S.txns) for(const p of t.postings) rows.push([t.id,t.date,t.type,t.status,t.cat||"",t.note||"",(acct(p.acct)||{}).name||"",(acct(p.acct)||{}).owner||"Me",p.amt,p.cur,t.fxRate||S.rate,t.person||"",t.id]);
-  const textColumns=new Set([0,1,2,3,4,5,6,7,9,11,12]);
-  const csv=rows.map((r,ri)=>r.map((c,ci)=>{ const value=ri===0?c:(textColumns.has(ci)?csvSafeText(c):c); return `"${String(value).replace(/"/g,'""')}"`; }).join(",")).join("\n");
-  download(`transactions-${today()}.csv`, csv, "text/csv");
+  // Share-friendly transaction export: omit vault/transaction identifiers and duplicate reference IDs.
+  const rows=[["Date","Type","Status","Category","Description","Account","Account owner","Amount","Currency","FX rate","Person"]];
+  for(const t of S.txns) for(const p of (t.postings||[])) rows.push([t.date,transactionTypeLabel(t.type),transactionStatusLabel(t.status),t.cat||"",t.note||"",(acct(p.acct)||{}).name||"",(acct(p.acct)||{}).owner||"Me",p.amt,p.cur,t.fxRate||S.rate,t.person||""]);
+  const textColumns=new Set([0,1,2,3,4,5,6,8,10]);
+  const csv=rows.map((r,ri)=>r.map((c,ci)=>{ const value=ri===0?c:(textColumns.has(ci)?csvSafeText(c):c); return `"${String(value==null?"":value).replace(/"/g,'""')}"`; }).join(",")).join("\r\n");
+  download(`transactions-${today()}.csv`, "\uFEFF"+csv, "text/csv;charset=utf-8");
 }
 
 
@@ -4503,13 +4520,13 @@ function filterLendingForExport(scopeValue){
 function buildLendingExportRows(scopeValue){
   const loans=filterLendingForExport(scopeValue);
   const asOf=today();
-  const summary=[["loan_id","person","contact_id","direction","currency","lending_date","original_principal","principal_repaid","principal_outstanding","annual_interest_rate_pct","interest_accrued","interest_received_or_paid","interest_adjustments_net","interest_outstanding","total_outstanding","status","as_of_date","notes"]];
-  const ledger=[["loan_id","person","direction","currency","date","event","principal_amount","interest_amount","account","reference","status","notes"]];
+  const summary=[["Person","Type","Currency","Loan date","Original principal","Principal repaid","Principal outstanding","Annual interest rate (%)","Interest accrued","Interest received / paid","Interest adjustments","Interest outstanding","Total outstanding","Status","Report date","Notes"]];
+  const ledger=[["Person","Type","Currency","Loan date","Original principal","Date","Description","Principal movement","Interest movement","Account","Status","Report date","Notes"]];
   const csvNum=n=>Math.round((Number(n)||0)*100)/100;
   for(const l of loans){
     const p=lendingPosition(l);
     summary.push([
-      l.id||"",l.person||"",l.contactId||"",l.direction||"",l.cur||"",l.start||"",
+      l.person||"",l.direction==="lent"?"Lent":"Borrowed",l.cur||"",l.start||"",
       csvNum(p.principalOrig),csvNum(p.principalRepaid),csvNum(p.principalLeft),
       Number(p.rate)||0,csvNum(p.accrued),csvNum(p.interestPaid),csvNum(p.interestAdj),
       csvNum(p.interestLeft),csvNum(p.totalOutstanding),p.status||"",asOf,l.note||""
@@ -4518,7 +4535,7 @@ function buildLendingExportRows(scopeValue){
     const originalAccount=originalTxn&&originalTxn.postings&&originalTxn.postings[0]?(acct(originalTxn.postings[0].acct)||{}).name||"":(acct(l.account)||{}).name||"";
     const events=[{
       date:l.start||"",order:0,created:l.created||"",event:l.direction==="lent"?"Original amount lent":"Original amount borrowed",principal:csvNum(l.principal),
-      interest:0,account:originalAccount,reference:originalTxn&&originalTxn.id||l.id,status:"recorded",
+      interest:0,account:originalAccount,status:"Recorded",
       note:l.note||""
     }];
     for(const t of (S.txns||[])){
@@ -4527,16 +4544,16 @@ function buildLendingExportRows(scopeValue){
       if(Number(t.principalReduction)>0){
         events.push({
           date:t.date||l.start||"",order:1,created:t.created||"",event:l.direction==="lent"?"Principal repayment received":"Principal repayment paid",
-          principal:csvNum(t.principalReduction),interest:0,account:accountName,reference:t.id||"",
-          status:"posted",note:t.note||""
+          principal:csvNum(t.principalReduction),interest:0,account:accountName,
+          status:"Posted",note:t.note||""
         });
       }
       if(t.interestSettlement){
         const paid=Math.abs(Number(t.postings&&t.postings[0]&&t.postings[0].amt)||0);
         events.push({
           date:t.date||l.start||"",order:2,created:t.created||"",event:l.direction==="lent"?"Interest received":"Interest paid",
-          principal:0,interest:csvNum(paid),account:accountName,reference:t.id||"",
-          status:"posted",note:t.note||""
+          principal:0,interest:csvNum(paid),account:accountName,
+          status:"Posted",note:t.note||""
         });
       }
     }
@@ -4545,13 +4562,13 @@ function buildLendingExportRows(scopeValue){
       const amount=csvNum(a.amount);
       events.push({
         date:a.date||l.start||"",order:3,created:a.created||"",event:amount<0?"Interest waiver / reduction":"Interest added / agreed adjustment",
-        principal:0,interest:amount,account:"",reference:a.id||"",
-        status:"recorded adjustment",note:a.note||""
+        principal:0,interest:amount,account:"",
+        status:"Adjustment",note:a.note||""
       });
     }
     events.sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.order-b.order||String(a.created).localeCompare(String(b.created)));
     for(const e of events){
-      ledger.push([l.id||"",l.person||"",l.direction||"",l.cur||"",e.date,e.event,e.principal,e.interest,e.account,e.reference,e.status,e.note]);
+      ledger.push([l.person||"",l.direction==="lent"?"Lent":"Borrowed",l.cur||"",l.start||"",csvNum(l.principal),e.date,e.event,e.principal,e.interest,e.account,e.status,asOf,e.note]);
     }
   }
   return {summary,ledger,loanCount:loans.length,asOf};
@@ -4581,7 +4598,7 @@ function openLendingExportSheet(loanId){
       <button type="button" class="btn" data-lendexport="summary">Download summary CSV</button>
       <button type="button" class="btn alt" data-lendexport="ledger">Download detailed ledger CSV</button>
     </div>
-    <div class="muted">Summary includes current principal and interest positions as of today. Ledger includes the original loan, posted repayments and recorded interest adjustments. Voided transactions are excluded.</div>
+    <div class="muted">Share-friendly files omit internal record IDs and transaction references. Summary shows the current position as of today; ledger shows the original loan, posted repayments and interest adjustments. Voided transactions are excluded.</div>
     <button type="button" class="btn alt" data-close>Cancel</button>`);
 }
 function exportLendingCSV(kind, fixedLoanId){
@@ -4593,8 +4610,12 @@ function exportLendingCSV(kind, fixedLoanId){
   if(!rows.loanCount){ toast("No lending records match this selection"); return; }
   const isSummary=kind==="summary";
   const csv=lendingRowsToCsv(isSummary?rows.summary:rows.ledger);
-  const rawSuffix=scope&&scope.type==="loan"?"loan-statement":(typeof scope==="string"&&scope!=="all"?(scope.startsWith("person:")?"person":scope):"lending");
-  const suffix=String(rawSuffix).replace(/[^a-z0-9-]/gi,"-").toLowerCase();
+  let rawSuffix="all-lending";
+  if(scope&&typeof scope==="object"&&scope.type==="loan") rawSuffix="loan-statement";
+  else if(typeof scope==="string"&&scope==="lent") rawSuffix="money-lent";
+  else if(typeof scope==="string"&&scope==="borrowed") rawSuffix="money-borrowed";
+  else if(typeof scope==="string"&&scope.startsWith("person:")) rawSuffix="person-"+((filterLendingForExport(scope)[0]||{}).person||"lending");
+  const suffix=String(rawSuffix).normalize("NFKD").replace(/[^a-z0-9-]+/gi,"-").replace(/^-+|-+$/g,"").toLowerCase();
   download(`lending-${isSummary?"summary":"ledger"}-${suffix}-${rows.asOf}.csv`,"\uFEFF"+csv,"text/csv;charset=utf-8");
   toast((isSummary?"Lending summary":"Lending ledger")+" exported");
 }
@@ -6693,12 +6714,12 @@ document.addEventListener("visibilitychange",()=>{
 if(globalThis.__MF_TEST){
   globalThis.__mf={
     parseAmt, inspectAmt, readAmt, rejectAmt, thousandsFallback,
-    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, blank, migrate,
+    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, blank, migrate,
     processDueAutomations, salaryTermsAt, advanceSalaryNext, sipTermsAt, advanceSipNext, addM, addDays, calendarDays,
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
     wealthBreakdown, netWorth, valuationNotes, holdPos, balance, addTxn,
     applyForexMovement, forexWalletNetMovement, forexTxnDelta, forexTxnMovement, forexWalletLedgerBalance, forexWalletReferenced, validateForexWalletChanges, applyForexWallets, syncLinkedPurchaseForTxn, setLinkedPurchaseTxnVoided, commitForexAware, voidTxn, unvoid, runCheck,
-    dematPosition, investmentTotals, dematClaims, paymentAccounts, payAccountAllowed, preferredPayId, paySelectHtml,
+    dematPosition, investmentTotals, dematClaims, paymentAccounts, payAccountAllowed, preferredPayId, paySelectHtml, sortMenuHtml,
     maskCardLast4, collectForexWallets, applyForexWallets, forexDisplayValue, fmt, viewAccounts, viewSettings, forexVisible,
     openBackupPayload, commitRestore, vaultShapeOk, buildHoldPlanRow, applySectionSort,
     getNwPrefs, forgetBackupFolder, viewPlan, viewHome,

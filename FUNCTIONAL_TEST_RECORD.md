@@ -145,3 +145,11 @@ Several forms had UI but **no `submit` handler** for their `form id`.
 - PASS: Lending overview export action and individual detail statement action are present.
 - PASS: `node regression.mjs` — `ALL_REGRESSION_PASS`.
 - Not run: actual browser download prompts, iOS/Android file handling and visual layout on physical devices.
+
+
+## 2.9.5 — Sort and shareable export regression coverage
+- Regression confirms Lending Export shares the sort toolbar and each existing sortable section retains its section-specific sort configuration.
+- Regression validates friendly lending headers, removal of technical identifier columns, separate currencies, original loan identity context in the ledger, report date, repayment/interest/adjustment entries, and exclusion of voided repayments.
+- Regression validates readable transaction type and status labels.
+- Full regression suite: `ALL_REGRESSION_PASS`.
+- Browser/device visual checks and actual download handling were not run in this validation.

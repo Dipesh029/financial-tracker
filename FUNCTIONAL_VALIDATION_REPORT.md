@@ -525,3 +525,20 @@ No claim is made that the full browser/device regression suite passed.
 - `sw.js` cache version incremented to v84.
 - Actual browser downloads, iOS/Android file handling, visual layout and physical-device testing: NOT RUN.
 - Storage key, encryption format, encrypted backup envelope and Lending calculation logic: unchanged.
+
+
+## Update 2.9.5 — Sort and export presentation (2026-11-22)
+
+### Changes
+- Compact, consistent sort toolbars across all existing sortable pages; Lending Sort and Export share one action row.
+- Sort selection sheet redesigned into compact per-field ascending/descending controls plus Manual order. Existing sort keys and persisted preferences are preserved.
+- Lending summary and ledger CSVs use readable labels and omit internal IDs/references. Detailed ledger includes loan date, original principal and report date.
+- Transaction CSV removes transaction IDs and duplicate reference IDs and uses readable transaction type/status labels.
+- APP_VERSION advanced to 2.9.5; service-worker shell cache advanced to v85; CSP hash updated for the changed inline script.
+
+### Validation performed for 2.9.5
+- `node --check regression.mjs` — passed.
+- `node --check sw.js` — passed.
+- `node regression.mjs` — `ALL_REGRESSION_PASS`.
+- CSP regression confirms every inline script hash matches the page policy.
+- Browser/device visual inspection and physical CSV download/opening tests were not performed.
