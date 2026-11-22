@@ -637,7 +637,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.9.8");
+  const versionAt = home.indexOf("v" + "2.9.9");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -1049,7 +1049,7 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v88"), "service worker cache version is bumped for this release");
+  assert(sw.includes("myfinance-shell-v89"), "service worker cache version is bumped for this release");
   const htmlCache = sw.slice(sw.indexOf("if (isHTML)"));
   assert(htmlCache.indexOf("const forRequest = response.clone()") >= 0 && htmlCache.indexOf("const forRequest = response.clone()") < htmlCache.indexOf("caches.open(CACHE)"), "HTML is cloned before the cache is opened");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
@@ -1116,12 +1116,12 @@ console.log("PASS calendar-dst-end");
   assert(csv.startsWith("\"Person\",\"Type\""), "lending CSV starts with readable report headings");
   assert(mf.cleanShareText("  Asha\u200B\u202E  ")==="Asha", "shareable person names remove invisible formatting characters");
   assert(mf.cleanShareText("Jos\uFFFD") === "Jos", "shareable names remove replacement-character encoding artefacts");
-  const pdf=mf.buildLendingPdfHtml(all.summary,"summary",day,all.summary);
+  const pdf=mf.buildLendingPdfHtml(all.summary,"summary",day,all.summary,all.positions);
   assert(pdf.includes("<h1>Lending Summary</h1>")&&pdf.includes("Report date")&&pdf.includes("Asha"), "PDF summary contains a readable title, report date and person data");
   assert(pdf.includes("Outstanding position")&&pdf.includes("Principal outstanding")&&pdf.includes("Interest outstanding")&&pdf.includes("Total outstanding"), "PDF summary includes principal, interest and total outstanding metrics");
   assert(pdf.includes("INR")&&pdf.includes("EUR")&&pdf.includes("Lent")&&pdf.includes("Borrowed"), "PDF totals preserve currency and lending direction separation");
-  assert(pdf.includes("A4 portrait")&&pdf.includes("table-layout:fixed")&&pdf.includes("word-break:normal"), "summary PDF uses A4 portrait, fixed columns and normal word wrapping");
-  const ledgerPdf=mf.buildLendingPdfHtml(all.ledger,"ledger",day,all.summary);
+  assert(pdf.includes("A4 portrait")&&pdf.includes("table-layout:fixed")&&pdf.includes("word-break:normal")&&pdf.includes("counter(page)"), "summary PDF uses A4 portrait, fixed columns, normal wrapping and page numbers");
+  const ledgerPdf=mf.buildLendingPdfHtml(all.ledger,"ledger",day,all.summary,all.positions);
   assert(ledgerPdf.includes("A4 landscape")&&ledgerPdf.includes("Closing balance by loan")&&ledgerPdf.includes("Transaction history"), "detailed PDF uses landscape layout and loan closing balances");
   assert(ledgerPdf.includes("Principal outstanding")&&ledgerPdf.includes("Interest outstanding"), "detailed PDF repeats closing principal and interest balances");
   assert(pageSource.includes('data-lendpdf="summary"')&&pageSource.includes('data-lendpdf="ledger"'), "lending export sheet exposes both PDF formats");
@@ -1132,6 +1132,74 @@ console.log("PASS calendar-dst-end");
   const sortMenu=mf.sortMenuHtml("lending",[{key:"person",label:"Person"},{key:"total",label:"Total outstanding"}]);
   assert(sortMenu.includes("data-sortkey=\"lending::person::asc\"")&&sortMenu.includes("data-sortkey=\"lending::person::desc\"")&&sortMenu.includes("lending::manual::asc"), "compact sort menu retains ascending, descending and manual sort actions");
   console.log("PASS lending-export-summaries-and-ledgers");
+}
+
+{
+  const day=mf.today();
+  const future=mf.addDays(day, 15);
+  const early=mf.addDays(day, -30);
+  const start=mf.addDays(day, -10);
+  const st=mf.blank();
+  st.display="INR";
+  st.accounts=[
+    {id:"a",name:"Cash",type:"cash",cur:"INR",opening:0,archived:false},
+    {id:"b",name:"Bank",type:"bank",cur:"INR",opening:0,archived:false}
+  ];
+  st.contacts=[{id:"c1",name:"New Name",methods:[]}];
+  st.lending=[
+    {id:"round-1",person:"A",direction:"lent",principal:0,rate:0,cur:"INR",start:day,account:"a",interestAdjustments:[{date:day,amount:0.004}]},
+    {id:"round-2",person:"B",direction:"lent",principal:0,rate:0,cur:"INR",start:day,account:"a",interestAdjustments:[{date:day,amount:0.004}]},
+    {id:"future-loan",person:"C",direction:"lent",principal:1000,rate:0,cur:"INR",start:start,account:"a",interestAdjustments:[]},
+    {id:"eur-loan",person:"D",direction:"borrowed",principal:50,rate:0,cur:"EUR",start:day,account:"a",interestAdjustments:[]}
+  ];
+  st.txns=[
+    {id:"future-pay",status:"posted",type:"lendback",loanId:"future-loan",date:future,principalReduction:100,postings:[{acct:"a",amt:100,cur:"INR"}]},
+    {id:"early-pay",status:"posted",type:"lendback",loanId:"future-loan",date:early,principalReduction:50,postings:[{acct:"a",amt:50,cur:"INR"}],note:"Early"},
+    {id:"today-pay",status:"posted",type:"lendback",loanId:"future-loan",date:day,principalReduction:200,postings:[{acct:"a",amt:200,cur:"INR"}]},
+    {id:"gt-only",status:"posted",type:"givetake",giveTake:true,contactId:"c1",person:"Old Name",date:day,postings:[{acct:"a",amt:-10,cur:"INR"}]},
+    {id:"dup",status:"posted",type:"expense",date:day,postings:[{acct:"a",amt:-1,cur:"INR"}]},
+    {id:"dup",status:"posted",type:"expense",date:day,postings:[{acct:"a",amt:-1,cur:"INR"}]},
+    {id:"orphan-loan",status:"posted",type:"lendback",loanId:"missing-loan",date:day,principalReduction:5,postings:[{acct:"a",amt:5,cur:"INR"}]},
+    {id:"bad-cur",status:"posted",type:"income",loanId:"eur-loan",date:day,interestSettlement:true,postings:[{acct:"a",amt:3,cur:"INR"}]},
+    {id:"unbalanced",status:"posted",type:"transfer",date:day,postings:[{acct:"a",amt:-10,cur:"INR"},{acct:"b",amt:4,cur:"INR"}]}
+  ];
+  const before=JSON.stringify(st);
+  mf.setS(st);
+  const rows=mf.buildLendingExportRows("all");
+  const futureLoan=rows.summary.find(r=>r[0]==="C");
+  const pos=mf.lendingPosition(st.lending.find(l=>l.id==="future-loan"));
+  assert(futureLoan[6]===pos.principalLeft && futureLoan[6]===750, "export principal outstanding matches lendingPosition and ignores the future repayment");
+  assert(!rows.ledger.some(r=>r[7]===100 && r[0]==="C"), "future-dated repayment is omitted from the detailed ledger");
+  assert(rows.ledger.some(r=>r[0]==="C" && r[7]===50 && String(r[12]).includes("interest uses the loan date")), "a repayment before the loan date stays in the ledger and explains the interest date");
+  assert(rows.ledger.some(r=>r[0]==="C" && r[5]===day && r[7]===200), "a repayment on the report date stays in the ledger");
+  assert(Math.abs(rows.positions.reduce((s,p)=>p.cur==="INR"&&p.direction==="Lent"?s+p.interestLeft:s,0)-0.008)<1e-9, "currency totals keep the unrounded interest");
+  assert(rows.summary.filter(r=>r[2]==="INR"&&r[1]==="Lent").every(r=>r[11]===0 || r[0]==="C"), "each CSV row is rounded on its own");
+  const pdf=mf.buildLendingPdfHtml(rows.summary,"summary",day,rows.summary,rows.positions);
+  assert(pdf.includes(mf.formatMoney(0.008,"INR")), "PDF currency total rounds only after adding the unrounded balances");
+  assert(pdf.includes("A4 portrait") && pdf.includes("counter(page)") && pdf.includes(day), "summary PDF keeps portrait layout, page numbers and the report date");
+  const detail=mf.buildLendingPdfHtml(rows.ledger,"ledger",day,rows.summary,rows.positions);
+  assert(detail.includes("A4 landscape") && detail.includes("Closing balance by loan") && detail.includes("Page "), "detailed PDF keeps landscape layout, closing balances and page numbers");
+  assert(!detail.includes(future), "detailed PDF omits the future repayment date");
+  assert(mf.formatMoney(12345678.9,"INR").includes("1,23,45,678"), "INR uses Indian grouping");
+  assert(mf.formatMoney(12345678.9,"INR").includes("90"), "INR keeps two decimal places");
+  assert(mf.formatMoney(1234567.89,"EUR").includes("1.234.567,89"), "EUR uses European grouping");
+  assert(mf.formatMoney(1234567.89,"USD").includes("1,234,567.89"), "USD uses US grouping");
+  assert(!mf.formatMoney(1500,"JPY").includes(".00"), "JPY does not force two decimal places");
+  const inrTotal=rows.positions.filter(p=>p.cur==="INR").reduce((s,p)=>s+p.totalOutstanding,0);
+  const eurTotal=rows.positions.filter(p=>p.cur==="EUR").reduce((s,p)=>s+p.totalOutstanding,0);
+  assert(pdf.includes(mf.formatMoney(inrTotal,"INR")) && pdf.includes(mf.formatMoney(eurTotal,"EUR")), "PDF shows separate INR and EUR totals");
+  assert(!pdf.includes(mf.formatMoney(inrTotal+eurTotal,"INR")), "PDF does not add INR and EUR into one total");
+  mf.runCheck();
+  const report=testLayer.innerHTML;
+  assert(report.includes("Duplicate ID dup"), "duplicate transaction ids are reported");
+  assert(report.includes("missing lending record"), "a repayment linked to an unknown loan is reported");
+  assert(report.includes("does not balance"), "an unbalanced transfer is reported");
+  assert(report.includes("currency does not match the loan"), "a repayment in the wrong currency is reported");
+  assert(report.includes("does not match contact"), "a renamed contact leaves a visible mismatch");
+  assert(!report.includes("Transaction gt-only references a missing lending record"), "Give & Take is not treated as a loan");
+  assert(JSON.stringify(mf.getS())===before, "the integrity check does not change financial records");
+  assert(st.txns.some(t=>t.giveTake&&t.person==="Old Name") && !st.lending.some(l=>l.person==="Old Name"), "Give & Take stays separate from formal lending");
+  console.log("PASS lending-report-integrity");
 }
 
 console.log("ALL_REGRESSION_PASS");

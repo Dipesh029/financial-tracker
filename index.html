@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f4fd8">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-CWv1w3F77ST1+i4Ot2wS+sG8S1hF2VQv+yrwMOVajx4='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-qKlnJmMQqbWGtxGcioSQiMjJpHLQe2IlbXg3vLH/3eY='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -378,6 +378,19 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .amt-preview{text-align:center;min-height:1.2em;font-size:13px;margin-top:2px}
 .more-kicker{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:18px 0 0}
 #persistBanner{position:fixed;left:0;right:0;top:0;z-index:40;background:#7f1d1d;color:#fff;padding:10px 14px;font-size:13px;line-height:1.35;text-align:center}
+@media (min-width:720px){
+  main,#app{max-width:680px}
+  nav{width:min(680px,100%)}
+  .sheet{max-width:680px}
+  .hero-nw{padding:18px 20px}
+  .hero-nw .value{font-size:36px}
+  .wealth-grid,.nw-breakdown{gap:10px}
+}
+.row > b,.row > .num,.lend-amt,.outstanding{font-variant-numeric:tabular-nums}
+.seg.wrap{flex-wrap:wrap}
+.seg.wrap button{flex:1 1 calc(33% - 4px);white-space:normal}
+.filter-row{align-items:stretch}
+.empty{padding:28px 16px}
 </style>
 </head>
 <body>
@@ -389,8 +402,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.9.8";
+const APP_VERSION = "2.9.9";
 const RELEASES = [
+  {v:"2.9.9", d:"2026-11-22", notes:"Lending reports omit future-dated repayments, match the on-screen balance, and total each currency from unrounded figures. PDF amounts use Indian, European or US grouping. The integrity check warns about duplicate ids, broken loan links, unbalanced transfers and contact names that no longer match. It does not change your records."},
   {v:"2.9.8", d:"2026-11-22", notes:"Give & Take outstanding balances now stay in net worth (cash movement plus what is still owed). Contact matching collapses extra spaces. A failed Give & Take edit no longer sticks on screen. Offline shell cache stores the new page before the response is used. A transaction missing postings no longer blanks Home."},
   {v:"2.9.7", d:"2026-11-22", notes:"Redesigned lending PDFs: compact A4 portrait summary, A4 landscape detailed statement, currency- and direction-separated principal/interest totals, loan closing balances, fixed-width readable tables and safer word wrapping. Lending calculations remain sourced from lendingPosition()."},
   {v:"2.9.5", d:"2026-11-22", notes:"Refined compact sort controls and direction pickers across Contacts, Investments, Accounts, Salaries, Lending, Insurance and SIPs. Lending and transaction exports now use share-friendly headings without internal IDs/references."},
@@ -2546,7 +2560,7 @@ function viewActivity(){
 
 function viewAccounts(){
   const seg = moneySeg||"accounts";
-  const segBar = `<div class="seg" style="margin:4px 0 12px">
+  const segBar = `<div class="seg wrap" style="margin:4px 0 12px">
     <button type="button" data-moneyseg="accounts" class="${seg==="accounts"?"on":""}">Accounts</button>
     <button type="button" data-moneyseg="investments" class="${seg==="investments"?"on":""}">Investments</button>
     <button type="button" data-moneyseg="contacts" class="${seg==="contacts"?"on":""}">Contacts</button>
@@ -3852,7 +3866,7 @@ function lendingPaymentSheet(id){
 function viewPlan(){
   const dl=d=>d<0?`${-d}d overdue`:d===0?"due today":`in ${d}d`;
   const seg = planSeg||"sips";
-  const segBar = `<div class="seg" style="margin:4px 0 12px">
+  const segBar = `<div class="seg wrap" style="margin:4px 0 12px">
     <button type="button" data-planseg="sips" class="${seg==="sips"?"on":""}">SIPs</button>
     <button type="button" data-planseg="salaries" class="${seg==="salaries"?"on":""}">Salaries</button>
     <button type="button" data-planseg="givetake" class="${seg==="givetake"?"on":""}">Give & Take</button>
@@ -3994,6 +4008,7 @@ function viewPlan(){
       <div class="lend-metric"><span>You owe</span><b class="num out">${fmtHide(outstandingBorrowed,S.display)}</b></div>
       <div class="lend-metric"><span>Active loans</span><b>${active}</b></div>
     </div>
+    <p class="muted" style="margin:10px 0 0;font-size:12px;line-height:1.4">This summary is converted into ${esc(S.display||"INR")}. Exports keep every currency separate and do not add them together.</p>
   </div>
   <div class="section-hd" style="display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px">
     <h2 style="margin:0;font-size:15px">Records</h2>
@@ -4438,13 +4453,61 @@ function runCheck(){
     else if(!!p.txnVoided!==(parent.status!=="posted")) issues.push("Purchase "+(p.item||p.id)+" warranty status does not match its linked expense");
   }
   for(const t of S.txns){
-    if(ids.has(t.id)) issues.push("Duplicate ID "+t.id); ids.add(t.id);
-    if(!Array.isArray(t.postings)) issues.push("Transaction has no postings");
+    if(!t.id) issues.push("A transaction is missing an id");
+    else if(ids.has(t.id)) issues.push("Duplicate ID "+t.id);
+    else ids.add(t.id);
+    if(!Array.isArray(t.postings)) issues.push("Transaction "+(t.id||"")+" has no postings");
     for(const p of (t.postings||[])) if(!acct(p.acct)) issues.push("A transaction points at a missing account");
-    if(t.fxRate!=null&&!(Number(t.fxRate)>0)) issues.push("Invalid historical FX rate on "+t.id);
-    if(t.type==="transfer" && t.postings.length!==2) issues.push("Transfer without two sides");
-    if(t.type!=="transfer" && t.type!=="open" && t.type!=="adjust" && t.type!=="adjustment" && t.postings.length!==1) issues.push("Unexpected postings on "+t.type);
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(t.date)) issues.push("Bad date on a transaction");
+    if(t.fxRate!=null&&!(Number(t.fxRate)>0)) issues.push("Invalid historical FX rate on "+(t.id||""));
+    if(t.type==="transfer" && (!Array.isArray(t.postings) || t.postings.length!==2)) issues.push("Transfer "+(t.id||"")+" does not have two sides");
+    if(t.type==="transfer" && Array.isArray(t.postings) && t.postings.length===2){
+      const [a,b]=t.postings;
+      const aa=acct(a&&a.acct), bb=acct(b&&b.acct);
+      if(aa && a.cur && aa.type!=="forex" && aa.cur!==a.cur) issues.push("Transfer "+t.id+" currency does not match the source account");
+      if(bb && b.cur && bb.type!=="forex" && bb.cur!==b.cur) issues.push("Transfer "+t.id+" currency does not match the destination account");
+      if(a.cur && b.cur && a.cur===b.cur){
+        if(Math.abs((Number(a.amt)||0)+(Number(b.amt)||0))>0.02) issues.push("Transfer "+t.id+" does not balance");
+      }else if(a.cur && b.cur){
+        const sa=Math.sign(Number(a.amt)||0), sb=Math.sign(Number(b.amt)||0);
+        if(!(sa&&sb&&sa===-sb)) issues.push("Transfer "+t.id+" between currencies has an unexpected sign");
+      }
+    }
+    if(t.type!=="transfer" && t.type!=="open" && t.type!=="adjust" && t.type!=="adjustment" && Array.isArray(t.postings) && t.postings.length!==1) issues.push("Unexpected postings on "+t.type);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(t.date||"")) issues.push("Bad date on a transaction");
+    if(t.contactId && !contactById(t.contactId)) issues.push("Transaction "+(t.id||"")+" points at a missing contact");
+    else if(t.contactId && t.person){
+      const c=contactById(t.contactId);
+      if(c && normalizeContactName(c.name)!==normalizeContactName(t.person)) issues.push("Transaction "+t.id+" name "+t.person+" does not match contact "+c.name);
+    }
+  }
+  const loanIds=new Set();
+  for(const l of (S.lending||[])){
+    if(!l||!l.id){ issues.push("A lending record is missing an id"); continue; }
+    if(loanIds.has(l.id)) issues.push("Duplicate lending record "+l.id);
+    loanIds.add(l.id);
+    if(l.contactId && !contactById(l.contactId)) issues.push("Lending record "+(l.person||l.id)+" points at a missing contact");
+    else if(l.contactId && l.person){
+      const c=contactById(l.contactId);
+      if(c && normalizeContactName(c.name)!==normalizeContactName(l.person)) issues.push("Lending record "+l.person+" does not match contact "+c.name);
+    }
+    const acctL=l.account?acct(l.account):null;
+    if(l.account && !acctL) issues.push("Lending record "+(l.person||l.id)+" points at a missing account");
+    if(acctL && l.cur && acctL.type!=="forex" && acctL.cur && acctL.cur!==l.cur) issues.push("Lending record "+(l.person||l.id)+" currency does not match its account");
+  }
+  for(const t of S.txns){
+    if(t.giveTake) continue;
+    if(t.loanId && !loanIds.has(t.loanId)) issues.push("Transaction "+(t.id||"")+" references a missing lending record");
+    if(t.lendingId && t.lendingId!==t.loanId && !loanIds.has(t.lendingId)) issues.push("Transaction "+(t.id||"")+" references a missing lending record");
+    const repayment=t.principalReduction!=null && t.principalReduction!=="" || t.interestSettlement;
+    if(repayment && !t.loanId) issues.push("Repayment "+(t.id||"")+" is not linked to a lending record");
+    if(t.principalReduction!=null && t.principalReduction!=="" && !Number.isFinite(Number(t.principalReduction))) issues.push("Invalid principal repayment on "+(t.id||""));
+    if(Number(t.principalReduction)<0) issues.push("Principal repayment is negative on "+(t.id||""));
+    if(t.interestSettlement && !(Math.abs(Number(t.postings?.[0]?.amt)||0)>0)) issues.push("Interest settlement "+(t.id||"")+" has no amount");
+    if(t.loanId && loanIds.has(t.loanId) && (Number(t.principalReduction)>0 || t.interestSettlement)){
+      const l=(S.lending||[]).find(x=>x.id===t.loanId);
+      const pcur=t.postings?.[0]?.cur;
+      if(l && pcur && l.cur && pcur!==l.cur) issues.push("Repayment "+t.id+" currency does not match the loan");
+    }
   }
   openSheet(`<h2 style="margin-top:0">${issues.length?"Problems found":"All good"}</h2>
   <p class="muted">${S.txns.length} transactions, ${S.accounts.length} accounts and ${S.lending.length} lending records checked.</p>
@@ -4539,49 +4602,80 @@ function filterLendingForExport(scopeValue){
     return true;
   });
 }
+const CURRENCY_LOCALE={INR:"en-IN",EUR:"de-DE",USD:"en-US",GBP:"en-GB",JPY:"ja-JP",SGD:"en-SG",AED:"en-AE",AUD:"en-AU",CAD:"en-CA",CHF:"de-CH",HKD:"en-HK",THB:"th-TH"};
+function moneyScale(cur){
+  return String(cur||"").toUpperCase()==="JPY"?0:2;
+}
+function roundMoney(n, cur){
+  const x=Number(n);
+  if(!Number.isFinite(x)) return 0;
+  const f=10**moneyScale(cur);
+  return Math.round(x*f)/f;
+}
+function formatMoney(amount, cur){
+  const code=String(cur||"").toUpperCase();
+  const digits=moneyScale(code);
+  const n=Number(amount);
+  const value=Number.isFinite(n)?n:0;
+  const locale=CURRENCY_LOCALE[code];
+  if(locale){
+    try{ return new Intl.NumberFormat(locale,{style:"currency",currency:code,minimumFractionDigits:digits,maximumFractionDigits:digits}).format(value); }
+    catch(_){}
+  }
+  return (code?code+" ":"")+roundMoney(value, code).toFixed(digits);
+}
 function buildLendingExportRows(scopeValue){
   const loans=filterLendingForExport(scopeValue);
   const asOf=today();
   const summary=[["Person","Type","Currency","Loan date","Original principal","Principal repaid","Principal outstanding","Annual interest rate (%)","Interest accrued","Interest received / paid","Interest adjustments","Interest outstanding","Total outstanding","Status","Report date","Notes"]];
   const ledger=[["Person","Type","Currency","Loan date","Original principal","Date","Description","Principal movement","Interest movement","Account","Status","Report date","Notes"]];
-  const csvNum=n=>Math.round((Number(n)||0)*100)/100;
+  const positions=[];
   for(const l of loans){
     const p=lendingPosition(l);
+    const cur=l.cur||"";
+    positions.push({cur, direction:l.direction==="lent"?"Lent":"Borrowed", principalLeft:p.principalLeft, interestLeft:p.interestLeft, totalOutstanding:p.totalOutstanding});
     summary.push([
-      l.person||"",l.direction==="lent"?"Lent":"Borrowed",l.cur||"",l.start||"",
-      csvNum(p.principalOrig),csvNum(p.principalRepaid),csvNum(p.principalLeft),
-      Number(p.rate)||0,csvNum(p.accrued),csvNum(p.interestPaid),csvNum(p.interestAdj),
-      csvNum(p.interestLeft),csvNum(p.totalOutstanding),p.status||"",asOf,l.note||""
+      l.person||"",l.direction==="lent"?"Lent":"Borrowed",cur,l.start||"",
+      roundMoney(p.principalOrig,cur),roundMoney(p.principalRepaid,cur),roundMoney(p.principalLeft,cur),
+      Number(p.rate)||0,roundMoney(p.accrued,cur),roundMoney(p.interestPaid,cur),roundMoney(p.interestAdj,cur),
+      roundMoney(p.interestLeft,cur),roundMoney(p.totalOutstanding,cur),p.status||"",asOf,l.note||""
     ]);
     const originalTxn=(S.txns||[]).find(t=>(t.lendingId===l.id||t.loanId===l.id)&&(t.type==="lend"||t.type==="borrow"));
     const originalAccount=originalTxn&&originalTxn.postings&&originalTxn.postings[0]?(acct(originalTxn.postings[0].acct)||{}).name||"":(acct(l.account)||{}).name||"";
     const events=[{
-      date:l.start||"",order:0,created:l.created||"",event:l.direction==="lent"?"Original amount lent":"Original amount borrowed",principal:csvNum(l.principal),
+      date:l.start||"",order:0,created:l.created||"",event:l.direction==="lent"?"Original amount lent":"Original amount borrowed",principal:roundMoney(l.principal,cur),
       interest:0,account:originalAccount,status:"Recorded",
       note:l.note||""
     }];
     for(const t of (S.txns||[])){
       if(t.status!=="posted"||t.loanId!==l.id) continue;
+      const date=t.date||l.start||"";
+      if(date && date>asOf) continue;
       const accountName=t.postings&&t.postings[0]?(acct(t.postings[0].acct)||{}).name||"":"";
+      let note=t.note||"";
+      if(l.start && date && date<l.start){
+        const hint="Recorded before the loan date; interest uses the loan date";
+        note=note?note+" · "+hint:hint;
+      }
       if(Number(t.principalReduction)>0){
         events.push({
-          date:t.date||l.start||"",order:1,created:t.created||"",event:l.direction==="lent"?"Principal repayment received":"Principal repayment paid",
-          principal:csvNum(t.principalReduction),interest:0,account:accountName,
-          status:"Posted",note:t.note||""
+          date,order:1,created:t.created||"",event:l.direction==="lent"?"Principal repayment received":"Principal repayment paid",
+          principal:roundMoney(t.principalReduction,cur),interest:0,account:accountName,
+          status:"Posted",note
         });
       }
       if(t.interestSettlement){
         const paid=Math.abs(Number(t.postings&&t.postings[0]&&t.postings[0].amt)||0);
         events.push({
-          date:t.date||l.start||"",order:2,created:t.created||"",event:l.direction==="lent"?"Interest received":"Interest paid",
-          principal:0,interest:csvNum(paid),account:accountName,
-          status:"Posted",note:t.note||""
+          date,order:2,created:t.created||"",event:l.direction==="lent"?"Interest received":"Interest paid",
+          principal:0,interest:roundMoney(paid,cur),account:accountName,
+          status:"Posted",note
         });
       }
     }
     for(const a of (l.interestAdjustments||[])){
       if(a.date&&a.date>asOf) continue;
-      const amount=csvNum(a.amount);
+      const amount=roundMoney(a.amount,cur);
       events.push({
         date:a.date||l.start||"",order:3,created:a.created||"",event:amount<0?"Interest waiver / reduction":"Interest added / agreed adjustment",
         principal:0,interest:amount,account:"",
@@ -4590,10 +4684,10 @@ function buildLendingExportRows(scopeValue){
     }
     events.sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.order-b.order||String(a.created).localeCompare(String(b.created)));
     for(const e of events){
-      ledger.push([l.person||"",l.direction==="lent"?"Lent":"Borrowed",l.cur||"",l.start||"",csvNum(l.principal),e.date,e.event,e.principal,e.interest,e.account,e.status,asOf,e.note]);
+      ledger.push([l.person||"",l.direction==="lent"?"Lent":"Borrowed",cur,l.start||"",roundMoney(l.principal,cur),e.date,e.event,e.principal,e.interest,e.account,e.status,asOf,e.note]);
     }
   }
-  return {summary,ledger,loanCount:loans.length,asOf};
+  return {summary,ledger,loanCount:loans.length,asOf,positions};
 }
 function cleanShareText(value){
   return String(value==null?"":value)
@@ -4604,29 +4698,27 @@ function cleanShareText(value){
     .replace(/â€“/g,"–").replace(/â€”/g,"—").replace(/Â(?=\s|$)/g,"")
     .trim();
 }
-function buildLendingPdfHtml(rows, kind, asOf, summaryRows){
+function buildLendingPdfHtml(rows, kind, asOf, summaryRows, positions){
   const isSummary=kind==="summary";
   const title=isSummary?"Lending Summary":"Lending Statement";
   const sourceSummary=summaryRows&&summaryRows.length?summaryRows:(isSummary?rows:[[]]);
   const summaryBody=sourceSummary.slice(1);
-  const num=v=>Number(v)||0;
-  const money=(amount,cur)=>{
-    const value=num(amount);
-    try{return new Intl.NumberFormat(undefined,{style:"currency",currency:String(cur||"EUR"),minimumFractionDigits:2,maximumFractionDigits:2}).format(value);}
-    catch(_){return `${String(cur||"")} ${value.toFixed(2)}`.trim();}
-  };
+  const money=(amount,cur)=>formatMoney(amount,cur);
   const totals=new Map();
-  for(const r of summaryBody){
-    const cur=String(r[2]||"Unknown");
-    const direction=String(r[1]||"Lent");
+  const addTotal=(cur, direction, principal, interest, total)=>{
     const key=cur+"|"+direction;
     if(!totals.has(key)) totals.set(key,{cur,direction,principal:0,interest:0,total:0,count:0});
     const t=totals.get(key);
-    t.principal+=num(r[6]);t.interest+=num(r[11]);t.total+=num(r[12]);t.count++;
+    t.principal+=Number(principal)||0; t.interest+=Number(interest)||0; t.total+=Number(total)||0; t.count++;
+  };
+  if(Array.isArray(positions)&&positions.length){
+    for(const p of positions) addTotal(String(p.cur||"Unknown"), String(p.direction||"Lent"), p.principalLeft, p.interestLeft, p.totalOutstanding);
+  }else{
+    for(const r of summaryBody) addTotal(String(r[2]||"Unknown"), String(r[1]||"Lent"), r[6], r[11], r[12]);
   }
   const totalRows=[...totals.values()].sort((a,b)=>a.cur.localeCompare(b.cur)||a.direction.localeCompare(b.direction));
   const escHtml=v=>esc(cleanShareText(v));
-  const summaryHtml=`<section class="totals"><h2>Outstanding position</h2><p class="section-note">Balances as of ${escHtml(asOf)}. Totals are kept separate by currency and lending direction.</p><table class="totals-table"><thead><tr><th>Currency</th><th>Direction</th><th>Loan records</th><th>Principal outstanding</th><th>Interest outstanding</th><th>Total outstanding</th></tr></thead><tbody>${totalRows.map(t=>`<tr><td>${escHtml(t.cur)}</td><td>${escHtml(t.direction)}</td><td class="num">${t.count}</td><td class="num">${escHtml(money(t.principal,t.cur))}</td><td class="num">${escHtml(money(t.interest,t.cur))}</td><td class="num strong">${escHtml(money(t.total,t.cur))}</td></tr>`).join("")}</tbody></table></section>`;
+  const summaryHtml=`<section class="totals"><h2>Outstanding position</h2><p class="section-note">Balances as of ${escHtml(asOf)}. Each currency and direction is totalled on its own. Figures are added before rounding. Repayments after this date are not included.</p><table class="totals-table"><thead><tr><th>Currency</th><th>Direction</th><th>Loan records</th><th>Principal outstanding</th><th>Interest outstanding</th><th>Total outstanding</th></tr></thead><tbody>${totalRows.map(t=>`<tr><td>${escHtml(t.cur)}</td><td>${escHtml(t.direction)}</td><td class="num">${t.count}</td><td class="num">${escHtml(money(t.principal,t.cur))}</td><td class="num">${escHtml(money(t.interest,t.cur))}</td><td class="num strong">${escHtml(money(t.total,t.cur))}</td></tr>`).join("")}</tbody></table></section>`;
   let table="";
   if(isSummary){
     const compactHeaders=["Person","Direction","Currency","Loan date","Original principal","Principal outstanding","Interest outstanding","Total outstanding","Status"];
@@ -4635,7 +4727,7 @@ function buildLendingPdfHtml(rows, kind, asOf, summaryRows){
   }else{
     const headers=rows[0]||[];
     const body=rows.slice(1);
-    table=`<table class="ledger-table"><colgroup><col style="width:10%"><col style="width:6%"><col style="width:5%"><col style="width:7%"><col style="width:8%"><col style="width:7%"><col style="width:13%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:5%"><col style="width:6%"><col style="width:11%"></colgroup><thead><tr>${headers.map(h=>`<th>${escHtml(h)}</th>`).join("")}</tr></thead><tbody>${body.map(r=>`<tr>${r.map((v,i)=>{const isMoney=[4,7,8].includes(i)&&typeof v==="number";return `<td class="${isMoney?"num":""}">${escHtml(isMoney?money(v,r[2]):v==null?"":v)}</td>`;}).join("")}</tr>`).join("")}</tbody></table>`;
+    table=`<table class="ledger-table"><colgroup><col style="width:10%"><col style="width:6%"><col style="width:5%"><col style="width:7%"><col style="width:8%"><col style="width:7%"><col style="width:13%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:5%"><col style="width:6%"><col style="width:11%"></colgroup><thead><tr>${headers.map(h=>`<th>${escHtml(h)}</th>`).join("")}</tr></thead><tbody>${body.map(r=>`<tr>${r.map((v,i)=>{const isMoney=[4,7,8].includes(i)&&typeof v==="number";const cls=isMoney?"num":(i===6||i===12?"text":"");return `<td class="${cls}">${escHtml(isMoney?money(v,r[2]):v==null?"":v)}</td>`;}).join("")}</tr>`).join("")}</tbody></table>`;
     const closing=summaryBody.map(r=>`<tr><td>${escHtml(r[0])}</td><td>${escHtml(r[1])}</td><td>${escHtml(r[2])}</td><td class="num">${escHtml(money(r[6],r[2]))}</td><td class="num">${escHtml(money(r[11],r[2]))}</td><td class="num strong">${escHtml(money(r[12],r[2]))}</td></tr>`).join("");
     table+=`<section class="closing"><h2>Closing balance by loan</h2><table><thead><tr><th>Person</th><th>Direction</th><th>Currency</th><th>Principal outstanding</th><th>Interest outstanding</th><th>Total outstanding</th></tr></thead><tbody>${closing}</tbody></table></section>`;
   }
@@ -4643,10 +4735,10 @@ function buildLendingPdfHtml(rows, kind, asOf, summaryRows){
   *{box-sizing:border-box}html{print-color-adjust:exact;-webkit-print-color-adjust:exact}body{font:10px/1.4 Arial,Helvetica,sans-serif;color:#20242b;margin:0;background:#fff}
   header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #263445;padding:0 0 10px;margin-bottom:14px}h1{font-size:21px;margin:0 0 3px}h2{font-size:13px;margin:0 0 7px;color:#263445}p{margin:0;color:#606975}.meta{text-align:right;color:#606975}.section-note{margin:0 0 8px;font-size:9px}
   .totals{margin:0 0 16px;padding:10px 11px;background:#f6f8fa;border:1px solid #d9dee5;border-radius:5px}.closing{margin-top:16px;break-inside:avoid}
-  table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5px}th{background:#eef1f5;text-align:left;font-weight:700;color:#303b49}th,td{padding:5px 5px;border:1px solid #d9dee5;vertical-align:top;overflow-wrap:normal;word-break:normal;hyphens:auto}td{white-space:normal}tbody tr:nth-child(even){background:#fafbfc}.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.strong{font-weight:700}.summary-table{font-size:8px}.summary-table th,.summary-table td{padding:5px 4px}.ledger-table{font-size:7.5px}.ledger-table th,.ledger-table td{padding:4px 3px}.ledger-table td:nth-child(7){overflow-wrap:anywhere}.totals-table{font-size:8.5px}.totals-table th,.totals-table td{padding:6px 5px}
+  table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5px}th{background:#eef1f5;text-align:left;font-weight:700;color:#303b49}th,td{padding:5px 5px;border:1px solid #d9dee5;vertical-align:top;overflow-wrap:break-word;word-break:normal;hyphens:manual}td.text{overflow-wrap:break-word}tbody tr:nth-child(even){background:#fafbfc}.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.strong{font-weight:700}.summary-table{font-size:8px}.summary-table th,.summary-table td{padding:5px 4px}.ledger-table{font-size:7.5px}.ledger-table th,.ledger-table td{padding:4px 3px}.totals-table{font-size:8.5px}.totals-table th,.totals-table td{padding:6px 5px}
   footer{margin-top:14px;border-top:1px solid #d9dee5;padding-top:7px;color:#707782;font-size:8px}
-  @page{size:${isSummary?"A4 portrait":"A4 landscape"};margin:${isSummary?"12mm":"10mm"}}
-  @media print{body{margin:0}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}.totals,.closing{break-inside:avoid;page-break-inside:avoid}footer{position:static}}
+  @page{size:${isSummary?"A4 portrait":"A4 landscape"};margin:${isSummary?"14mm 12mm 16mm":"12mm 10mm 14mm"};@bottom-center{content:"Page " counter(page);font-family:Arial,Helvetica,sans-serif;font-size:8px;color:#707782}}
+  @media print{body{margin:0}thead{display:table-header-group}tfoot{display:table-footer-group}.totals,.closing{break-inside:avoid;page-break-inside:avoid}footer{position:static}}
   </style></head><body><header><div><h1>${title}</h1><p>Prepared from your Finance Tracker · ${isSummary?"Portfolio overview":"Transaction history and closing balances"}</p></div><div class="meta">Report date<br><strong>${escHtml(asOf)}</strong></div></header>${summaryHtml}${isSummary?"<h2>Individual lending records</h2>":"<h2>Transaction history</h2>"}${table}<footer>Private financial information · Generated locally in your browser · Amounts are not combined across currencies</footer></body></html>`;
 }
 function exportLendingPDF(kind){
@@ -4656,7 +4748,7 @@ function exportLendingPDF(kind){
   const data=buildLendingExportRows(scope);
   if(!data.loanCount){toast("No lending records match this selection");return;}
   const rows=kind==="summary"?data.summary:data.ledger;
-  const html=buildLendingPdfHtml(rows,kind,data.asOf,data.summary);
+  const html=buildLendingPdfHtml(rows,kind,data.asOf,data.summary,data.positions);
   const win=window.open("","_blank");
   if(!win){toast("Allow pop-ups to create the PDF statement");return;}
   win.document.open();win.document.write(html);win.document.close();win.addEventListener("load",()=>setTimeout(()=>win.print(),250));
@@ -6805,7 +6897,7 @@ document.addEventListener("visibilitychange",()=>{
 if(globalThis.__MF_TEST){
   globalThis.__mf={
     parseAmt, inspectAmt, readAmt, rejectAmt, thousandsFallback,
-    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, cleanShareText, buildLendingPdfHtml, blank, migrate,
+    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, cleanShareText, buildLendingPdfHtml, formatMoney, roundMoney, blank, migrate,
     processDueAutomations, salaryTermsAt, advanceSalaryNext, sipTermsAt, advanceSipNext, addM, addDays, calendarDays,
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
     wealthBreakdown, netWorth, valuationNotes, holdPos, balance, addTxn,
