@@ -1,6 +1,6 @@
 # Functional audit — My Finance PWA
 
-Last reviewed against app version **2.12.5**.
+Last reviewed against app version **2.12.6**.
 
 ## Architecture
 
@@ -157,6 +157,13 @@ Validation in this archive:
 ### v2.9.6 upload
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
 
+
+## 2.12.6 — PDF pages, direct export and lending summary
+- Module PDF buttons build that report immediately and open the preview. The options screen is kept for the complete report, and for Customize inside a preview. Lending export still asks summary or statement and which loans.
+- Reports are one flowing document. The title, report date and contents are on the first page. There is no separate cover and no forced blank page. Print CSS repeats table headers, keeps a normal row together, and may split one unusually long row.
+- The preview counts pages from the A4 content box after layout. Print / Save PDF sends that same HTML to the browser print dialog. A printed table header can move a row onto the next page compared with the preview.
+- Lending summary shows outstanding principal, interest and total by currency and direction, each loan, and each movement once. The detailed statement adds the chronological ledger and closing balances. Totals still come from `lendingPosition()`. Records are not rewritten.
+- CSV export, vault key, encryption and backup format are unchanged.
 
 ## 2.12.5 — PDF preview and report scope
 - Every module PDF and the complete report are built once, then shown in an in-app preview (pages, zoom, fit width, print, save). The print dialog receives that same HTML. There is no second calculation and no upload.

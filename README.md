@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.12.5
+**Current version:** 2.12.6
 
 ---
 
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Replace **only** `index.html` and `sw.js` at the **same HTTPS path** as before. Keep `manifest.webmanifest`, `icon.svg`, the site origin, and the existing vault data unchanged.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.12.5**).
+5. Confirm the unlock screen shows the expected version (**v2.12.6**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -131,6 +131,12 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.12.6 — 2026-11-22
+- **Direct PDF:** PDF on Home, Accounts, Transactions, Give & Take, Investments, SIPs, Salaries, Insurance, Contacts and Forex opens that report. The full options screen is only for the complete report, or if you tap Customize in the preview.
+- **Pages:** The title, date and contents sit on the first page with the figures. A short report is no longer given a separate cover page.
+- **Lending PDF:** The summary shows principal outstanding, interest outstanding and the total, split by currency and by lent or borrowed, then each loan and its transactions. The detailed statement adds the full ledger and a closing balance. The figures still come from the on-screen lending position.
+- **Preview:** Page count follows the A4 page. Print / Save PDF opens the browser print dialog for the same report. A saved PDF still has no bookmark sidebar.
 
 ### 2.12.5 — 2026-11-22
 - **PDF preview:** Reports open in the app first, with page controls, zoom, fit-to-width, print and save. Print and save use that same report. Choose Save as PDF in the print dialog.

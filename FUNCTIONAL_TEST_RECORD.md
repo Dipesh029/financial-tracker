@@ -1,6 +1,6 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.12.5  
+**App version at last update:** 2.12.6  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
 **Last audit date:** 2026-11-22  
 
@@ -248,4 +248,14 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 - PASS: an account balance as of an earlier date ignores later postings. A long name is kept and `<` is escaped. An empty contacts report returns no document. A second export does not keep text from a filter that was not used.
 - PASS: `node --check` on `sw.js` and `regression.mjs`, and `node regression.mjs` — ALL_REGRESSION_PASS, including `PASS pdf-preview-and-scope`.
 - Not run: the preview on a phone, tablet or desktop, and no print-to-PDF from a real browser. No personal vault was opened. PDF bookmark outlines are not produced by the print dialog.
+
+## 2.12.6 — Direct PDF, first-page content and lending summary (2026-11-22)
+- PASS: a lending summary is one document, A4 portrait, with outstanding principal, interest and total, an individual loan list, and each principal repayment once. A single loan and a money-lent filter stay inside that selection. An early repayment keeps its explanation. A future repayment stays out.
+- PASS: the detailed lending statement stays A4 landscape, with the transaction history and closing balances. `tr{break-inside:avoid;page-break-inside:avoid}` remains.
+- PASS: 60 transaction rows stay in one table. Print CSS repeats the header. The title and contents come before the table. There is no `page-break-after:always` cover.
+- PASS: a short accounts report is one article. Summary mode, date range, category filter, as-of balance, escaping and empty contacts behave as before.
+- PASS: module PDF buttons call `exportReportPdf` directly. Only `data-pdf="all"` opens the options screen first. The preview still has fit width, customize, and Print / Save PDF.
+- PASS: `node --check` on the app script, `sw.js` and `regression.mjs`, and `node regression.mjs` — ALL_REGRESSION_PASS.
+- Not run in a browser: measured preview page breaks, and Save as PDF from the print dialog. No personal vault was opened. A saved PDF still has no bookmark outline. A repeated printed table header can shift one row relative to the preview.
+
 
