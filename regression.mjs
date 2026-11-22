@@ -637,7 +637,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.9.7");
+  const versionAt = home.indexOf("v" + "2.9.8");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -992,6 +992,35 @@ console.log("PASS calendar-dst-end");
   console.log("PASS givetake-separation-and-regressions");
 }
 
+{
+  const S = mf.blank();
+  S.display = "INR";
+  S.rate = 90;
+  S.accounts = [{id:"cash", type:"cash", name:"Cash", owner:"Me", cur:"INR", opening:1000, archived:false}];
+  mf.setS(S);
+  assert(mf.normalizeContactName("Riya  Sharma") === mf.normalizeContactName("Riya\tSharma"), "extra spaces and tabs collapse to the same contact key");
+  assert(mf.normalizeContactName("Riya  Sharma") === "riya sharma", "collapsed key is a single space");
+  const spaced = mf.ensureContactByName("Riya  Sharma");
+  assert(spaced && spaced.name === "Riya Sharma", "a new contact is stored without repeated spaces");
+  assert(mf.findContactByName("Riya Sharma").contact === spaced, "lookup finds the contact when only spacing differs");
+  const given = mf.addTxn({type:"givetake", giveTake:true, giveTakeVersion:2, contactId:spaced.id, person:spaced.name, owner:"Me", pd:400, postings:[{acct:"cash", amt:-400, cur:"INR"}]}, {skipSave:true});
+  near(mf.balance(S.accounts[0]), 600, "giving money reduces cash");
+  near(mf.wealthBreakdown("Me").iouIn, 400, "the outstanding Give & Take is owed to you");
+  near(mf.netWorth("Me").total, 1000, "giving money does not reduce net worth");
+  near(mf.netWorth("Father").total, 0, "another member does not inherit that IOU");
+  mf.addTxn({type:"givetake", giveTake:true, giveTakeVersion:2, settlement:true, settlesTxnId:given.id, contactId:spaced.id, person:spaced.name, owner:"Me", pd:-400, postings:[{acct:"cash", amt:400, cur:"INR"}]}, {skipSave:true});
+  near(mf.netWorth("Me").total, 1000, "settling restores cash and removes the IOU");
+  near(mf.wealthBreakdown("Me").iouIn, 0, "a settled Give & Take is not still an asset");
+  near(mf.wealthBreakdown("Me").iouOut, 0, "a settlement is not booked as a second liability");
+  mf.addTxn({type:"givetake", giveTake:true, giveTakeVersion:2, contactId:spaced.id, person:spaced.name, owner:"Me", pd:-150, postings:[{acct:"cash", amt:150, cur:"INR"}]}, {skipSave:true});
+  near(mf.balance(S.accounts[0]), 1150, "received informal money increases cash");
+  near(mf.wealthBreakdown("Me").iouOut, 150, "money you now owe is a liability");
+  near(mf.netWorth("Me").total, 1000, "receiving money you owe does not increase net worth");
+  S.txns.push({id:"broken", status:"posted", type:"expense"});
+  near(mf.balance(S.accounts[0]), 1150, "a posted transaction with no postings does not break balances");
+  console.log("PASS givetake-networth-and-names");
+}
+
 // ---------- security hardening ----------
 {
   assert(mf.csvSafeText("=HYPERLINK(\"https://bad\")").startsWith("'="), "CSV formula-leading equals is neutralised");
@@ -1020,7 +1049,9 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v87"), "service worker cache version is bumped for the UI/export release");
+  assert(sw.includes("myfinance-shell-v88"), "service worker cache version is bumped for this release");
+  const htmlCache = sw.slice(sw.indexOf("if (isHTML)"));
+  assert(htmlCache.indexOf("const forRequest = response.clone()") >= 0 && htmlCache.indexOf("const forRequest = response.clone()") < htmlCache.indexOf("caches.open(CACHE)"), "HTML is cloned before the cache is opened");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
   const csp=page.match(/Content-Security-Policy" content="([^"]+)"/i)?.[1]||"";
   const scriptPolicy=csp.split(";").find(x=>x.trim().startsWith("script-src"))||"";

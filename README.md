@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.9.7
+**Current version:** 2.9.8
 
 ---
 
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Replace **only** `index.html` and `sw.js` at the **same HTTPS path** as before. Keep `manifest.webmanifest`, `icon.svg`, the site origin, and the existing vault data unchanged.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.9.7**).
+5. Confirm the unlock screen shows the expected version (**v2.9.8**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -131,6 +131,12 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.9.8 — 2026-11-22
+- **Fix:** Give & Take outstanding amounts stay in net worth. Giving money no longer looks like spending, and receiving money you owe no longer looks like income.
+- **Fix:** Contact names with extra spaces or tabs match the same person.
+- **Fix:** If a Give & Take edit cannot be saved, the previous amount is kept.
+- **Fix:** The service worker stores the new page for offline use. A transaction with no postings no longer blanks Home or Money.
 
 ### 2.6.0 — 2026-11-18
 - **Fix:** Indian amount entry (`1,00,000`) no longer collapses to 1. The entry sheet shows the number that will be saved.

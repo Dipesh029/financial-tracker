@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f4fd8">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-dE69akAzdZejldDNmx0fcTYDV8Jm2I2tpm0tViSqz40='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-CWv1w3F77ST1+i4Ot2wS+sG8S1hF2VQv+yrwMOVajx4='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -389,8 +389,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.9.7";
+const APP_VERSION = "2.9.8";
 const RELEASES = [
+  {v:"2.9.8", d:"2026-11-22", notes:"Give & Take outstanding balances now stay in net worth (cash movement plus what is still owed). Contact matching collapses extra spaces. A failed Give & Take edit no longer sticks on screen. Offline shell cache stores the new page before the response is used. A transaction missing postings no longer blanks Home."},
   {v:"2.9.7", d:"2026-11-22", notes:"Redesigned lending PDFs: compact A4 portrait summary, A4 landscape detailed statement, currency- and direction-separated principal/interest totals, loan closing balances, fixed-width readable tables and safer word wrapping. Lending calculations remain sourced from lendingPosition()."},
   {v:"2.9.5", d:"2026-11-22", notes:"Refined compact sort controls and direction pickers across Contacts, Investments, Accounts, Salaries, Lending, Insurance and SIPs. Lending and transaction exports now use share-friendly headings without internal IDs/references."},
   {v:"2.9.4", d:"2026-11-22", notes:"Added dedicated Lending exports: filtered loan summaries and detailed ledgers for all records, money lent, money borrowed, an individual person, or one loan. Includes posted principal/interest repayments and dated interest adjustments while preserving currencies separately."},
@@ -1342,7 +1343,7 @@ const acct = id => S.accounts.find(a=>a.id===id);
 
 function contactById(id){ return (S.contacts||[]).find(c=>c.id===id); }
 function normalizeContactName(name){
-  return String(name||"").normalize("NFKC").trim().replace(/\\s+/g," ").toLowerCase();
+  return String(name||"").normalize("NFKC").trim().replace(/\s+/g," ").toLowerCase();
 }
 function findContactByName(name){
   const key=normalizeContactName(name);
@@ -1351,7 +1352,7 @@ function findContactByName(name){
   return {contact:matches.length===1?matches[0]:null, ambiguous:matches.length>1};
 }
 function ensureContactByName(name){
-  name=String(name||"").normalize("NFKC").trim().replace(/\\s+/g," ");
+  name=String(name||"").normalize("NFKC").trim().replace(/\s+/g," ");
   if(!name) return null;
   const found=findContactByName(name);
   if(found.ambiguous) return null;
@@ -1451,7 +1452,7 @@ const fundLabel = h => { if(!h) return "Fund"; const bits=[h.name]; if(h.folio) 
 /* ---------- ledger: every transaction = balanced postings; balances are derived ---------- */
 function balance(a){
   let b = a.opening || 0;
-  for(const t of S.txns){ if(t.status!=="posted") continue; for(const p of t.postings) if(p.acct===a.id) b += p.amt; }
+  for(const t of S.txns){ if(t.status!=="posted" || !Array.isArray(t.postings)) continue; for(const p of t.postings) if(p&&p.acct===a.id) b += Number(p.amt)||0; }
   return Math.round(b*100)/100;
 }
 function holdPos(h){
@@ -2128,6 +2129,30 @@ function investmentTotals(owner){
   }
   return {dematValue, dematCost, holdValue, holdCost, skip, value:dematValue+holdValue, cost:dematCost+holdCost};
 }
+function giveTakeOwner(t){
+  if(t&&t.owner) return t.owner;
+  const id=t&&t.postings&&t.postings[0]&&t.postings[0].acct;
+  const a=id&&acct(id);
+  return (a&&a.owner)||"Me";
+}
+function giveTakeWealth(owner){
+  // Net each person first. A settlement cancels its source, so a closed
+  // exchange is neither an asset nor a liability. Cash is already in the account.
+  const nets=new Map();
+  for(const t of (S.txns||[])){
+    if(t.status!=="posted"||!t.giveTake) continue;
+    if(owner && giveTakeOwner(t)!==owner) continue;
+    const key=t.contactId||normalizeContactName(t.person)||t.id;
+    nets.set(key,(nets.get(key)||0)+giveTakeTxnValue(t));
+  }
+  let inn=0, out=0;
+  for(const v of nets.values()){
+    const r=Math.round(v*100)/100;
+    if(r>0.005) inn+=r;
+    else if(r<-0.005) out+=-r;
+  }
+  return {in:Math.round(inn*100)/100, out:Math.round(out*100)/100};
+}
 function wealthBreakdown(owner){
   let cash=0, bank=0, cardLiab=0, cardAsset=0, overdraft=0, forex=0;
   for(const a of S.accounts){
@@ -2148,6 +2173,8 @@ function wealthBreakdown(owner){
   const dematValue=inv.dematValue;
   let iouIn=0, iouOut=0;
   for(const v of Object.values(personPos(owner))){ if(v>=0) iouIn+=v; else iouOut+=-v; }
+  const gt=giveTakeWealth(owner);
+  iouIn+=gt.in; iouOut+=gt.out;
   const loans=loansReceivable(owner);
   const ins=insuranceValues(owner);
   const liquid=cash+bank+cardAsset+forex;
@@ -5647,7 +5674,8 @@ document.addEventListener("submit", async e=>{
     if(t.postings?.[0]) t.postings[0].amt=t.pd>0?-amount:amount;
     t.date=date; t.note=note;
     log("edit",t.id);
-    if(!save()){
+    const ok=await save();
+    if(!ok){
       t.pd=old.pd;t.postings=old.postings;t.date=old.date;t.note=old.note;
       alert("The change could not be saved. The original transaction has been restored.");
       return;
