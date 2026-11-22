@@ -637,7 +637,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.12.1");
+  const versionAt = home.indexOf("v" + "2.12.2");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -1049,7 +1049,7 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v93"), "service worker cache version is bumped for this release");
+  assert(sw.includes("myfinance-shell-v94"), "service worker cache version is bumped for this release");
   const htmlCache = sw.slice(sw.indexOf("if (isHTML)"));
   assert(htmlCache.indexOf("const forRequest = response.clone()") >= 0 && htmlCache.indexOf("const forRequest = response.clone()") < htmlCache.indexOf("caches.open(CACHE)"), "HTML is cloned before the cache is opened");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
@@ -1403,6 +1403,36 @@ console.log("PASS calendar-dst-end");
   assert(typeof mf.viewActivity()==="string", "Activity still renders");
   assert(JSON.stringify(st.txns[0])==='{"id":"broken","status":"posted","type":"expense","cat":"Food","note":"missing pieces"}', "rendering does not invent the missing postings");
   console.log("PASS incomplete-transactions");
+}
+
+{
+  const card={id:"fx",type:"forex",cur:"MULTI",wallets:[{id:"usd",cur:"USD",balance:10}]};
+  const expense={id:"e1",status:"posted",type:"expense",forexAcct:"fx",walletId:"usd",amount:40,postings:[{acct:"fx",amt:-40,cur:"USD"}]};
+  near(mf.forexSpendRoom(card, card.wallets[0], expense), 50, "editing a Forex expense adds that expense back before checking the wallet");
+  near(mf.forexSpendRoom(card, {id:"eur",cur:"EUR",balance:10}, expense), 10, "a different wallet is not credited with this expense");
+  const st=mf.blank();
+  st.accounts=[{id:"bank",name:"Bank",type:"bank",cur:"INR",opening:1000,owner:"Me",archived:false}];
+  st.holdings=[{id:"fund",name:"Flexi",type:"fund",cur:"INR",price:10,owner:"Me"}];
+  st.sips=[{id:"bad",hold:"fund",acct:"bank",amt:100,cur:"EUR",freq:1,next:mf.today(),status:"active",history:[]}];
+  st.salaries=[{id:"pay",person:"Me",acct:"bank",amt:500,cur:"EUR",freq:1,freqUnit:"month",next:mf.today(),status:"active",history:[]}];
+  mf.setS(st);
+  const skipped=mf.processDueAutomations();
+  assert(st.txns.length===0, "a currency mismatch does not create a SIP or salary transaction");
+  near(mf.balance(st.accounts[0]), 1000, "the account balance is unchanged");
+  assert(skipped.skipped>=2, "both mismatched schedules are skipped");
+  assert(st.sips[0].history.some(x=>/currency/i.test(x.note||"")), "the SIP mismatch is explained");
+  assert(st.salaries[0].history.some(x=>/currency/i.test(x.note||"")), "the salary mismatch is explained");
+  assert(st.sips[0].next!==mf.today() && st.salaries[0].next!==mf.today(), "the schedules move forward instead of retrying the same date");
+  const ok=mf.blank();
+  ok.accounts=[{id:"bank",name:"Bank",type:"bank",cur:"INR",opening:1000,owner:"Me",archived:false}];
+  ok.holdings=[{id:"fund",name:"Flexi",type:"fund",cur:"INR",price:10,owner:"Me"}];
+  ok.sips=[{id:"good",hold:"fund",acct:"bank",amt:100,cur:"INR",freq:1,next:mf.today(),status:"active",history:[]}];
+  mf.setS(ok);
+  const posted=mf.processDueAutomations();
+  assert(posted.sips===1 && ok.txns.length===1, "a matching SIP still posts");
+  near(mf.balance(ok.accounts[0]), 900, "the matching SIP still leaves the account");
+  near(mf.holdPos(ok.holdings[0]).u, 10, "the matching SIP still buys units");
+  console.log("PASS forex-and-schedule-currency");
 }
 
 console.log("ALL_REGRESSION_PASS");

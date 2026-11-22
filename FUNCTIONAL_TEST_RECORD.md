@@ -1,6 +1,6 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.12.1  
+**App version at last update:** 2.12.2  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
 **Last audit date:** 2026-11-22  
 
@@ -216,3 +216,10 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 - PASS: the complete income is still counted. The broken expense is not counted as spending. Rendering does not add postings.
 - PASS: `node regression.mjs` — ALL_REGRESSION_PASS.
 - Not run: a phone or desktop visual pass, and no personal vault.
+
+
+## 2.12.2 — Forex edit and schedule currency (2026-11-22)
+- PASS: a USD wallet at 10 with a 40 expense being edited has 50 available. A different wallet stays at 10.
+- PASS: a euro SIP and a euro salary on an INR account create no transaction and do not change the balance. A matching INR SIP still posts 100 and buys 10 units.
+- PASS: `node regression.mjs` — ALL_REGRESSION_PASS.
+- Not run: the confirm dialog in a browser, and no personal vault.
