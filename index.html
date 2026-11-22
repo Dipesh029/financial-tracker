@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1E40AF">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-jspBmMIQd5yDd2wqbAft0TG3RuRU1k3kEi+Kgzh0GL8='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-PrGkUwYprgpRhre2MG1ZB3WdDOSMhGpJS9r+fVevZ1g='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -473,8 +473,9 @@ input[type="range"]{accent-color:var(--accent);min-height:32px;height:32px;paddi
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.12.2";
+const APP_VERSION = "2.12.3";
 const RELEASES = [
+  {v:"2.12.3", d:"2026-11-22", notes:"Home, Money and Lending reuse a calculation instead of repeating it on every card. The figures are unchanged."},
   {v:"2.12.2", d:"2026-11-22", notes:"Editing a Forex expense no longer treats the money already in that expense as gone. An automatic SIP or salary is skipped when its currency does not match the account."},
   {v:"2.12.1", d:"2026-11-22", notes:"Home and Activity no longer go blank when a transaction is missing a date, a created time, or its postings. The broken row is skipped. Nothing is rewritten."},
   {v:"2.12.0", d:"2026-11-22", notes:"Mutual fund forecast rebuilt. It starts from market value, compounds each future SIP on its own date, and shows a donut, three scenarios and a year table. Dark mode is now near-black with blue accents."},
@@ -1545,6 +1546,19 @@ function balance(a){
   for(const t of S.txns){ if(t.status!=="posted" || !Array.isArray(t.postings)) continue; for(const p of t.postings) if(p&&p.acct===a.id) b += Number(p.amt)||0; }
   return Math.round(b*100)/100;
 }
+function accountBalanceMap(){
+  const m=new Map();
+  for(const a of S.accounts||[]) if(a&&a.id) m.set(a.id, a.opening||0);
+  for(const t of S.txns||[]){
+    if(!t||t.status!=="posted"||!Array.isArray(t.postings)) continue;
+    for(const p of t.postings){
+      if(!p||!m.has(p.acct)) continue;
+      m.set(p.acct, m.get(p.acct)+(Number(p.amt)||0));
+    }
+  }
+  for(const [id,b] of m) m.set(id, Math.round((Number(b)||0)*100)/100);
+  return m;
+}
 function holdPos(h){
   let u=0,c=0;
   for(const t of S.txns){
@@ -2492,7 +2506,8 @@ function netWorth(owner){
     adjusted, adjustedNetWorth:adjusted,
     loansReceivable:w.loansReceivable, loansPayable:w.loansPayable,
     insuranceCoverage:w.insuranceCoverage, insuranceCash:w.insuranceCash,
-    coverageInAdjusted:!!getNwPrefs().insuranceCoverage
+    coverageInAdjusted:!!getNwPrefs().insuranceCoverage,
+    breakdown:w
   };
 }
 
@@ -2668,7 +2683,7 @@ function viewHome0(){
   const owners=["All family",...new Set([...(S.people||[]),...S.accounts.map(a=>a.owner||"Me"),...S.holdings.map(h=>h.owner||"Me"),...(S.policies||[]).map(p=>p.owner||"Me")])];
   if(!owners.includes(homeOwner))homeOwner="All family";
   const owner=homeOwner==="All family"?null:homeOwner;
-  const nw=netWorth(owner), wb=wealthBreakdown(owner), t=monthTotals(monthKey(today()),owner);
+  const nw=netWorth(owner), wb=nw.breakdown, t=monthTotals(monthKey(today()),owner);
   const recent=(S.txns||[]).filter(x=>!owner||x.owner===owner).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))||String(b.created||"").localeCompare(String(a.created||""))).slice(0,5);
   const cats={};
   for(const x of S.txns||[]){
@@ -2821,17 +2836,21 @@ function viewAccounts(){
   if(seg==="investments"){
     const f = moneyHoldFilter||"all";
     let demats=S.accounts.filter(a=>!a.archived&&a.type==="demat");
-    demats=applySectionSort(demats,"demat",{name:a=>a.name||"",value:a=>toDisplay(dematPosition(a).value,a.cur)});
+    const dematCache=new Map();
+    const dematPos=a=>{ if(!dematCache.has(a)) dematCache.set(a, dematPosition(a)); return dematCache.get(a); };
+    demats=applySectionSort(demats,"demat",{name:a=>a.name||"",value:a=>toDisplay(dematPos(a).value,a.cur)});
     let holds = S.holdings.slice();
     if(f==="fund") holds = holds.filter(h=>h.type==="fund");
     if(f==="stock") holds = holds.filter(h=>h.type==="stock");
     if(f==="demat") holds = [];
+    const holdCache=new Map();
+    const hpOf=h=>{ if(!holdCache.has(h)) holdCache.set(h, holdPos(h)); return holdCache.get(h); };
     holds=applySectionSort(holds,"holdings",{
       name:h=>h.name||"",
-      value:h=>holdPos(h).v,
-      cost:h=>holdPos(h).c,
-      pl:h=>{const p=holdPos(h);return p.v-p.c;},
-      pct:h=>{const p=holdPos(h);return p.c?((p.v-p.c)/p.c):0;}
+      value:h=>hpOf(h).v,
+      cost:h=>hpOf(h).c,
+      pl:h=>{const p=hpOf(h);return p.v-p.c;},
+      pct:h=>{const p=hpOf(h);return p.c?((p.v-p.c)/p.c):0;}
     });
     const totals=investmentTotals(null);
     const gain=totals.value-totals.cost;
@@ -2842,7 +2861,7 @@ function viewAccounts(){
       <button type="button" class="chip ${f==="fund"?"on":""}" data-moneyholdf="fund">Funds</button>
     </div>`;
     const dematHtml=(f==="all"||f==="demat")?demats.map(a=>{
-      const p=dematPosition(a);
+      const p=dematPos(a);
       const external=p.source==="external-holdings";
       const modeLab=external?"Holdings elsewhere":(p.mode==="holdings"?"Holdings":"Manual");
       const valueTxt=external?"See holdings":fmtHide(p.value,a.cur);
@@ -2865,7 +2884,7 @@ function viewAccounts(){
       </div>`;
     }).join(""):"";
     const holdHtml=(f!=="demat")?holds.map(h=>{
-      const hp=holdPos(h); const g=hp.v-hp.c;
+      const hp=hpOf(h); const g=hp.v-hp.c;
       const covered=totals.skip.has(h.id);
       return `<div class="card tap rec-card" data-hold="${esc(h.id)}">
         <div class="name">${esc(h.name)}</div>
@@ -2899,10 +2918,12 @@ function viewAccounts(){
   }
   // accounts segment
   const af = moneyAcctFilter||"all";
+  const bals=accountBalanceMap();
+  const balOf=a=>bals.has(a.id)?bals.get(a.id):balance(a);
   let list = S.accounts.filter(a=>!a.archived&&a.type!=="demat"&&a.type!=="forex");
   list = applySectionSort(list, "accounts", {
     name:a=>a.name||"",
-    balance:a=>toDisplay(balance(a),a.cur)
+    balance:a=>toDisplay(balOf(a),a.cur)
   });
   if(af==="bank") list = list.filter(a=>a.type==="bank");
   if(af==="cash") list = list.filter(a=>a.type==="cash");
@@ -2913,7 +2934,7 @@ function viewAccounts(){
   for(const a of S.accounts){
     if(a.archived||a.type==="demat") continue;
     if(a.type==="forex"){ sumForex+=forexDisplayValue(a).value; continue; }
-    const b=toDisplay(balance(a),a.cur);
+    const b=toDisplay(balOf(a),a.cur);
     if(a.type==="bank") sumBank+=Math.max(0,b);
     else if(a.type==="cash") sumCash+=Math.max(0,b);
     else if(a.type==="card"&&b<0) sumCard+=-b;
@@ -2925,7 +2946,7 @@ function viewAccounts(){
     <button type="button" class="chip ${af==="card"?"on":""}" data-moneyacctf="card">Cards</button>
   </div>`;
   const cards=list.map(a=>{
-    const b=balance(a);
+    const b=balOf(a);
     const used=a.type==="card"&&a.limit?Math.min(100,Math.round(Math.max(0,-b)/a.limit*100)):0;
     const typeLbl=a.type==="card"?((a.cardMeta&&a.cardMeta.cardType)==="Debit"?"Debit card":"Credit card"):a.type==="cash"?"Cash":"Bank";
     const meta=[a.owner||"Me", typeLbl, a.bank||"", a.accountMasked||"", a.cardMeta?.last4?("•••• "+a.cardMeta.last4):""].filter(Boolean).join(" · ");
@@ -4202,9 +4223,11 @@ function viewPlan(){
     ${cards}`;
   }
   if(seg==="lending"){
+    const loanPos=new Map();
+    const lp=l=>{ if(!loanPos.has(l)) loanPos.set(l, lendingPosition(l)); return loanPos.get(l); };
     let outstandingLent=0, outstandingBorrowed=0, originalLent=0, repaidLent=0, active=0, interestLent=0;
     for(const l of S.lending){
-      const p=lendingPosition(l);
+      const p=lp(l);
       const orig=toDisplay(p.principalOrig,l.cur);
       const out=toDisplay(p.totalOutstanding,l.cur);
       const rep=toDisplay(p.totalPaid,l.cur);
@@ -4212,8 +4235,8 @@ function viewPlan(){
       else outstandingBorrowed+=out;
       if(p.totalOutstanding>0.0001) active++;
     }
-    const cards=applySectionSort(S.lending,"lending",{person:l=>l.person||"",prin:l=>lendingPosition(l).principalLeft,interest:l=>lendingPosition(l).interestLeft,total:l=>lendingPosition(l).totalOutstanding,start:l=>l.start||""}).map(l=>{
-      const p=lendingPosition(l);
+    const cards=applySectionSort(S.lending,"lending",{person:l=>l.person||"",prin:l=>lp(l).principalLeft,interest:l=>lp(l).interestLeft,total:l=>lp(l).totalOutstanding,start:l=>l.start||""}).map(l=>{
+      const p=lp(l);
       const orig=p.principalOrig;
       const out=p.totalOutstanding;
       const repaid=p.totalPaid;
@@ -7368,7 +7391,7 @@ document.addEventListener("visibilitychange",()=>{
 if(globalThis.__MF_TEST){
   globalThis.__mf={
     parseAmt, inspectAmt, readAmt, rejectAmt, thousandsFallback,
-    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, cleanShareText, buildLendingPdfHtml, formatMoney, roundMoney, forexSpendRoom, processDueAutomations, blank, migrate,
+    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, cleanShareText, buildLendingPdfHtml, formatMoney, roundMoney, forexSpendRoom, processDueAutomations, accountBalanceMap, blank, migrate,
     processDueAutomations, salaryTermsAt, advanceSalaryNext, sipTermsAt, advanceSipNext, addM, addDays, calendarDays,
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
     wealthBreakdown, netWorth, valuationNotes, holdPos, balance, balanceAsOf, projectHolding, holdingSipPlan, holdingSipReview, datedSipEvents, forecastDonutParts, buildReportPdf, addTxn,

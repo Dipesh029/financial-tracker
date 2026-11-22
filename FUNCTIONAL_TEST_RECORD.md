@@ -1,6 +1,6 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.12.2  
+**App version at last update:** 2.12.3  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
 **Last audit date:** 2026-11-22  
 
@@ -223,3 +223,10 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 - PASS: a euro SIP and a euro salary on an INR account create no transaction and do not change the balance. A matching INR SIP still posts 100 and buys 10 units.
 - PASS: `node regression.mjs` — ALL_REGRESSION_PASS.
 - Not run: the confirm dialog in a browser, and no personal vault.
+
+
+## 2.12.3 — Repeated calculations (2026-11-22)
+- PASS: one-pass balances are 85 and -16, matching `balance()`, and a voided transaction is ignored.
+- PASS: `netWorth().total` equals `netWorth().breakdown.total` and `wealthBreakdown().total`.
+- PASS: `node regression.mjs` — ALL_REGRESSION_PASS.
+- Not run: a timing measurement on a phone. The change removes repeated work; it does not change a formula.

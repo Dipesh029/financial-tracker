@@ -158,6 +158,11 @@ Validation in this archive:
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
 
 
+## 2.12.3 — Fewer repeated calculations
+- Home uses the wealth breakdown already produced for net worth.
+- The accounts list totals every balance in one pass. `balance()` is unchanged and the pass matches it.
+- Investment and lending screens remember a position while drawing that screen. Nothing is cached after the screen is built.
+
 ## 2.12.2 — Forex edit room and schedule currency
 - `forexSpendRoom()` adds the expense being edited back to its own wallet before the negative-balance warning. Other wallets are unchanged.
 - Due SIPs and salaries whose currency differs from the account are marked missed and are not posted. A matching SIP still posts.
