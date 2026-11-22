@@ -158,6 +158,10 @@ Validation in this archive:
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
 
 
+## 2.12.1 — Incomplete transactions no longer blank Home
+- `monthTotals()`, the Home spending chart and `txnRow()` skip a posted row that has no date or no numeric posting. Sorting no longer assumes `created` is present.
+- Records are not repaired automatically. The integrity check still reports the bad date or missing postings.
+
 ## 2.12.0 — Mutual fund forecast and near-black dark theme
 - `projectHolding()` grows the current market value, then adds that month’s cash. Monthly rate remains `(1+annual)^(1/12)-1`.
 - A SIP with `next` is walked with `advanceSipNext()` and `sipTermsAt()`. Past dates are skipped. `end` or `until` is honoured only if already stored. Stopped, paused, cancelled and completed SIPs contribute nothing. A different currency is excluded.

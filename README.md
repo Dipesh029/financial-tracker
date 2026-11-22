@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.12.0
+**Current version:** 2.12.1
 
 ---
 
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Replace **only** `index.html` and `sw.js` at the **same HTTPS path** as before. Keep `manifest.webmanifest`, `icon.svg`, the site origin, and the existing vault data unchanged.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.12.0**).
+5. Confirm the unlock screen shows the expected version (**v2.12.1**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -131,6 +131,9 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.12.1 — 2026-11-22
+- **Stability:** Home, the cash-flow chart and Activity no longer go blank when a transaction is missing a date, a created time, or its postings. The row is skipped. The stored record is not rewritten.
 
 ### 2.12.0 — 2026-11-22
 - **Forecast:** The holding forecast starts from market value. Each future SIP instalment is dated from its next debit and frequency, then compounded for the months it is actually invested. An optional monthly top-up stays hypothetical. Results show total invested, estimated growth, a donut, three scenarios, and year and month tables.

@@ -637,7 +637,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.12.0");
+  const versionAt = home.indexOf("v" + "2.12.1");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -1049,7 +1049,7 @@ console.log("PASS calendar-dst-end");
 
   const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
   assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
-  assert(sw.includes("myfinance-shell-v92"), "service worker cache version is bumped for this release");
+  assert(sw.includes("myfinance-shell-v93"), "service worker cache version is bumped for this release");
   const htmlCache = sw.slice(sw.indexOf("if (isHTML)"));
   assert(htmlCache.indexOf("const forRequest = response.clone()") >= 0 && htmlCache.indexOf("const forRequest = response.clone()") < htmlCache.indexOf("caches.open(CACHE)"), "HTML is cloned before the cache is opened");
   const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
@@ -1380,6 +1380,29 @@ console.log("PASS calendar-dst-end");
   assert(page.includes("Mutual fund forecast") && page.includes("forecast-donut") && page.includes("#09090B"), "forecast screen and near-black dark tokens are present");
   assert(page.includes("#F5F7FB") && page.includes("#2563EB"), "light theme stays blue on a light background");
   console.log("PASS forecast-schedule");
+}
+
+{
+  const st=mf.blank();
+  st.accounts=[{id:"cash",name:"Cash",type:"cash",cur:"INR",opening:100,owner:"Me",archived:false}];
+  st.txns=[
+    {id:"broken",status:"posted",type:"expense",cat:"Food",note:"missing pieces"},
+    {id:"old",status:"posted",type:"income",date:mf.today(),cat:"Salary",postings:[{acct:"cash",amt:40,cur:"INR"}]},
+    {id:"half",status:"posted",type:"transfer",date:mf.today(),postings:[{acct:"cash",amt:-5,cur:"INR"}]}
+  ];
+  mf.setS(st);
+  const month=mf.monthTotals(mf.today().slice(0,7), null);
+  near(month.inc, 40, "a complete income still counts");
+  near(month.exp, 0, "an expense with no postings is not treated as spending");
+  const home=mf.viewHome();
+  assert(typeof home==="string" && home.includes("Family"), "Home still renders when a transaction has no date or postings");
+  const row=mf.txnRow(st.txns[0]);
+  assert(typeof row==="string" && row.includes("broken"), "a row with no postings still renders");
+  const transfer=mf.txnRow(st.txns[2]);
+  assert(transfer.includes("→") && !transfer.includes("undefined"), "a one-sided transfer does not crash the activity row");
+  assert(typeof mf.viewActivity()==="string", "Activity still renders");
+  assert(JSON.stringify(st.txns[0])==='{"id":"broken","status":"posted","type":"expense","cat":"Food","note":"missing pieces"}', "rendering does not invent the missing postings");
+  console.log("PASS incomplete-transactions");
 }
 
 console.log("ALL_REGRESSION_PASS");
