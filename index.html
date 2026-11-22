@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1E40AF">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-47Pq4qgZgtXh7XSDjgnR94KxsGoQrnoXvLkNt4F2MFo='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-YL5+S0dUKVRkQZvloRjOnwZVOyKRSCZQqjx3qpYb0Tk='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -46,23 +46,23 @@ document.documentElement.style.colorScheme=dark?"dark":"light";}catch(e){}})();
 }
 html[data-theme="dark"]{
   color-scheme: dark;
-  --bg:#0B1220;
-  --bg-2:#111A2E;
-  --card:#121A2F;
-  --elev:#18233A;
-  --ink:#E8EEF9;
-  --muted:#94A3B8;
-  --line:#243049;
-  --accent:#60A5FA;
-  --accent-soft:rgba(96,165,250,.16);
-  --accent-ink:#0B1220;
+  --bg:#09090B;
+  --bg-2:#101114;
+  --card:#15171B;
+  --elev:#1C1F25;
+  --ink:#F4F4F5;
+  --muted:#A1A1AA;
+  --line:#292D35;
+  --accent:#3B82F6;
+  --accent-soft:rgba(59,130,246,.14);
+  --accent-ink:#F4F4F5;
   --in:#34D399;
   --out:#F87171;
   --warn:#FBBF24;
-  --nav:#121A2F;
-  --overlay:rgba(0,0,0,.62);
-  --input:#18233A;
-  --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 28px rgba(0,0,0,.28);
+  --nav:#09090B;
+  --overlay:rgba(0,0,0,.72);
+  --input:#111318;
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 12px 28px rgba(0,0,0,.35);
   --hero:#1E3A8A;
   --hero-from:#1E3A8A;
   --hero-to:#1E3A8A;
@@ -70,23 +70,23 @@ html[data-theme="dark"]{
 @media (prefers-color-scheme: dark){
   html[data-theme="system"], html:not([data-theme]){
     color-scheme: dark;
-    --bg:#0B1220;
-    --bg-2:#111A2E;
-    --card:#121A2F;
-    --elev:#18233A;
-    --ink:#E8EEF9;
-    --muted:#94A3B8;
-    --line:#243049;
-    --accent:#60A5FA;
-    --accent-soft:rgba(96,165,250,.16);
-    --accent-ink:#0B1220;
+    --bg:#09090B;
+    --bg-2:#101114;
+    --card:#15171B;
+    --elev:#1C1F25;
+    --ink:#F4F4F5;
+    --muted:#A1A1AA;
+    --line:#292D35;
+    --accent:#3B82F6;
+    --accent-soft:rgba(59,130,246,.14);
+    --accent-ink:#F4F4F5;
     --in:#34D399;
     --out:#F87171;
     --warn:#FBBF24;
-    --nav:#121A2F;
-    --overlay:rgba(0,0,0,.62);
-    --input:#18233A;
-    --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 28px rgba(0,0,0,.28);
+    --nav:#09090B;
+    --overlay:rgba(0,0,0,.72);
+    --input:#111318;
+    --shadow:0 1px 2px rgba(0,0,0,.45), 0 12px 28px rgba(0,0,0,.35);
     --hero:#1E3A8A;
     --hero-from:#1E3A8A;
     --hero-to:#1E3A8A;
@@ -445,6 +445,20 @@ button:focus-visible,.ver-link:focus-visible{outline:2px solid var(--accent);out
   .hero-nw .value{font-size:42px}
   .quick-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
+input[type="range"]{accent-color:var(--accent);min-height:32px;height:32px;padding:0;border:0;background:transparent;box-shadow:none}
+.calc-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 0}
+.calc-row label{margin:0;color:var(--ink);font-size:14px;font-weight:600}
+.calc-val{width:112px;flex:0 0 112px;text-align:right;font-weight:700;color:var(--accent);background:var(--accent-soft);border:0}
+.forecast-hero-num{font-size:28px;font-weight:720;letter-spacing:-.03em}
+.scenario-grid{display:grid;grid-template-columns:1fr;gap:8px}
+.scenario-card{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--bg)}
+.scenario-card.on{border-color:var(--accent);background:var(--accent-soft)}
+.forecast-donut{width:min(220px,72vw);height:auto;display:block;margin:4px auto 8px}
+.proj-scroll{overflow-x:auto}
+.proj-table{width:100%;border-collapse:collapse;font-size:13px}
+.proj-table th,.proj-table td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+.proj-table th:first-child,.proj-table td:first-child{text-align:left}
+@media (min-width:800px){.scenario-grid{grid-template-columns:1fr 1fr 1fr}}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 }
@@ -459,8 +473,9 @@ button:focus-visible,.ver-link:focus-visible{outline:2px solid var(--accent);out
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.11.0";
+const APP_VERSION = "2.12.0";
 const RELEASES = [
+  {v:"2.12.0", d:"2026-11-22", notes:"Mutual fund forecast rebuilt. It starts from market value, compounds each future SIP on its own date, and shows a donut, three scenarios and a year table. Dark mode is now near-black with blue accents."},
   {v:"2.11.0", d:"2026-11-22", notes:"Blue theme across the app. PDF reports for the main sections and one complete report. Mutual fund forecast now shows conservative, expected and optimistic paths without changing your records."},
   {v:"2.10.0", d:"2026-11-22", notes:"Visual redesign across Home, Money, Plan, Activity and More. Same calculations, exports, vault and navigation. Quieter surfaces, clearer amounts, and layouts that hold together on a phone and a laptop."},
   {v:"2.9.9", d:"2026-11-22", notes:"Lending reports omit future-dated repayments and keep an early repayment on its original date, with the effective interest date explained. PDF totals round only after adding each currency. Exports keep Hindi and emoji joiners. The integrity check warns about a posting currency or amount that does not match the account, and does not change your records."},
@@ -1551,37 +1566,114 @@ function annualToMonthlyRate(annualPct){
   if(!Number.isFinite(R) || R<=-1) return -1;
   return Math.pow(1+R, 1/12)-1;
 }
+function sipStatusReason(x, holdingCur){
+  const status=(x && x.status)||"active";
+  if(status==="stopped") return "Stopped";
+  if(status==="paused") return "Paused";
+  if(status==="cancelled") return "Cancelled";
+  if(status==="completed"||status==="ended") return "Completed";
+  if(holdingCur && x && x.cur && String(x.cur)!==String(holdingCur)) return "Different currency";
+  const amt=Number(sipTermsAt(x, (x&&x.next)||today()).amt);
+  if(!(amt>0)) return "No valid amount";
+  return "";
+}
+function holdingSipReview(h){
+  return (S.sips||[]).filter(x=>x && h && x.hold===h.id).map(x=>{
+    const reason=sipStatusReason(x, h.cur);
+    const terms=sipTermsAt(x, x.next||today());
+    return {id:x.id, amt:Number(terms.amt)||0, freq:Math.max(1, Number(terms.freq)||1), cur:x.cur||h.cur, next:x.next||"", status:x.status||"active", eligible:!reason, reason, sip:x};
+  });
+}
 function holdingSipPlan(h){
-  return (S.sips||[]).filter(x=>x && x.hold===h.id && (x.status||"active")==="active").map(x=>{
-    const terms=sipTermsAt(x, today());
-    return {amt:Number(terms.amt)||0, freq:Math.max(1, Number(terms.freq)||1), cur:x.cur||h.cur};
-  }).filter(x=>x.amt>0 && String(x.cur||h.cur)===String(h.cur||""));
+  return holdingSipReview(h).filter(x=>x.eligible).map(x=>({amt:x.amt, freq:x.freq, cur:x.cur, next:x.next}));
+}
+function monthIndexForDate(startDate, months, date){
+  for(let m=1;m<=months;m++){
+    const prev=m===1?startDate:addM(startDate, m-1);
+    const boundary=addM(startDate, m);
+    if(date>=prev && date<boundary) return m;
+  }
+  return 0;
+}
+function datedSipEvents(sip, startDate, months){
+  if(!sip || !sip.next){
+    const freq=Math.max(1, Number(sip&&sip.freq)||1);
+    const amt=Number(sip&&sip.amt);
+    if(!(amt>0)) return [];
+    const events=[];
+    for(let m=freq;m<=months;m+=freq) events.push({month:m, amt});
+    return events;
+  }
+  const status=sip.status||"active";
+  if(["stopped","paused","cancelled","completed","ended"].includes(status)) return [];
+  const horizon=addM(startDate, months);
+  const stop=sip.end||sip.until||"";
+  let d=String(sip.next).slice(0,10);
+  let guard=0;
+  while(d && d<startDate && guard++<2400){
+    const nxt=advanceSipNext(sip, d);
+    if(!nxt || nxt<=d) return [];
+    d=nxt;
+  }
+  const events=[];
+  guard=0;
+  while(d && d<horizon && guard++<2400){
+    if(stop && d>String(stop).slice(0,10)) break;
+    const amt=Number(sipTermsAt(sip, d).amt);
+    const month=monthIndexForDate(startDate, months, d);
+    if(amt>0 && month) events.push({month, amt, date:d});
+    const nxt=advanceSipNext(sip, d);
+    if(!nxt || nxt<=d) break;
+    d=nxt;
+  }
+  return events;
 }
 function projectHolding(opts){
   const start=Number(opts.startValue)||0;
   const months=Math.max(0, Math.round(Number(opts.months)||0));
   const annual=Number(opts.annualPct)||0;
   const extra=Math.max(0, Number(opts.monthlyExtra)||0);
+  const startDate=opts.startDate||today();
   const sips=opts.includeSips?(opts.sips||[]):[];
+  const byMonth=new Map();
+  const addTo=(m,amt)=>{ if(m>=1 && m<=months && amt) byMonth.set(m,(byMonth.get(m)||0)+amt); };
+  for(let m=1;m<=months;m++) if(extra) addTo(m, extra);
+  let sipContributed=0;
+  for(const sip of sips){
+    for(const ev of datedSipEvents(sip, startDate, months)){ addTo(ev.month, ev.amt); sipContributed+=ev.amt; }
+  }
   const r=annualToMonthlyRate(annual);
   let value=start, contributed=0;
   const rows=[];
   for(let m=1;m<=months;m++){
+    const opening=value;
     const grown=r<=-1?0:value*(1+r);
-    let add=extra;
-    for(const sip of sips){ if(m % sip.freq===0) add+=Number(sip.amt)||0; }
-    value=grown+add;
-    contributed+=add;
-    rows.push({month:m, value, contributed, gain:value-start-contributed});
+    const added=byMonth.get(m)||0;
+    value=grown+added;
+    contributed+=added;
+    rows.push({month:m, opening, added, value, contributed, gain:value-start-contributed, date:addM(startDate, m)});
   }
   const end=rows.length?rows[rows.length-1]:{value:start, contributed:0, gain:0};
-  const base=start+end.contributed;
   const years=[];
   for(let y=1; y*12-11<=months; y++){
-    const idx=Math.min(months, y*12)-1;
-    years.push({year:y, value:rows[idx].value, contributed:rows[idx].contributed, gain:rows[idx].gain, partial:y*12>months});
+    const from=(y-1)*12;
+    const to=Math.min(months, y*12)-1;
+    const opening=from===0?start:rows[from-1].value;
+    const closing=rows[to].value;
+    const added=rows[to].contributed-(from===0?0:rows[from-1].contributed);
+    years.push({year:y, opening, contributed:added, gain:closing-opening-added, value:closing, partial:y*12>months});
   }
-  return {start, monthlyRate:r, annual, months, rows, years, endValue:end.value, contributed:end.contributed, gain:end.gain, pct:base>0?(end.gain/base)*100:0};
+  const base=start+end.contributed;
+  return {start, monthlyRate:r, annual, months, startDate, rows, years, endValue:end.value, contributed:end.contributed, sipContributed, extraContributed:extra*months, gain:end.gain, pct:base>0?(end.gain/base)*100:0};
+}
+function forecastDonutParts(result){
+  if(!result || !(result.endValue>0) || result.gain<-1e-8) return null;
+  const parts=[];
+  if(result.start>0) parts.push({key:"start", label:"Current portfolio", value:result.start});
+  if(result.contributed>0) parts.push({key:"future", label:"Future contributions", value:result.contributed});
+  if(result.gain>1e-8) parts.push({key:"growth", label:"Estimated growth", value:result.gain});
+  const sum=parts.reduce((s,p)=>s+p.value,0);
+  return {parts, sum, end:result.endValue};
 }
 function personPos(owner){
   // Informal IOUs from transfers only. Lending module uses loansReceivable/lendingPosition —
@@ -3245,20 +3337,34 @@ ${h.notes?`<p class="muted">${esc(h.notes)}</p>`:""}
 <label>Current price per unit (${h.cur})</label><input id="hp" inputmode="decimal" value="${h.price||""}">
 <button class="btn" type="submit">Update price</button></form>
 <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
-<h2 style="margin:0 0 6px;font-size:16px">Future value forecast</h2>
-<p class="muted" style="margin:0 0 10px">Starts from today’s market value. Existing SIPs and any extra monthly amount are kept separate. This is an illustration, not a guaranteed return or financial advice.</p>
-<form id="ffv"><input type="hidden" id="fvid" value="${esc(h.id)}">
-<label>Expected annual return (%)</label><input id="fvr" inputmode="decimal" value="${h.type==="fund"?"12":"10"}">
-<label>Conservative annual return (%)</label><input id="fvc" inputmode="decimal" value="${h.type==="fund"?"8":"6"}">
-<label>Optimistic annual return (%)</label><input id="fvo" inputmode="decimal" value="${h.type==="fund"?"16":"14"}">
-<label>Duration (years)</label><input id="fvy" inputmode="decimal" value="5">
-<label class="row" style="align-items:center;gap:8px"><input type="checkbox" id="fvinc" checked> Include existing SIPs on this holding</label>
-<div class="muted">${(S.sips||[]).filter(x=>x.hold===h.id&&(x.status||"active")==="active"&&(!x.cur||x.cur===h.cur)).length? (S.sips||[]).filter(x=>x.hold===h.id&&(x.status||"active")==="active"&&(!x.cur||x.cur===h.cur)).map(x=>esc(fmt(x.amt,x.cur||h.cur))+" every "+(x.freq||1)+" month"+((x.freq||1)>1?"s":"")).join("; ") : "No active SIP in "+esc(h.cur)+"."}</div>
-<label>Extra monthly investment (${esc(h.cur)}, hypothetical)</label><input id="fvs" inputmode="decimal" value="0">
-<div class="muted">Changing these figures does not create a transaction or edit the SIP.</div>
-<button class="btn alt" type="submit">Show forecast</button></form>
-<div id="fvOut" style="display:none;margin-top:12px"></div>
-<button class="btn alt" data-close style="margin-top:12px">Close</button>`);}
+<h2 style="margin:16px 0 4px;font-size:18px">Mutual fund forecast</h2>
+<p class="muted" style="margin:0 0 8px">Estimate how your existing portfolio and future investments may grow over time.</p>
+<form id="ffv" autocomplete="off"><input type="hidden" id="fvid" value="${esc(h.id)}">
+<div class="calc-row"><label for="fvy">Investment duration</label><input class="calc-val" id="fvy" inputmode="decimal" value="5" aria-label="Years"></div>
+<input id="fvyRange" type="range" min="1" max="30" step="1" value="5" aria-label="Duration slider">
+<div class="calc-row"><label for="fvr">Expected annual return</label><input class="calc-val" id="fvr" inputmode="decimal" value="${h.type==="fund"?"12":"10"}" aria-label="Expected return percent"></div>
+<input id="fvrRange" type="range" min="0" max="30" step="0.5" value="${h.type==="fund"?"12":"10"}" aria-label="Return slider">
+<div class="calc-row"><label for="fvs">Additional monthly investment</label><input class="calc-val" id="fvs" inputmode="decimal" value="0" aria-label="Additional monthly amount"></div>
+<input id="fvsRange" type="range" min="0" max="100000" step="500" value="0" aria-label="Additional monthly slider">
+<label class="row" style="align-items:center;gap:8px;margin-top:12px"><input type="checkbox" id="fvinc" checked> Include existing linked SIPs</label>
+<div class="calc-row"><label for="fvc">Conservative return</label><input class="calc-val" id="fvc" inputmode="decimal" value="${h.type==="fund"?"8":"6"}" aria-label="Conservative return percent"></div>
+<div class="calc-row"><label for="fvo">Optimistic return</label><input class="calc-val" id="fvo" inputmode="decimal" value="${h.type==="fund"?"16":"14"}" aria-label="Optimistic return percent"></div>
+<p class="muted">Portfolio value grows for the month, then that month’s SIP and extra amount are added. This does not create a transaction or change a SIP. Not a guaranteed return.</p>
+</form>
+<div id="fvOut" style="margin-top:12px"></div>
+<button class="btn alt" data-close style="margin-top:12px">Close</button>`);
+  setTimeout(()=>{
+    const bind=(a,b)=>{
+      const x=$("#"+a), y=$("#"+b); if(!x||!y) return;
+      x.addEventListener("input",()=>{ if(Number(x.value)<=Number(y.max) && Number(x.value)>=Number(y.min)) y.value=x.value; renderHoldingForecast(); });
+      y.addEventListener("input",()=>{ x.value=y.value; renderHoldingForecast(); });
+    };
+    bind("fvy","fvyRange"); bind("fvr","fvrRange"); bind("fvs","fvsRange");
+    ["fvc","fvo","fvinc"].forEach(id=>{ const n=$("#"+id); if(n) n.addEventListener("input", renderHoldingForecast); if(n) n.addEventListener("change", renderHoldingForecast); });
+    const form=$("#ffv"); if(form) form.addEventListener("submit", e=>{ e.preventDefault(); renderHoldingForecast(); });
+    renderHoldingForecast();
+  }, 30);
+}
 function matchHoldingCandidates(holdings, it, owner){
   // Production matcher used by CSV import. Returns 0, 1, or many candidates.
   const iEx=(it.exch||"").toUpperCase();
@@ -6018,6 +6124,78 @@ document.addEventListener("input", e=>{
   }
 });
 
+function renderHoldingForecast(){
+  const h=S.holdings.find(x=>x.id===$("#fvid")?.value); if(!h) return;
+  const out=$("#fvOut"); if(!out) return;
+  const num=(id, fallback)=>{ const raw=$("#"+id)?.value; if(raw==null || String(raw).trim()==="") return fallback; const n=Number(String(raw).replace(/,/g,"")); return Number.isFinite(n)?n:null; };
+  const years=num("fvy", 5), expected=num("fvr", 12), conservative=num("fvc", 8), optimistic=num("fvo", 16), extra=num("fvs", 0);
+  if([years,expected,conservative,optimistic,extra].some(v=>v==null) || years<=0 || years>50 || expected<-50 || expected>50 || conservative<-50 || conservative>50 || optimistic<-50 || optimistic>50 || extra<0){
+    out.innerHTML='<p class="muted">Enter a duration up to 50 years, a return between -50% and 50%, and an extra amount of zero or more.</p>';
+    return;
+  }
+  const months=Math.round(years*12);
+  const snap=()=>JSON.stringify({n:(S.txns||[]).length, sips:(S.sips||[]).map(x=>({id:x.id,amt:x.amt,next:x.next,status:x.status})), price:h.price});
+  const before=snap();
+  const p=holdPos(h);
+  const review=holdingSipReview(h);
+  const include=!!$("#fvinc")?.checked;
+  const sips=include?review.filter(x=>x.eligible).map(x=>x.sip):[];
+  const run=(annual)=>projectHolding({startValue:p.v, annualPct:annual, months, monthlyExtra:extra, includeSips:include, sips, startDate:today()});
+  const scenarios=[
+    {name:"Conservative", rate:conservative, result:run(conservative)},
+    {name:"Expected", rate:expected, result:run(expected)},
+    {name:"Optimistic", rate:optimistic, result:run(optimistic)}
+  ];
+  const focus=scenarios[1].result;
+  const money=n=>fmt(n,h.cur);
+  const donut=forecastDonutParts(focus);
+  const colors={start:"#DBEAFE", future:"#3B82F6", growth:"#1E3A8A"};
+  let donutHtml='<p class="muted">Estimated growth is not positive, so the donut is hidden rather than showing a misleading split.</p>';
+  if(donut && donut.sum>0){
+    const r=42, circ=2*Math.PI*r; let off=0;
+    const arcs=donut.parts.map(part=>{
+      const len=part.value/donut.sum*circ;
+      const el='<circle cx="60" cy="60" r="'+r+'" fill="none" stroke="'+colors[part.key]+'" stroke-width="14" stroke-dasharray="'+(len.toFixed(3))+' '+((circ-len).toFixed(3))+'" stroke-dashoffset="'+((-off).toFixed(3))+'" transform="rotate(-90 60 60)"/>';
+      off+=len; return el;
+    }).join("");
+    const legend=donut.parts.map(part=>'<div class="row"><span><i class="dot" style="background:'+colors[part.key]+'"></i>'+esc(part.label)+'</span><b class="num">'+money(part.value)+' · '+(Math.round(part.value/donut.sum*1000)/10)+'%</b></div>').join("");
+    donutHtml='<svg class="forecast-donut" viewBox="0 0 120 120" role="img" aria-label="Portfolio split">'+arcs+'</svg>'+legend+'<p class="muted">These parts add up to '+money(focus.endValue)+'.</p>';
+  }
+  const maxV=Math.max(1, ...scenarios.flatMap(s=>s.result.rows.map(r=>r.value)));
+  const lines=scenarios.map(s=>{
+    const n=Math.max(1, s.result.rows.length-1);
+    const color=s.name==="Expected"?"#2563EB":s.name==="Optimistic"?"#1E3A8A":"#93C5FD";
+    const pts=s.result.rows.map((r,i)=>`${16+i*(288/n)},${108-(r.value/maxV)*88}`).join(" ");
+    return '<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="'+(s.name==="Expected"?3:2)+'" stroke-linejoin="round"/>';
+  }).join("");
+  const freqLabel=f=>f===1?"Monthly":f===3?"Quarterly":f===6?"Half-yearly":f===12?"Yearly":"Every "+f+" months";
+  const sipRows=review.map(x=>{
+    const future=x.eligible&&include?datedSipEvents(x.sip, today(), months).reduce((s,e)=>s+e.amt,0):0;
+    return '<div class="row"><div><b>'+esc(h.name)+'</b><div class="muted">'+esc(freqLabel(x.freq))+' · '+esc(money(x.amt))+' · next '+esc(x.next||"—")+' · '+esc(x.status)+'</div>'+(x.reason?'<div class="muted">'+esc(x.reason)+' — left out</div>':"")+'</div><b class="num">'+(x.eligible&&include?money(future):"—")+'</b></div>';
+  }).join("");
+  const yearRows=focus.years.map(y=>'<tr><td>Year '+y.year+(y.partial?" (partial)":"")+'</td><td>'+esc(money(y.opening))+'</td><td>'+esc(money(y.contributed))+'</td><td>'+esc(money(y.gain))+'</td><td>'+esc(money(y.value))+'</td></tr>').join("");
+  const monthRows=focus.rows.map(r=>'<tr><td>'+r.month+'</td><td>'+esc(money(r.opening))+'</td><td>'+esc(money(r.added))+'</td><td>'+esc(money(r.value))+'</td></tr>').join("");
+  const cards=scenarios.map(s=>'<div class="scenario-card '+(s.name==="Expected"?"on":"")+'"><b>'+s.name+' · '+s.rate+'%</b><div class="row"><span>Future contributions</span><b class="num">'+money(s.result.contributed)+'</b></div><div class="row"><span>Estimated growth</span><b class="num '+(s.result.gain<0?"out":"")+'">'+money(s.result.gain)+'</b></div><div class="row"><span>Projected value</span><b class="num">'+money(s.result.endValue)+'</b></div></div>').join("");
+  out.innerHTML=''
+    +'<div class="card"><div class="row"><span>Total invested</span><b class="num">'+money(focus.start+focus.contributed)+'</b></div>'
+    +'<div class="row"><span>Estimated returns</span><b class="num '+(focus.gain<0?"out":"in")+'">'+money(focus.gain)+'</b></div>'
+    +'<div class="row"><span>Projected future value</span><b class="num forecast-hero-num">'+money(focus.endValue)+'</b></div></div>'
+    +'<div class="card"><div class="row"><span>Current portfolio value</span><b class="num">'+money(focus.start)+'</b></div>'
+    +'<div class="row"><span>Future SIP contributions</span><b class="num">'+money(focus.sipContributed)+'</b></div>'
+    +'<div class="row"><span>Additional hypothetical contributions</span><b class="num">'+money(focus.extraContributed)+'</b></div>'
+    +'<div class="row"><span>Estimated future growth</span><b class="num '+(focus.gain<0?"out":"in")+'">'+money(focus.gain)+'</b></div>'
+    +'<p class="muted">Current value is already invested. Past SIP instalments are not added again. Cost basis is '+money(p.c)+' and is not used as a second starting balance.</p></div>'
+    +'<div class="card">'+donutHtml+'</div>'
+    +'<h2 style="font-size:16px">Scenarios</h2><div class="scenario-grid">'+cards+'</div>'
+    +'<h2 style="font-size:16px">Projected path</h2><div class="card"><svg class="chart" viewBox="0 0 320 128" role="img" aria-label="Three forecast paths">'+lines+'</svg>'
+    +'<div class="chart-legend"><span><i class="dot" style="background:#93C5FD"></i>Conservative</span><span><i class="dot" style="background:#2563EB"></i>Expected</span><span><i class="dot" style="background:#1E3A8A"></i>Optimistic</span></div></div>'
+    +'<details open><summary class="muted">Existing SIP investments</summary><div class="card" style="margin-top:8px">'+(sipRows||'<p class="muted">No SIP is linked to this holding.</p>')+'</div></details>'
+    +'<h2 style="font-size:16px">Year by year</h2><div class="card proj-scroll"><table class="proj-table"><thead><tr><th>Year</th><th>Opening</th><th>Contributions</th><th>Growth</th><th>Closing</th></tr></thead><tbody>'+yearRows+'</tbody></table></div>'
+    +'<details><summary class="muted">Month by month</summary><div class="card proj-scroll" style="margin-top:8px"><table class="proj-table"><thead><tr><th>Month</th><th>Opening</th><th>Added</th><th>Closing</th></tr></thead><tbody>'+monthRows+'</tbody></table></div></details>'
+    +'<p class="muted">Stopped, paused, cancelled and completed SIPs are left out. A SIP in another currency is left out. The saved schedule has a next date and a frequency, not a step-up. An end date is used only when one is already stored.</p>';
+  if(before!==snap()) console.warn("forecast mutated records");
+}
+
 document.addEventListener("submit", async e=>{
   e.preventDefault();
   const form=e.target;
@@ -6500,63 +6678,7 @@ if(e.target.id==="f2"){
     setTimeout(()=>holdSheet(h.id),40);
     return;
   }
-  if(e.target.id==="ffv"){
-    const h=S.holdings.find(x=>x.id===$("#fvid").value); if(!h)return;
-    const before=JSON.stringify(S);
-    const readRate=(id,label)=>{
-      const n=rejectAmt($("#"+id).value,{required:true,allowNegative:true,maxDecimals:4,positive:false});
-      if(n==null) return null;
-      if(n<-50||n>50){ alert(label+" must be between -50% and 50%."); return null; }
-      return n;
-    };
-    const expected=readRate("fvr","Expected return");
-    const conservative=readRate("fvc","Conservative return");
-    const optimistic=readRate("fvo","Optimistic return");
-    const years=rejectAmt($("#fvy").value,{required:true,positive:true,maxDecimals:2});
-    const extra=rejectAmt($("#fvs").value||"0",{required:false,allowNegative:false,maxDecimals:2});
-    if(expected==null||conservative==null||optimistic==null||years==null||extra==null) return;
-    const months=Math.round(years*12);
-    if(months<1||years>50){ alert("Enter a duration from one month up to 50 years."); return; }
-    const p=holdPos(h);
-    const sips=holdingSipPlan(h);
-    const include=!!$("#fvinc")?.checked;
-    const run=(annual)=>projectHolding({startValue:p.v, annualPct:annual, months, monthlyExtra:extra||0, includeSips:include, sips});
-    const scenarios=[
-      {name:"Conservative", tone:"muted", result:run(conservative), rate:conservative},
-      {name:"Expected", tone:"in", result:run(expected), rate:expected},
-      {name:"Optimistic", tone:"in", result:run(optimistic), rate:optimistic}
-    ];
-    const focus=scenarios[1].result;
-    const maxV=Math.max(1, ...scenarios.flatMap(s=>s.result.rows.map(r=>r.value)), p.v);
-    const chart=focus.rows.length?`<svg class="chart" viewBox="0 0 320 128" role="img" aria-label="Forecast scenarios">${scenarios.map(s=>{
-      const n=Math.max(1,s.result.rows.length-1);
-      const color=s.name==="Expected"?"#2563EB":s.name==="Optimistic"?"#1E3A8A":"#93C5FD";
-      const pts=s.result.rows.map((r,i)=>`${16+i*(288/n)},${108-((r.value)/maxV)*88}`).join(" ");
-      return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>`;
-    }).join("")}</svg><div class="chart-legend"><span><i class="dot" style="background:#93C5FD"></i>Conservative</span><span><i class="dot" style="background:#2563EB"></i>Expected</span><span><i class="dot" style="background:#1E3A8A"></i>Optimistic</span></div>`:"";
-    const money=(n)=>fmt(n,h.cur);
-    const out=$("#fvOut");
-    if(out){
-      out.style.display="block";
-      out.innerHTML=`<div class="card">
-        <div class="row"><span>Current market value</span><b class="num">${money(p.v)}</b></div>
-        <div class="row"><span>Amount already invested</span><b class="num">${money(p.c)}</b></div>
-        <div class="row"><span>Projected extra contributions</span><b class="num">${money(focus.contributed)}</b></div>
-        <div class="row"><span>Expected future value</span><b class="num">${money(focus.endValue)}</b></div>
-        <div class="row"><span>Expected gain or loss</span><b class="num ${focus.gain<0?"out":"in"}">${money(focus.gain)} · ${Math.round(focus.pct*10)/10}%</b></div>
-        <div class="muted" style="margin-top:8px">Monthly rate is (1 + annual return) ^ (1/12) − 1, so a year with no contributions grows by the annual rate. Contributions are added at the end of the month. ${include?"Existing SIPs are added on their frequency.":"Existing SIPs are excluded."} Actual records were not changed.</div>
-      </div>
-      <h2 style="font-size:15px;margin:14px 0 8px">Scenario comparison</h2>
-      <div class="card">${scenarios.map(s=>`<div class="row"><span>${s.name} · ${s.rate}%</span><b class="num ${s.result.gain<0?"out":""}">${money(s.result.endValue)}</b></div>`).join("")}</div>
-      ${chart?`<h2 style="font-size:15px;margin:14px 0 8px">Projected path</h2><div class="card">${chart}<div class="muted">Lines show future value, not a promise. Blue is expected. Lighter is conservative. Darker is optimistic.</div></div>`:""}
-      <h2 style="font-size:15px;margin:14px 0 8px">Expected, year by year</h2>
-      <div class="card">${focus.years.map(x=>`<div class="row"><span>Year ${x.year}${x.partial?" (partial)":""}</span><b class="num">${money(x.value)}</b></div>`).join("")||`<div class="muted">No months in this duration.</div>`}</div>
-      <details style="margin-top:10px"><summary class="muted">Month-by-month, expected scenario</summary><div class="card" style="margin-top:8px">${focus.rows.map(x=>`<div class="row"><span>Month ${x.month}</span><b class="num">${money(x.value)}</b></div>`).join("")}</div></details>
-      <div class="muted" style="margin-top:8px">Projections are illustrations based on the returns you entered. They are not guaranteed returns or financial advice. Market value today is the starting point. Invested amount is the cost basis and is not grown on its own.</div>`;
-    }
-    if(JSON.stringify(S)!==before) console.warn("forecast mutated state");
-    return;
-  }
+  if(e.target.id==="ffv"){ renderHoldingForecast(); return; }
   if(e.target.id==="fcats"){
     const kind=$("#catKind").value;
     const inputs=[...document.querySelectorAll("#catList input")];
@@ -7202,7 +7324,7 @@ if(globalThis.__MF_TEST){
     save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, cleanShareText, buildLendingPdfHtml, formatMoney, roundMoney, blank, migrate,
     processDueAutomations, salaryTermsAt, advanceSalaryNext, sipTermsAt, advanceSipNext, addM, addDays, calendarDays,
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
-    wealthBreakdown, netWorth, valuationNotes, holdPos, balance, balanceAsOf, projectHolding, holdingSipPlan, buildReportPdf, addTxn,
+    wealthBreakdown, netWorth, valuationNotes, holdPos, balance, balanceAsOf, projectHolding, holdingSipPlan, holdingSipReview, datedSipEvents, forecastDonutParts, buildReportPdf, addTxn,
     applyForexMovement, forexWalletNetMovement, forexTxnDelta, forexTxnMovement, forexWalletLedgerBalance, forexWalletReferenced, validateForexWalletChanges, applyForexWallets, syncLinkedPurchaseForTxn, setLinkedPurchaseTxnVoided, commitForexAware, voidTxn, unvoid, runCheck,
     dematPosition, investmentTotals, dematClaims, paymentAccounts, payAccountAllowed, preferredPayId, paySelectHtml, sortMenuHtml,
     maskCardLast4, collectForexWallets, applyForexWallets, forexDisplayValue, fmt, viewAccounts, viewSettings, forexVisible,
