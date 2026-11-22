@@ -119,3 +119,14 @@ Several forms had UI but **no `submit` handler** for their `form id`.
 - PASS: Hiding Forex does not delete or rewrite Forex accounts, wallets, transaction history, exchange rates, or net-worth calculations.
 - PASS: `node regression.mjs` — all regression groups pass, including the new Forex visibility checks.
 - Not run: real browser/device interaction and a live encrypted-vault upgrade using personal data.
+
+
+## 2.9.3 — security and reliability regression coverage
+
+- Valid encrypted envelopes remain accepted; excessive PBKDF2 iterations and malformed salt/IV fields are rejected before key derivation.
+- Hostile backup metadata is rejected without attempting expensive PBKDF2 work.
+- CSV formula-leading text is neutralised while numeric amounts remain numeric.
+- Browser Back closes a sheet and resets Give & Take quick-add state; explicit close removes the sheet history entry.
+- Service-worker cache writes are registered with `event.waitUntil()` and the shell cache version is incremented.
+- CSP regression verifies both inline-script SHA-256 hashes and confirms `script-src` no longer contains `unsafe-inline`.
+- Full existing regression suite rerun after changes. Browser layout, actual Android hardware Back, real biometric hardware, and deployed-host header configuration remain manual/device tests.

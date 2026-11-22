@@ -6,6 +6,7 @@
  */
 import fs from "fs";
 import vm from "vm";
+import { createHash } from "node:crypto";
 
 function assert(cond, msg){
   if(!cond) throw new Error(msg || "assert failed");
@@ -14,12 +15,17 @@ function near(a, b, msg){
   if(!(Math.abs(a-b) < 1e-6)) throw new Error((msg||"near")+" got "+a+" expected "+b);
 }
 
-const window = { matchMedia: () => ({matches:false}), navigator: {} };
+const historyCalls = {push:0, back:0};
+const window = {
+  matchMedia: () => ({matches:false}), navigator: {},
+  history: {state:null, pushState(state){ historyCalls.push++; this.state=state; }, back(){ historyCalls.back++; }},
+  addEventListener(type, fn){ (window.__listeners ||= {})[type]=fn; }
+};
 const testLayer = {innerHTML:""};
 const document = {
   addEventListener(){},
   getElementById(){ return null; },
-  querySelector(sel){ return sel==="#layer" ? testLayer : null; },
+  querySelector(sel){ return sel==="#layer" ? testLayer : (sel==="#layer .sheet" && testLayer.innerHTML.includes('class="sheet"') ? {} : null); },
   createElement(){ return {setAttribute(){}, remove(){}, querySelector(){return null;}}; },
   body: { appendChild(){}, classList:{add(){},remove(){}} },
   documentElement: { setAttribute(){}, style:{} }
@@ -308,6 +314,13 @@ async function bootVault(){
   S.txns = [];
   assert(await mf.save() === true, "baseline backup save");
   const good = await mf.seal(mf.getS());
+  const goodEnvelope=JSON.parse(good);
+  assert(mf.inspectEncryptedEnvelope(goodEnvelope).ok, "valid encrypted envelope metadata is accepted");
+  assert(!mf.inspectEncryptedEnvelope({...goodEnvelope,iterations:999999999}).ok, "unbounded PBKDF2 iterations are rejected before derivation");
+  assert(!mf.inspectEncryptedEnvelope({...goodEnvelope,salt:"AA=="}).ok, "undersized encryption salts are rejected");
+  assert(!mf.inspectEncryptedEnvelope({...goodEnvelope,iv:"AA=="}).ok, "malformed AES-GCM IV is rejected");
+  const hostileBackup=await mf.openBackupPayload(JSON.stringify({...goodEnvelope,iterations:999999999}),"correct horse battery");
+  assert(!hostileBackup.ok && /iteration count/.test(hostileBackup.error), "hostile backup metadata is rejected without PBKDF2 work");
   const wrong = await mf.openBackupPayload(good, "not the passphrase");
   assert(!wrong.ok, "wrong passphrase rejected");
   assert(mf.getS().accounts[0].id === "keep", "wrong passphrase does not touch the open vault");
@@ -619,7 +632,7 @@ console.log("PASS calendar-dst-end");
   }
   const home = mf.viewHome();
   const familyAt = home.indexOf("Family view");
-  const versionAt = home.indexOf("v" + "2.9.2");
+  const versionAt = home.indexOf("v" + "2.9.3");
   assert(familyAt > 0 && versionAt > familyAt && versionAt - familyAt < 400, "family view and version sit in the same header");
   assert(home.includes("Hide") || home.includes("Show"), "balance privacy control remains");
   assert(home.includes("actual net worth"), "net worth card remains");
@@ -972,6 +985,47 @@ console.log("PASS calendar-dst-end");
   assert(mf.getSheetType()==="expense", "close resets Give & Take quick-add mode");
 
   console.log("PASS givetake-separation-and-regressions");
+}
+
+// ---------- security hardening ----------
+{
+  assert(mf.csvSafeText("=HYPERLINK(\"https://bad\")").startsWith("'="), "CSV formula-leading equals is neutralised");
+  assert(mf.csvSafeText("  +cmd").startsWith("'"), "CSV formula after whitespace is neutralised");
+  assert(mf.csvSafeText("@SUM(A1:A2)").startsWith("'@"), "CSV formula-leading at-sign is neutralised");
+  assert(mf.csvSafeText("Normal note") === "Normal note", "ordinary CSV text remains unchanged");
+  assert(mf.csvSafeText("-25") === "'-25", "text negative strings are neutralised");
+  assert(Number(-25) === -25, "numeric negative amounts remain numeric in export rows");
+
+  mf.setSheetType("givetake");
+  mf.openSheet("<p>Give &amp; Take</p>");
+  assert(mf.isSheetHistoryActive() && historyCalls.push===1, "opening a sheet adds one browser history entry");
+  mf.handleSheetPopState();
+  assert(!mf.isSheetHistoryActive() && testLayer.innerHTML==="", "browser Back closes the active sheet");
+  assert(mf.getSheetType()==="expense", "browser Back also resets Give & Take quick-add mode");
+  mf.openSheet("<p>Another sheet</p>");
+  mf.closeSheet();
+  assert(historyCalls.back===1 && !mf.isSheetHistoryActive() && mf.isSheetHistoryBackPending(), "explicit close schedules removal of its sheet history entry");
+  // Reopening before the asynchronous popstate arrives must not let the old
+  // close event close the new sheet.
+  mf.openSheet("<p>Quick reopen</p>");
+  mf.handleSheetPopState();
+  assert(mf.isSheetHistoryActive() && testLayer.innerHTML.includes("Quick reopen") && historyCalls.push===3, "quick reopen survives the previous close event and receives a fresh history entry");
+  mf.handleSheetPopState();
+  assert(!mf.isSheetHistoryActive() && testLayer.innerHTML==="", "the next hardware Back closes the newly opened sheet");
+
+  const sw=fs.readFileSync(new URL("./sw.js",import.meta.url),"utf8");
+  assert((sw.match(/event\.waitUntil\(cacheWrite\)/g)||[]).length===2, "service worker cache writes extend fetch-event lifetime");
+  assert(sw.includes("myfinance-shell-v83"), "service worker cache version is bumped for the hardened shell");
+  const page=fs.readFileSync(new URL("./index.html",import.meta.url),"utf8");
+  const csp=page.match(/Content-Security-Policy" content="([^"]+)"/i)?.[1]||"";
+  const scriptPolicy=csp.split(";").find(x=>x.trim().startsWith("script-src"))||"";
+  assert(!scriptPolicy.includes("unsafe-inline"), "inline scripts are not broadly enabled by CSP");
+  const inlineScripts=[...page.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
+  for(const code of inlineScripts){
+    const digest=createHash("sha256").update(code).digest("base64");
+    assert(scriptPolicy.includes("'sha256-"+digest+"'"), "each inline script has a matching CSP hash");
+  }
+  console.log("PASS security-and-navigation-hardening");
 }
 
 console.log("ALL_REGRESSION_PASS");

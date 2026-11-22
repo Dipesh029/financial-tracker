@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f4fd8">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-AvK88ZZ/veKv8MuENbzf/Pr/EF0STRi+xCh3Fa1bha8='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -382,8 +382,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.9.2";
+const APP_VERSION = "2.9.3";
 const RELEASES = [
+  {v:"2.9.3", d:"2026-11-21", notes:"Security and reliability hardening: validate encrypted vault and backup metadata before PBKDF2/decryption; make CSV exports spreadsheet-formula-safe; clarify passphrase-based KDF upgrades after biometric unlock; Android/browser Back closes the active sheet; await service-worker cache writes; add a 15-minute visible-session inactivity lock."},
   {v:"2.9.2", d:"2026-11-21", notes:"Added a More → Display preference to show or hide Forex features. Hiding Forex is presentation-only: it preserves existing wallets, transactions, balances, historical rates, and net-worth calculations."},
   {v:"2.9.1", d:"2026-11-21", notes:"Hardened Give & Take: historical FX conversion, specific transaction settlements, legacy balances grouped by person and currency, full per-person history, editing and safe void/restore, duplicate-contact protection, stable contact IDs for formal lending, and centre + close/cancel state reset."},
   {v:"2.9.0", d:"2026-11-21", notes:"Added Centre + → Give & Take for informal money exchanges with contacts. Completely separate from Plan → Lending. Person-wise balances, settlements, stable contact IDs. Formal loans remain unchanged."},
@@ -615,9 +616,26 @@ function b64(u){
   return btoa(t);
 }
 const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+function inspectEncryptedEnvelope(env){
+  // Encrypted envelopes are untrusted input (local storage and imported backups).
+  // Keep the legacy 250k default for older backups, but bound work and validate
+  // binary fields before invoking WebCrypto.
+  if(!env || typeof env!=="object" || env.enc!==2) return {ok:false,error:"Unsupported or invalid encrypted backup format."};
+  const iterations=env.iterations==null?250000:Number(env.iterations);
+  if(!Number.isSafeInteger(iterations) || iterations<1000 || iterations>2000000) return {ok:false,error:"The backup has an unsafe PBKDF2 iteration count."};
+  const decode=(value,min,max)=>{
+    if(typeof value!=="string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return null;
+    try{ const bytes=unb64(value); return bytes.length>=min&&bytes.length<=max?bytes:null; }catch(e){ return null; }
+  };
+  const salt=decode(env.salt,16,64), iv=decode(env.iv,12,12), data=decode(env.data,16,4500000);
+  if(!salt || !iv || !data) return {ok:false,error:"The backup encryption metadata is malformed or incomplete."};
+  return {ok:true,iterations,salt,iv,data};
+}
 async function deriveKey(p, salt, iterations=KDF_ITER, extractable=false){
+  if(!Number.isSafeInteger(Number(iterations)) || Number(iterations)<1 || Number(iterations)>2000000) throw new Error("Invalid PBKDF2 iteration count.");
+  if(!(salt instanceof Uint8Array) || salt.length<16 || salt.length>64) throw new Error("Invalid encryption salt.");
   const m = await crypto.subtle.importKey("raw", new TextEncoder().encode(p), "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey({name:"PBKDF2", salt, iterations, hash:"SHA-256"}, m, {name:"AES-GCM", length:256}, extractable, ["encrypt","decrypt"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2", salt, iterations:Number(iterations), hash:"SHA-256"}, m, {name:"AES-GCM", length:256}, extractable, ["encrypt","decrypt"]);
 }
 async function seal(o, key, salt, iter, bio){
   key=key||CK; salt=salt||SALT; iter=iter||KDF_ITER;
@@ -2834,16 +2852,50 @@ function readExpiryField(idPrefix, opts){
   return {ok:true,value:v};
 }
 
-function openSheet(html){ $("#layer").innerHTML = `<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`; try{if(navigator.vibrate)navigator.vibrate(8);}catch(e){}
+let sheetHistoryActive=false, sheetHistoryBackPending=false, sheetReopenAfterBack=false;
+function pushSheetHistoryEntry(){
+  if(sheetHistoryActive || sheetHistoryBackPending || !window.history || typeof window.history.pushState!=="function") return;
+  try{ window.history.pushState({__myFinanceSheet:true},""); sheetHistoryActive=true; }catch(e){ sheetHistoryActive=false; }
+}
+function openSheet(html){
+  // One history entry per open sheet. Replacing a sheet (for example with a
+  // passphrase prompt) reuses that entry instead of stacking Back presses.
+  if(sheetHistoryBackPending) sheetReopenAfterBack=true;
+  else pushSheetHistoryEntry();
+  $("#layer").innerHTML = `<div class="sheet-bg" data-close><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`; try{if(navigator.vibrate)navigator.vibrate(8);}catch(e){}
   try{ ["adexpiry","cexpiry","expiry","fxexpiry"].forEach(id=>{ if(document.getElementById(id)) wireExpiryField(id); }); }catch(e){}
 }
-function closeSheet(){
+function closeSheet(options){
+  options=options||{};
   $("#layer").innerHTML="";
   // A closed Give & Take form must not remain the selected quick-add mode.
-  // Otherwise the next tap on the centre + button reopens the stale form.
   if(sheetType==="givetake"){ sheetType="expense"; chosenCat=null; }
   if(passWait){ const r=passWait; passWait=null; r(null); }
+  if(sheetHistoryActive){
+    sheetHistoryActive=false;
+    if(!options.fromPop && window.history&&typeof window.history.back==="function"){
+      sheetHistoryBackPending=true;
+      try{ window.history.back(); }catch(e){ sheetHistoryBackPending=false; }
+    }
+  }else if(sheetHistoryBackPending){
+    // The user closed a just-reopened sheet before the previous Back event
+    // completed. Do not resurrect a history entry for a now-closed sheet.
+    sheetReopenAfterBack=false;
+  }
 }
+function handleSheetPopState(){
+  if(sheetHistoryBackPending){
+    sheetHistoryBackPending=false;
+    const reopen=sheetReopenAfterBack && !!document.querySelector("#layer .sheet");
+    sheetReopenAfterBack=false;
+    if(reopen) pushSheetHistoryEntry();
+    return;
+  }
+  if(!sheetHistoryActive) return;
+  sheetHistoryActive=false;
+  closeSheet({fromPop:true});
+}
+window.addEventListener&&window.addEventListener("popstate",handleSheetPopState);
 function askPassphrase(title, body){
   return new Promise(resolve=>{
     passWait=resolve;
@@ -4233,7 +4285,10 @@ async function enableBiometric(){
 async function unlockBiometric(){
   const rawEnv=store.get();
   if(!rawEnv) throw new Error("No vault found on this device.");
-  const env=JSON.parse(rawEnv);
+  let env;
+  try{ env=JSON.parse(rawEnv); }catch(e){ throw new Error("The encrypted vault metadata is damaged. Use a known-good backup."); }
+  const envelopeCheck=inspectEncryptedEnvelope(env);
+  if(!envelopeCheck.ok) throw new Error(envelopeCheck.error+" Your original vault was not changed.");
   if(!env?.bio) throw new Error("No biometric key is configured.");
   const bio=env.bio;
   let prf, wrap, raw;
@@ -4245,7 +4300,7 @@ async function unlockBiometric(){
     throw new Error("Fingerprint cancelled or not recognised. Try passphrase unlock.");
   }
   CK=await crypto.subtle.importKey("raw",raw,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
-  SALT=unb64(env.salt); KDF_ITER=env.iterations||250000; BIO=bio;
+  SALT=envelopeCheck.salt; KDF_ITER=envelopeCheck.iterations; BIO=bio;
   try{ S=await unseal(env,CK); }
   catch(e){ S=null; CK=null; throw new Error("Vault would not decrypt with biometric key. Use passphrase, then re-enable fingerprint in More."); }
   const originalS=JSON.parse(JSON.stringify(S));
@@ -4259,6 +4314,7 @@ async function unlockBiometric(){
     throw new Error("Migration failed. Your existing encrypted vault was not changed. Unlock with your passphrase to review or export a backup. "+(e&&e.message||""));
   }
   try{ const auto=processDueAutomations(); toastAutomations(auto); }catch(e){ console.warn(e); }
+  if(KDF_ITER<600000) unlockNotice="This vault still uses older passphrase key-derivation settings. Unlock once with your passphrase to upgrade it safely; fingerprint unlock remains available until then.";
   const persisted=await save();
   if(!persisted){
     S=null;CK=null;BIO=null;
@@ -4266,6 +4322,8 @@ async function unlockBiometric(){
   }
   document.body.classList.remove("locked");
   render();
+  if(unlockNotice){ const note=unlockNotice; unlockNotice=""; setTimeout(()=>toast(note),700); }
+  resetIdleLock();
 }
 /* ---------- integrity check ---------- */
 function runCheck(){
@@ -4402,10 +4460,17 @@ async function exportJSON(){
   }
   download(filename,encrypted,"application/octet-stream");
 }
+function csvSafeText(value){
+  const text=String(value==null?"":value);
+  // Spreadsheet applications may evaluate formula-leading text even when the
+  // CSV field is quoted. Prefix only text fields; numeric values remain numeric.
+  return /^[\s\u0000-\u001f]*[=+\-@]/.test(text)?"'"+text:text;
+}
 function exportCSV(){
   const rows=[["id","date","type","status","category","note","account","account_owner","amount","currency","fx_rate","person","reference"]];
   for(const t of S.txns) for(const p of t.postings) rows.push([t.id,t.date,t.type,t.status,t.cat||"",t.note||"",(acct(p.acct)||{}).name||"",(acct(p.acct)||{}).owner||"Me",p.amt,p.cur,t.fxRate||S.rate,t.person||"",t.id]);
-  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const textColumns=new Set([0,1,2,3,4,5,6,7,9,11,12]);
+  const csv=rows.map((r,ri)=>r.map((c,ci)=>{ const value=ri===0?c:(textColumns.has(ci)?csvSafeText(c):c); return `"${String(value).replace(/"/g,'""')}"`; }).join(",")).join("\n");
   download(`transactions-${today()}.csv`, csv, "text/csv");
 }
 
@@ -5198,7 +5263,7 @@ if(d.delmethod){
     xferPrefill={from:card.linkedBankId||"", to:card.id};
     closeSheet(); addSheet(); return;
   }
-  if("locknow" in d){ chain=chain.then(()=>{ S=null; CK=null; boot(); }); return; }
+  if("locknow" in d){ lockActiveSession(); return; }
   if("csv" in d){
     if(!confirm("This CSV is not encrypted. Notes and amounts will be saved as plain text. Continue?")) return;
     exportCSV(); return;
@@ -5225,12 +5290,12 @@ async function openBackupPayload(raw, password){
   catch(e){ return {ok:false, error:"That file is not a My Finance backup."}; }
   if(parsed && parsed.enc){
     if(!password) return {ok:false, needsPassword:true, error:"Enter the backup passphrase."};
+    const checked=inspectEncryptedEnvelope(parsed);
+    if(!checked.ok) return {ok:false,error:checked.error};
     try{
-      const salt=unb64(parsed.salt);
-      const iter=parsed.iterations||250000;
-      const key=await deriveKey(password, salt, iter, false);
+      const key=await deriveKey(password, checked.salt, checked.iterations, false);
       const data=await unseal(parsed, key);
-      return {ok:true, data, key, salt, iter, bio:parsed.bio||null, password, encrypted:true};
+      return {ok:true, data, key, salt:checked.salt, iter:checked.iterations, bio:parsed.bio||null, password, encrypted:true};
     }catch(e){
       return {ok:false, error:"Wrong passphrase, or the backup is damaged."};
     }
@@ -6381,7 +6446,8 @@ function boot(){
   document.body.classList.add("locked");
   let env=null, legacy=null;
   try{ const d=JSON.parse(store.get()); if(d&&d.enc) env=d; else if(d&&d.v===1) legacy=d; }catch(e){}
-  BIO=env?.bio||null;KDF_ITER=env?.iterations||250000;
+  const bootEnvelopeCheck=env?inspectEncryptedEnvelope(env):null;
+  BIO=env?.bio||null;KDF_ITER=bootEnvelopeCheck?.ok?bootEnvelopeCheck.iterations:(env?.iterations||250000);
   $("#nav").innerHTML="";$("#layer").innerHTML="";
   $("#app").innerHTML=`<div style="padding-top:42px;position:relative">
   <button type="button" data-releases title="Release notes" style="position:absolute;top:8px;right:0;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:4px 2px;opacity:.85">v${esc(APP_VERSION)}</button>
@@ -6399,7 +6465,8 @@ function boot(){
     try{
       if(!p) return er("Enter your passphrase.");
       if(env){
-        SALT=unb64(env.salt);
+        if(!bootEnvelopeCheck?.ok) return er(bootEnvelopeCheck?.error||"The encrypted vault metadata is invalid. Your stored vault has not been changed.");
+        SALT=bootEnvelopeCheck.salt;
         const k=await deriveKey(p,SALT,KDF_ITER);
         try{
           S=await unseal(env,k);
@@ -6456,6 +6523,7 @@ function boot(){
       }
       document.body.classList.remove("locked");
       render();
+      resetIdleLock();
       if(unlockNotice){ const note=unlockNotice; unlockNotice=""; setTimeout(()=>toast(note), 700); }
     }catch(x){
       S=null; CK=null; document.body.classList.add("locked");
@@ -6466,12 +6534,38 @@ function boot(){
   };
 }
 
-let hidAt=0;
-document.addEventListener("visibilitychange",()=>{ if(!S) return; if(document.hidden) hidAt=Date.now(); else if(Date.now()-hidAt>120000) chain=chain.then(()=>{ S=null; CK=null; boot(); }); });
+let hidAt=0, idleTimer=null, lastActivityAt=0, lockPending=false;
+const IDLE_LOCK_MS=15*60*1000;
+function lockActiveSession(){
+  if(!S||!CK||lockPending) return;
+  lockPending=true;
+  if(idleTimer){ clearTimeout(idleTimer); idleTimer=null; }
+  closeSheet();
+  chain=chain.then(()=>{ S=null; CK=null; boot(); }).finally(()=>{ lockPending=false; });
+}
+function resetIdleLock(){
+  if(!S||!CK) return;
+  lastActivityAt=Date.now();
+  if(idleTimer) clearTimeout(idleTimer);
+  idleTimer=setTimeout(()=>{
+    if(!S||!CK) return;
+    const elapsed=Date.now()-lastActivityAt;
+    if(elapsed>=IDLE_LOCK_MS) lockActiveSession();
+    else resetIdleLock();
+  },IDLE_LOCK_MS+25);
+}
+["pointerdown","keydown","touchstart","input","change","wheel","scroll"].forEach(type=>document.addEventListener(type,()=>resetIdleLock(),true));
+document.addEventListener("visibilitychange",()=>{
+  if(!S) return;
+  if(document.hidden){ hidAt=Date.now(); return; }
+  const wasAway=hidAt>0 && Date.now()-hidAt>120000;
+  hidAt=0;
+  if(wasAway) lockActiveSession(); else resetIdleLock();
+});
 if(globalThis.__MF_TEST){
   globalThis.__mf={
     parseAmt, inspectAmt, readAmt, rejectAmt, thousandsFallback,
-    save, store, seal, unseal, deriveKey, blank, migrate,
+    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, blank, migrate,
     processDueAutomations, salaryTermsAt, advanceSalaryNext, sipTermsAt, advanceSipNext, addM, addDays, calendarDays,
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
     wealthBreakdown, netWorth, valuationNotes, holdPos, balance, addTxn,
@@ -6487,7 +6581,7 @@ if(globalThis.__MF_TEST){
     getCK(){ return CK; },
     setCrypto(k, salt, iter){ CK=k; SALT=salt; if(iter) KDF_ITER=iter; },
     giveTakeBalance, giveTakeSummary, giveTakeOpenItems, giveTakeTxnValue, giveTakeSettlementPlan, ensureContactByName, contactById, findContactByName, normalizeContactName,
-    closeSheet, getSheetType(){ return sheetType; }, setSheetType(v){ sheetType=v; },
+    openSheet, closeSheet, handleSheetPopState, isSheetHistoryActive(){ return sheetHistoryActive; }, isSheetHistoryBackPending(){ return sheetHistoryBackPending; }, getSheetType(){ return sheetType; }, setSheetType(v){ sheetType=v; },
     migrateContactsFromBank,
     today, uid
   };

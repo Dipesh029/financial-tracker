@@ -1,6 +1,6 @@
 # Functional audit — My Finance PWA
 
-Last reviewed against app version **2.9.1**.
+Last reviewed against app version **2.9.3**.
 
 ## Architecture
 
@@ -115,3 +115,14 @@ Validation in this archive:
 Validation in this archive:
 - `node regression.mjs`: PASS — all existing and added regression checks pass.
 - Browser/device interaction, encrypted-vault upgrade with real user data, and WebAuthn: NOT RUN.
+
+
+## 2.9.3 — security and reliability hardening
+
+- Encrypted vault and backup metadata are validated before PBKDF2 or AES-GCM work. PBKDF2 iterations are bounded (1,000–2,000,000); salts, IVs and ciphertext lengths are checked. Existing 250,000-iteration and 600,000-iteration envelopes remain supported.
+- CSV text cells that could be interpreted as spreadsheet formulas are prefixed safely. Numeric amount and FX-rate cells remain numeric.
+- Biometric unlock does not silently claim to upgrade legacy passphrase KDF strength. It preserves biometric access and tells the user to perform a passphrase unlock for the safe KDF upgrade.
+- Browser/Android Back closes the current sheet. Explicit close removes the sheet history entry, and Give & Take mode is reset.
+- Service-worker cache writes are attached to the fetch event lifetime and cache failures do not fail successful network responses. Cache version is v83.
+- A 15-minute visible-session inactivity lock is added, alongside the existing lock after the app has been backgrounded for more than two minutes.
+- Inline scripts are now authorised by SHA-256 CSP hashes instead of `script-src 'unsafe-inline'`. Inline styles remain permitted because the current UI uses extensive inline style attributes. `frame-ancestors` must be set as an HTTP response header by the hosting provider; a CSP meta tag cannot enforce it.

@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.9.2
+**Current version:** 2.9.3
 
 ---
 
@@ -66,8 +66,16 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Upload **all** of: `index.html`, `sw.js`, `manifest.webmanifest`, `icon.svg` to the **same HTTPS path** as before.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.9.2**).
+5. Confirm the unlock screen shows the expected version (**v2.9.3**).
 6. Unlock with your existing passphrase.
+
+### Recommended hosting response headers
+
+The page CSP already restricts scripts to the two SHA-256-allowlisted inline scripts. For clickjacking protection, configure the hosting provider to send this additional HTTP response header (do not replace the page CSP):
+
+`Content-Security-Policy: frame-ancestors 'none'`
+
+Also recommended: `X-Content-Type-Options: nosniff`. These are hosting-level headers and cannot be reliably applied from this static HTML file.
 
 If the UI looks old, the service worker is still serving a cached shell — clear cache and reopen once more.
 

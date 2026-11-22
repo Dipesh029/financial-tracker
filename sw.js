@@ -1,7 +1,7 @@
 /* My Finance PWA shell cache.
    Network-first for HTML so updates appear after deploy; offline falls back to cache. */
 "use strict";
-const CACHE = "myfinance-shell-v82";
+const CACHE = "myfinance-shell-v83";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -42,36 +42,27 @@ self.addEventListener("fetch", (event) => {
     (req.headers.get("accept") || "").includes("text/html");
 
   if (isHTML) {
-    // Network first so a new deploy is visible; cache as offline fallback
-    event.respondWith(
-      fetch(req)
-        .then((response) => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-            caches.open(CACHE).then((c) => c.put("./index.html", response.clone()));
-          }
-          return response;
-        })
-        .catch(() =>
-          caches.match(req).then((cached) => cached || caches.match("./index.html"))
-        )
-    );
+    const networkResponse = fetch(req);
+    const cacheWrite = networkResponse.then((response) => {
+      if (!response || !response.ok) return;
+      return caches.open(CACHE).then(async (c) => {
+        await c.put(req, response.clone());
+        await c.put("./index.html", response.clone());
+      });
+    }).catch(() => {});
+    // Register lifetime work synchronously while the fetch event is active.
+    event.waitUntil(cacheWrite);
+    event.respondWith(networkResponse.catch(() =>
+      caches.match(req).then((cached) => cached || caches.match("./index.html"))
+    ));
     return;
   }
 
-  // Other shell assets: cache first, then network
-  event.respondWith(
-    caches.match(req).then(
-      (cached) =>
-        cached ||
-        fetch(req).then((response) => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-          }
-          return response;
-        })
-    )
-  );
+  const responsePromise = caches.match(req).then((cached) => cached || fetch(req));
+  const cacheWrite = responsePromise.then((response) => {
+    if (!response || !response.ok) return;
+    return caches.open(CACHE).then((c) => c.put(req, response.clone()));
+  }).catch(() => {});
+  event.waitUntil(cacheWrite);
+  event.respondWith(responsePromise);
 });
