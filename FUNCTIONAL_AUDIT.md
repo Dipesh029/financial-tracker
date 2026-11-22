@@ -140,9 +140,19 @@ Validation in this archive:
 - Automated regression coverage: PASS. Browser/device download behaviour: NOT RUN.
 
 
-## 2.9.5 — Sort and export presentation
+## 2.9.6 — Sort and export presentation
 - Standardised the compact sort toolbar across Contacts, Demat, Holdings, Accounts, Salaries, Lending, Insurance policies and SIPs. Existing section-specific sort keys and persisted preferences are unchanged.
 - Sort sheets now present one compact row per sort field with ascending/descending controls; Manual order remains available.
 - Lending summary and ledger exports use human-readable headings and omit internal loan/contact/transaction/adjustment identifiers. The detailed ledger includes loan date, original principal and report date to distinguish multiple loans for one person.
 - General transaction CSV omits transaction IDs and duplicate references and labels transaction types/statuses for readers.
 - No lending calculations, account postings, encrypted vault format, storage key, or backup format changed.
+
+
+## v2.9.6 — Sort controls and shareable lending statements
+- Sort and Export controls are aligned beside sortable page headings; the separate Arrange label/row is removed.
+- Lending CSV text is sanitized for invisible/control and common mojibake artefacts while preserving legitimate Unicode names.
+- Added locally generated print-to-PDF lending summary and detailed statement exports.
+- Service worker shell cache advanced to v86.
+
+### v2.9.6 upload
+Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.

@@ -147,9 +147,19 @@ Several forms had UI but **no `submit` handler** for their `form id`.
 - Not run: actual browser download prompts, iOS/Android file handling and visual layout on physical devices.
 
 
-## 2.9.5 — Sort and shareable export regression coverage
+## 2.9.6 — Sort and shareable export regression coverage
 - Regression confirms Lending Export shares the sort toolbar and each existing sortable section retains its section-specific sort configuration.
 - Regression validates friendly lending headers, removal of technical identifier columns, separate currencies, original loan identity context in the ledger, report date, repayment/interest/adjustment entries, and exclusion of voided repayments.
 - Regression validates readable transaction type and status labels.
 - Full regression suite: `ALL_REGRESSION_PASS`.
 - Browser/device visual checks and actual download handling were not run in this validation.
+
+
+## v2.9.6 — Sort controls and shareable lending statements
+- Sort and Export controls are aligned beside sortable page headings; the separate Arrange label/row is removed.
+- Lending CSV text is sanitized for invisible/control and common mojibake artefacts while preserving legitimate Unicode names.
+- Added locally generated print-to-PDF lending summary and detailed statement exports.
+- Service worker shell cache advanced to v86.
+
+### v2.9.6 upload
+Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.

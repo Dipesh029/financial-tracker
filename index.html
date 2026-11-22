@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f4fd8">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-00do8tkwH80fST4kJ0Ptn7HxC5/1MVP+2VMOFIyTm5s='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-6x+Y4zToxadWLQGoAZ61vs9Nk52h8cHE2PuC3HRMOeQ='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -354,13 +354,13 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .nw-breakdown{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .nw-breakdown .wealth-pill span{font-size:11px}
 .dragging{opacity:.85;box-shadow:0 8px 24px rgba(0,0,0,.18);transform:scale(1.02);z-index:5;position:relative}
-.sort-bar{display:flex;flex-wrap:nowrap;gap:7px;margin:0 0 10px;align-items:center;justify-content:flex-end;min-width:0}
+.section-title-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;margin:4px 0 10px}.section-title-actions h2{margin:0!important;min-width:0;line-height:1.2}.sort-bar{display:flex;flex:0 0 auto;flex-wrap:nowrap;gap:6px;margin:0;align-items:center;justify-content:flex-end;min-width:0}
 .drag-handle{display:none!important}
-.sort-caption{font-size:11px;color:var(--muted);font-weight:650;letter-spacing:.035em;text-transform:uppercase;margin-right:auto}
-.sort-chip{font-size:12px!important;padding:5px 11px!important;min-height:34px!important;font-weight:650;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.sort-caption{display:none!important}
+.sort-chip{font-size:12px!important;padding:5px 9px!important;min-height:32px!important;font-weight:650;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .sort-chip .sort-icon{font-size:14px;line-height:1}
-.sort-export{font-size:12px!important;padding:5px 12px!important;min-height:34px!important;font-weight:650;white-space:nowrap}
-@media(max-width:380px){.sort-bar{gap:5px}.sort-chip,.sort-export{padding:5px 8px!important;font-size:11px!important}.sort-caption{display:none}}
+.sort-export{font-size:12px!important;padding:5px 9px!important;min-height:32px!important;font-weight:650;white-space:nowrap}
+@media(max-width:420px){.section-title-actions{gap:5px}.section-title-actions h2{font-size:18px}.sort-bar{gap:4px}.sort-chip,.sort-export{padding:4px 7px!important;font-size:11px!important;min-height:30px!important}}
 .sort-menu-list{display:flex;flex-direction:column;gap:7px;margin:12px 0}
 .sort-menu-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:11px;background:var(--card)}
 .sort-menu-label{font-size:13px;font-weight:600;min-width:0}
@@ -389,7 +389,7 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.9.5";
+const APP_VERSION = "2.9.6";
 const RELEASES = [
   {v:"2.9.5", d:"2026-11-22", notes:"Refined compact sort controls and direction pickers across Contacts, Investments, Accounts, Salaries, Lending, Insurance and SIPs. Lending and transaction exports now use share-friendly headings without internal IDs/references."},
   {v:"2.9.4", d:"2026-11-22", notes:"Added dedicated Lending exports: filtered loan summaries and detailed ledgers for all records, money lent, money borrowed, an individual person, or one loan. Includes posted principal/interest repayments and dated interest adjustments while preserving currencies separately."},
@@ -1943,7 +1943,7 @@ function sortBarHtml(section, options, extraHtml=""){
   const cur=opts.find(o=>o.key===pref.key)||opts[0];
   const dirLabel=pref.key!=="manual"?(pref.dir==="desc"?"High to low / Z–A":"Low to high / A–Z"):"Saved order";
   const dirMark=pref.key!=="manual"?(pref.dir==="desc"?"↓":"↑"):"↕";
-  return `<div class="sort-bar"><span class="sort-caption">Arrange</span><button type="button" class="chip sort-chip" data-sortopen="${section}" aria-label="Change sort order" title="${esc(dirLabel)}"><span class="sort-icon" aria-hidden="true">${dirMark}</span><span>Sort · ${esc(cur.label)}</span></button>${extraHtml}</div>`;
+  return `<div class="sort-bar"><button type="button" class="chip sort-chip" data-sortopen="${section}" aria-label="Sort: ${esc(cur.label)}" title="Sort: ${esc(cur.label)} · ${esc(dirLabel)}"><span class="sort-icon" aria-hidden="true">⇅</span><span>Sort</span></button>${extraHtml}</div>`;
 }
 
 function sortMenuHtml(section, options){
@@ -2525,8 +2525,7 @@ function viewAccounts(){
   </div>`;
   if(seg==="contacts"){
     const list=applySectionSort(S.contacts||[],"contacts",{name:c=>c.name||"",recent:c=>c.created||c.id||""});
-    return segBar+`<h2 style="margin-top:4px">People registry</h2>
-  ${sortBarHtml("contacts",[{key:"name",label:"Name"},{key:"recent",label:"Recently added"}])}
+    return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">People registry</h2>${sortBarHtml("contacts",[{key:"name",label:"Name"},{key:"recent",label:"Recently added"}])}</div>
   <p class="muted">One person, many bank accounts or UPI IDs. Older friend accounts are restored from saved data when you unlock. Same names work for lending and external transfers. Not balances — reference only.</p>
   ${list.map(c=>{
     const n=(c.methods||[]).length;
@@ -2598,8 +2597,8 @@ function viewAccounts(){
         </div>
       </div>`;
     }).join(""):"";
-    return segBar+`<h2 style="margin-top:4px">Investments</h2>
-  ${f==="demat"?sortBarHtml("demat",[{key:"name",label:"Name"},{key:"value",label:"Portfolio value"}]):sortBarHtml("holdings",[{key:"name",label:"Name"},{key:"value",label:"Value"},{key:"cost",label:"Invested"},{key:"pl",label:"P/L"},{key:"pct",label:"% return"}])}
+    return segBar+`<div class="section-title-actions"><h2 style="margin:0">Investments</h2>
+  ${f==="demat"?sortBarHtml("demat",[{key:"name",label:"Name"},{key:"value",label:"Portfolio value"}]):sortBarHtml("holdings",[{key:"name",label:"Name"},{key:"value",label:"Value"},{key:"cost",label:"Invested"},{key:"pl",label:"P/L"},{key:"pct",label:"% return"}])}</div>
   <div class="mod-hero">
     <div class="muted">Current value</div>
     <div class="big num">${fmtHide(totals.value,S.display)}</div>
@@ -2663,8 +2662,7 @@ function viewAccounts(){
   const forexCards=forexList.map(forexCardHtml).join("");
   const forexBlock=forexList.length?`<div class="section-label">Forex cards</div>${forexCards}`:"";
   const creditLabel=af==="card"&&forexList.length?`<div class="section-label">Credit and debit cards</div>`:"";
-  return segBar+`<h2 style="margin-top:4px">Accounts</h2>
-  ${sortBarHtml("accounts",[{key:"name",label:"Name"},{key:"balance",label:"Balance"}])}
+  return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Accounts</h2>${sortBarHtml("accounts",[{key:"name",label:"Name"},{key:"balance",label:"Balance"}])}</div>
   <div class="mod-hero">
     <div class="muted">${af==="card"?"Cards":"Bank + cash"}</div>
     <div class="big num">${fmtHide(af==="card"?sumCard:sumBank+sumCash,S.display)}</div>
@@ -3865,8 +3863,7 @@ function viewPlan(){
         
       </div>`;
     }).join("");
-    return segBar+`<h2 style="margin-top:4px">Salaries</h2>
-  ${sortBarHtml("salaries",[{key:"name",label:"Name"},{key:"amt",label:"Amount"},{key:"next",label:"Next credit"}])}
+    return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Salaries</h2>${sortBarHtml("salaries",[{key:"name",label:"Name"},{key:"amt",label:"Amount"},{key:"next",label:"Next credit"}])}</div>
   <div class="mod-hero">
     <div class="muted">Expected monthly inflow</div>
     <div class="big num in">${fmtHide(monthly,S.display)}</div>
@@ -3959,8 +3956,7 @@ function viewPlan(){
         
       </div>`;
     }).join("");
-    return segBar+`<h2 style="margin:4px 0 8px">Lending</h2>
-  ${sortBarHtml("lending",[{key:"person",label:"Person"},{key:"prin",label:"Principal left"},{key:"interest",label:"Interest left"},{key:"total",label:"Total outstanding"},{key:"start",label:"Start date"}],'<button type="button" class="btn alt sort-export" data-lendexport-open><span aria-hidden="true">⇩</span> Export</button>')}
+    return segBar+`<div class="section-title-actions"><h2 style="margin:4px 0 8px">Lending</h2>${sortBarHtml("lending",[{key:"person",label:"Person"},{key:"prin",label:"Principal left"},{key:"interest",label:"Interest left"},{key:"total",label:"Total outstanding"},{key:"start",label:"Start date"}],'<button type="button" class="chip sort-export" data-lendexport-open aria-label="Export lending" title="Export lending"><span aria-hidden="true">⇩</span><span>Export</span></button>')}</div>
   <div class="lend-hero">
     <div class="muted">Outstanding (they owe you)</div>
     <div class="outstanding num in">${fmtHide(outstandingLent,S.display)}</div>
@@ -3979,8 +3975,7 @@ function viewPlan(){
   }
   if(seg==="cover"){
     /* sort bar injected in return */
-    return segBar+`<h2 style="margin-top:4px">Insurance</h2>
-  ${sortBarHtml("policies",[{key:"name",label:"Name"},{key:"premium",label:"Premium"},{key:"next",label:"Next due"},{key:"maturity",label:"Maturity"},{key:"cover",label:"Coverage"}])}
+    return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Insurance</h2>${sortBarHtml("policies",[{key:"name",label:"Name"},{key:"premium",label:"Premium"},{key:"next",label:"Next due"},{key:"maturity",label:"Maturity"},{key:"cover",label:"Coverage"}])}</div>
   ${applySectionSort(S.policies,"policies",{name:p=>p.name||"",premium:p=>Number(p.premium)||0,next:p=>policyNextUnpaidDue(p)||p.next||"",maturity:p=>p.maturity||"",cover:p=>Number(p.sum)||0}).map(p=>{
     const open=policyHasOpenPremium(p);
     const due=open?(policyPayableDate(p)||p.next||""):(p.next||"");
@@ -4022,8 +4017,7 @@ function viewPlan(){
       
     </div>`;
   }).join("");
-  return segBar+`<h2 style="margin-top:4px">SIPs</h2>
-  ${sortBarHtml("sips",[{key:"name",label:"Name"},{key:"amt",label:"Monthly amount"},{key:"next",label:"Next due"}])}
+  return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">SIPs</h2>${sortBarHtml("sips",[{key:"name",label:"Name"},{key:"amt",label:"Monthly amount"},{key:"next",label:"Next due"}])}</div>
   <div class="mod-hero">
     <div class="muted">Monthly SIP commitment</div>
     <div class="big num">${fmtHide(sipMonthly,S.display)}</div>
@@ -4489,7 +4483,7 @@ function exportCSV(){
   const rows=[["Date","Type","Status","Category","Description","Account","Account owner","Amount","Currency","FX rate","Person"]];
   for(const t of S.txns) for(const p of (t.postings||[])) rows.push([t.date,transactionTypeLabel(t.type),transactionStatusLabel(t.status),t.cat||"",t.note||"",(acct(p.acct)||{}).name||"",(acct(p.acct)||{}).owner||"Me",p.amt,p.cur,t.fxRate||S.rate,t.person||""]);
   const textColumns=new Set([0,1,2,3,4,5,6,8,10]);
-  const csv=rows.map((r,ri)=>r.map((c,ci)=>{ const value=ri===0?c:(textColumns.has(ci)?csvSafeText(c):c); return `"${String(value==null?"":value).replace(/"/g,'""')}"`; }).join(",")).join("\r\n");
+  const csv=rows.map((r,ri)=>r.map((c,ci)=>{ const value=ri===0?c:(textColumns.has(ci)?csvSafeText(cleanShareText(c)):c); return `"${String(value==null?"":value).replace(/"/g,'""')}"`; }).join(",")).join("\r\n");
   download(`transactions-${today()}.csv`, "\uFEFF"+csv, "text/csv;charset=utf-8");
 }
 
@@ -4573,10 +4567,49 @@ function buildLendingExportRows(scopeValue){
   }
   return {summary,ledger,loanCount:loans.length,asOf};
 }
+function cleanShareText(value){
+  return String(value==null?"":value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,"")
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g,"")
+    .replace(/\uFFFD/g,"")
+    .replace(/ï»¿/g,"").replace(/â€™/g,"’").replace(/â€œ/g,"“").replace(/â€\u009d/g,"”")
+    .replace(/â€“/g,"–").replace(/â€”/g,"—").replace(/Â(?=\s|$)/g,"")
+    .trim();
+}
+function buildLendingPdfHtml(rows, kind, asOf){
+  const title=kind==="summary"?"Lending Summary":"Lending Statement";
+  const headers=rows[0]||[];
+  const body=rows.slice(1);
+  const escHtml=v=>esc(cleanShareText(v));
+  const table=`<table><thead><tr>${headers.map(h=>`<th>${escHtml(h)}</th>`).join("")}</tr></thead><tbody>${body.map(r=>`<tr>${r.map((v,i)=>`<td class="${i>2&&typeof v==="number"?"num":""}">${escHtml(v==null?"":v)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · ${asOf}</title><style>
+  *{box-sizing:border-box}body{font:12px/1.45 Arial,Helvetica,sans-serif;color:#20242b;margin:28px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #263445;padding-bottom:14px;margin-bottom:18px}
+  h1{font-size:23px;margin:0 0 4px}p{margin:0;color:#606975}.meta{text-align:right;color:#606975}
+  table{width:100%;border-collapse:collapse;font-size:10px}th{background:#eef1f5;text-align:left;font-weight:700;color:#303b49}
+  th,td{padding:7px 8px;border:1px solid #d9dee5;vertical-align:top;overflow-wrap:anywhere}
+  tbody tr:nth-child(even){background:#fafbfc}.num{text-align:right;font-variant-numeric:tabular-nums}
+  footer{margin-top:18px;border-top:1px solid #d9dee5;padding-top:8px;color:#707782;font-size:10px}
+  @page{size:${kind==="ledger"?"landscape":"A4"};margin:12mm}
+  @media print{body{margin:0}thead{display:table-header-group}tr{break-inside:avoid} }
+  </style></head><body><header><div><h1>${title}</h1><p>Prepared from your Finance Tracker</p></div><div class="meta">Report date<br><strong>${escHtml(asOf)}</strong></div></header>${table}<footer>Private financial information · Generated locally in your browser</footer></body></html>`;
+}
+function exportLendingPDF(kind){
+  const selected=$("#lendExportScope")?.value||"all";
+  let scope=selected;
+  if(typeof selected==="string"&&selected.startsWith("loan:")) scope={type:"loan",loanId:selected.slice(5)};
+  const data=buildLendingExportRows(scope);
+  if(!data.loanCount){toast("No lending records match this selection");return;}
+  const rows=kind==="summary"?data.summary:data.ledger;
+  const html=buildLendingPdfHtml(rows,kind,data.asOf);
+  const win=window.open("","_blank");
+  if(!win){toast("Allow pop-ups to create the PDF statement");return;}
+  win.document.open();win.document.write(html);win.document.close();win.addEventListener("load",()=>setTimeout(()=>win.print(),250));
+}
 function lendingRowsToCsv(rows){
   return rows.map((r,ri)=>r.map((c,ci)=>{
     const textField=ri===0||typeof c==="string";
-    const value=textField?csvSafeText(c):c;
+    const value=textField?csvSafeText(cleanShareText(c)):c;
     return `"${String(value==null?"":value).replace(/"/g,'""')}"`;
   }).join(",")).join("\r\n");
 }
@@ -4597,6 +4630,8 @@ function openLendingExportSheet(loanId){
       <div class="form-section-title">Choose export</div>
       <button type="button" class="btn" data-lendexport="summary">Download summary CSV</button>
       <button type="button" class="btn alt" data-lendexport="ledger">Download detailed ledger CSV</button>
+      <button type="button" class="btn" data-lendpdf="summary">Save summary as PDF</button>
+      <button type="button" class="btn alt" data-lendpdf="ledger">Save detailed statement as PDF</button>
     </div>
     <div class="muted">Share-friendly files omit internal record IDs and transaction references. Summary shows the current position as of today; ledger shows the original loan, posted repayments and interest adjustments. Voided transactions are excluded.</div>
     <button type="button" class="btn alt" data-close>Cancel</button>`);
@@ -4651,7 +4686,7 @@ document.addEventListener("keydown", e=>{
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-lendexport-open],[data-lendstatement],[data-lendexport],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-toggleforex],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-paytoggle],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-lendexport-open],[data-lendstatement],[data-lendexport],[data-lendpdf],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-toggleforex],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-paytoggle],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -4773,7 +4808,7 @@ document.addEventListener("click", async e=>{
   if("newlend" in d){newLendingSheet();return;}
   if("lendexportOpen" in d){openLendingExportSheet();return;}
   if(d.lendstatement){openLendingExportSheet(d.lendstatement);return;}
-  if(d.lendexport){exportLendingCSV(d.lendexport);return;}
+  if(d.lendexport){exportLendingCSV(d.lendexport);return;}   if(d.lendpdf){exportLendingPDF(d.lendpdf);return;}
   if(d.lend){ lendingDetailSheet(d.lend); return; }
   if(d.lendadj){ lendingAdjustSheet(d.lendadj); return; }
   if(d.lendrec){lendingPaymentSheet(d.lendrec);return;}
@@ -6714,7 +6749,7 @@ document.addEventListener("visibilitychange",()=>{
 if(globalThis.__MF_TEST){
   globalThis.__mf={
     parseAmt, inspectAmt, readAmt, rejectAmt, thousandsFallback,
-    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, blank, migrate,
+    save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, cleanShareText, buildLendingPdfHtml, blank, migrate,
     processDueAutomations, salaryTermsAt, advanceSalaryNext, sipTermsAt, advanceSipNext, addM, addDays, calendarDays,
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
     wealthBreakdown, netWorth, valuationNotes, holdPos, balance, addTxn,

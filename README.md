@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.9.5
+**Current version:** 2.9.6
 
 ---
 
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Replace **only** `index.html` and `sw.js` at the **same HTTPS path** as before. Keep `manifest.webmanifest`, `icon.svg`, the site origin, and the existing vault data unchanged.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.9.5**).
+5. Confirm the unlock screen shows the expected version (**v2.9.6**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -240,8 +240,18 @@ node regression.mjs
 - Voided repayment transactions are excluded. Export is read-only and uses `lendingPosition()` for summary calculations.
 
 
-### 2.9.5 — 2026-11-22
+### 2.9.6 — 2026-11-22
 - Sort controls and direction menus use a consistent compact layout across Contacts, Investments, Accounts, Salaries, Lending, Insurance and SIPs, retaining each section's saved sort preference and available sort keys.
 - Lending Sort and Export now share one toolbar.
 - Lending summary and ledger CSVs use human-readable headings and omit internal loan/contact/transaction/adjustment IDs and reference columns.
 - Transaction CSV uses clear labels, removes duplicated technical IDs/references, and retains numeric amounts and formula-injection protection.
+
+
+## v2.9.6 — Sort controls and shareable lending statements
+- Sort and Export controls are aligned beside sortable page headings; the separate Arrange label/row is removed.
+- Lending CSV text is sanitized for invisible/control and common mojibake artefacts while preserving legitimate Unicode names.
+- Added locally generated print-to-PDF lending summary and detailed statement exports.
+- Service worker shell cache advanced to v86.
+
+### v2.9.6 upload
+Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.

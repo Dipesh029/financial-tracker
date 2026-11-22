@@ -527,18 +527,28 @@ No claim is made that the full browser/device regression suite passed.
 - Storage key, encryption format, encrypted backup envelope and Lending calculation logic: unchanged.
 
 
-## Update 2.9.5 — Sort and export presentation (2026-11-22)
+## Update 2.9.6 — Sort and export presentation (2026-11-22)
 
 ### Changes
 - Compact, consistent sort toolbars across all existing sortable pages; Lending Sort and Export share one action row.
 - Sort selection sheet redesigned into compact per-field ascending/descending controls plus Manual order. Existing sort keys and persisted preferences are preserved.
 - Lending summary and ledger CSVs use readable labels and omit internal IDs/references. Detailed ledger includes loan date, original principal and report date.
 - Transaction CSV removes transaction IDs and duplicate reference IDs and uses readable transaction type/status labels.
-- APP_VERSION advanced to 2.9.5; service-worker shell cache advanced to v85; CSP hash updated for the changed inline script.
+- APP_VERSION advanced to 2.9.6; service-worker shell cache advanced to v85; CSP hash updated for the changed inline script.
 
-### Validation performed for 2.9.5
+### Validation performed for 2.9.6
 - `node --check regression.mjs` — passed.
 - `node --check sw.js` — passed.
 - `node regression.mjs` — `ALL_REGRESSION_PASS`.
 - CSP regression confirms every inline script hash matches the page policy.
 - Browser/device visual inspection and physical CSV download/opening tests were not performed.
+
+
+## v2.9.6 — Sort controls and shareable lending statements
+- Sort and Export controls are aligned beside sortable page headings; the separate Arrange label/row is removed.
+- Lending CSV text is sanitized for invisible/control and common mojibake artefacts while preserving legitimate Unicode names.
+- Added locally generated print-to-PDF lending summary and detailed statement exports.
+- Service worker shell cache advanced to v86.
+
+### v2.9.6 upload
+Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
