@@ -158,6 +158,12 @@ Validation in this archive:
 Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest, icon, encrypted vault and backups unchanged.
 
 
+## 2.11.0 — Blue theme, PDF reports and fund forecast
+- One blue token set for light, dark and system. The later teal override was removed.
+- Shareable PDFs reuse `netWorth()`, `wealthBreakdown()`, `lendingPosition()` via `buildLendingExportRows()`, `holdPos()` and `balanceAsOf()` (posted rows on or before today). They do not replace `balance()` on screen.
+- `projectHolding()` uses monthly rate `(1+annual)^(1/12)-1`. Contributions are added at month end. SIPs use their saved frequency. The calculation does not write transactions.
+- Shell cache is v91. Vault key and backup format are unchanged.
+
 ## 2.10.0 — Visual system
 - Presentation only. CSS tokens and shared components restyle Home, Money, Plan (SIPs, salaries, Give & Take, lending, insurance), Activity, More, forms and the lock screen.
 - Net worth, lendingPosition(), exports, sorting, Forex visibility and vault storage are unchanged.

@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#2f4fd8">
+<meta name="theme-color" content="#1E40AF">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-uKUE1DzrWTabtdz0KBixHx+V5GYTw00Jite8ENkSlq4='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-47Pq4qgZgtXh7XSDjgnR94KxsGoQrnoXvLkNt4F2MFo='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -21,96 +21,100 @@ document.documentElement.style.colorScheme=dark?"dark":"light";}catch(e){}})();
    Never put prefers-color-scheme on bare :root — that broke Light when the phone was in dark mode. */
 :root, html[data-theme="light"]{
   color-scheme: light;
-  --bg:#f4f5f7;
-  --bg-2:#eef0f3;
+  --bg:#F5F7FB;
+  --bg-2:#E8EEF7;
   --card:#ffffff;
   --elev:#ffffff;
-  --ink:#111827;
-  --muted:#6b7280;
-  --line:#e5e7eb;
-  --accent:#2563eb;
-  --accent-soft:rgba(37,99,235,.10);
+  --ink:#172554;
+  --muted:#5B6B86;
+  --line:#D9E2F0;
+  --accent:#2563EB;
+  --accent-soft:#EFF6FF;
   --accent-ink:#ffffff;
   --in:#047857;
-  --out:#b91c1c;
-  --warn:#b45309;
+  --out:#B91C1C;
+  --warn:#B45309;
   --nav:#ffffff;
-  --overlay:rgba(15,23,42,.45);
+  --overlay:rgba(23,37,84,.46);
   --input:#ffffff;
-  --radius:14px;
-  --shadow:0 1px 2px rgba(17,24,39,.04), 0 4px 14px rgba(17,24,39,.05);
+  --radius:16px;
+  --shadow:0 1px 2px rgba(23,37,84,.04), 0 8px 24px rgba(23,37,84,.05);
   --ease:cubic-bezier(.22,1,.36,1);
-  --hero-from:#2563eb;
-  --hero-to:#1e40af;
+  --hero:#1E40AF;
+  --hero-from:#1E40AF;
+  --hero-to:#1E40AF;
 }
 html[data-theme="dark"]{
   color-scheme: dark;
-  --bg:#121212;
-  --bg-2:#1a1a1a;
-  --card:#1c1c1e;
-  --elev:#2c2c2e;
-  --ink:#f3f4f6;
-  --muted:#9ca3af;
-  --line:#2e2e32;
-  --accent:#60a5fa;
-  --accent-soft:rgba(96,165,250,.14);
-  --accent-ink:#0b1220;
-  --in:#34d399;
-  --out:#f87171;
-  --warn:#fbbf24;
-  --nav:#1c1c1e;
-  --overlay:rgba(0,0,0,.55);
-  --input:#2c2c2e;
-  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
-  --hero-from:#1d4ed8;
-  --hero-to:#1e3a8a;
+  --bg:#0B1220;
+  --bg-2:#111A2E;
+  --card:#121A2F;
+  --elev:#18233A;
+  --ink:#E8EEF9;
+  --muted:#94A3B8;
+  --line:#243049;
+  --accent:#60A5FA;
+  --accent-soft:rgba(96,165,250,.16);
+  --accent-ink:#0B1220;
+  --in:#34D399;
+  --out:#F87171;
+  --warn:#FBBF24;
+  --nav:#121A2F;
+  --overlay:rgba(0,0,0,.62);
+  --input:#18233A;
+  --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 28px rgba(0,0,0,.28);
+  --hero:#1E3A8A;
+  --hero-from:#1E3A8A;
+  --hero-to:#1E3A8A;
 }
 @media (prefers-color-scheme: dark){
   html[data-theme="system"], html:not([data-theme]){
     color-scheme: dark;
-    --bg:#121212;
-    --bg-2:#1a1a1a;
-    --card:#1c1c1e;
-    --elev:#2c2c2e;
-    --ink:#f3f4f6;
-    --muted:#9ca3af;
-    --line:#2e2e32;
-    --accent:#60a5fa;
-    --accent-soft:rgba(96,165,250,.14);
-    --accent-ink:#0b1220;
-    --in:#34d399;
-    --out:#f87171;
-    --warn:#fbbf24;
-    --nav:#1c1c1e;
-    --overlay:rgba(0,0,0,.55);
-    --input:#2c2c2e;
-    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
-    --hero-from:#1d4ed8;
-    --hero-to:#1e3a8a;
+    --bg:#0B1220;
+    --bg-2:#111A2E;
+    --card:#121A2F;
+    --elev:#18233A;
+    --ink:#E8EEF9;
+    --muted:#94A3B8;
+    --line:#243049;
+    --accent:#60A5FA;
+    --accent-soft:rgba(96,165,250,.16);
+    --accent-ink:#0B1220;
+    --in:#34D399;
+    --out:#F87171;
+    --warn:#FBBF24;
+    --nav:#121A2F;
+    --overlay:rgba(0,0,0,.62);
+    --input:#18233A;
+    --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 28px rgba(0,0,0,.28);
+    --hero:#1E3A8A;
+    --hero-from:#1E3A8A;
+    --hero-to:#1E3A8A;
   }
 }
 @media (prefers-color-scheme: light){
   html[data-theme="system"], html:not([data-theme]){
     color-scheme: light;
-    --bg:#f4f5f7;
-    --bg-2:#eef0f3;
+    --bg:#F5F7FB;
+    --bg-2:#E8EEF7;
     --card:#ffffff;
     --elev:#ffffff;
-    --ink:#111827;
-    --muted:#6b7280;
-    --line:#e5e7eb;
-    --accent:#2563eb;
-    --accent-soft:rgba(37,99,235,.10);
+    --ink:#172554;
+    --muted:#5B6B86;
+    --line:#D9E2F0;
+    --accent:#2563EB;
+    --accent-soft:#EFF6FF;
     --accent-ink:#ffffff;
     --in:#047857;
-    --out:#b91c1c;
-    --warn:#b45309;
+    --out:#B91C1C;
+    --warn:#B45309;
     --nav:#ffffff;
-    --overlay:rgba(15,23,42,.45);
+    --overlay:rgba(23,37,84,.46);
     --input:#ffffff;
-    --shadow:0 1px 2px rgba(17,24,39,.04), 0 4px 14px rgba(17,24,39,.05);
-    --hero-from:#2563eb;
-    --hero-to:#1e40af;
+    --shadow:0 1px 2px rgba(23,37,84,.04), 0 8px 24px rgba(23,37,84,.05);
+    --hero:#1E40AF;
+    --hero-from:#1E40AF;
+    --hero-to:#1E40AF;
   }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -392,70 +396,7 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .filter-row{align-items:stretch}
 .empty{padding:28px 16px}
 
-/* Product design system. Shared by every screen. Tokens stay semantic so calculations and markup keep working. */
-:root, html[data-theme="light"]{
-  --bg:#f3f5f7;
-  --bg-2:#e7edf2;
-  --card:#ffffff;
-  --elev:#ffffff;
-  --ink:#14202b;
-  --muted:#5d6d7c;
-  --line:#e1e7ee;
-  --accent:#1c4e5a;
-  --accent-soft:rgba(28,78,90,.10);
-  --accent-ink:#f4fbfb;
-  --in:#0e7a45;
-  --out:#b42318;
-  --warn:#946200;
-  --nav:rgba(255,255,255,.94);
-  --overlay:rgba(16,28,38,.48);
-  --input:#fbfcfd;
-  --radius:16px;
-  --shadow:0 1px 1px rgba(20,32,43,.04), 0 10px 28px rgba(20,32,43,.05);
-  --hero:#163244;
-  --hero-from:#163244;
-  --hero-to:#163244;
-}
-html[data-theme="dark"]{
-  --bg:#0e141a;
-  --bg-2:#182028;
-  --card:#161d25;
-  --elev:#1d2630;
-  --ink:#e7eef5;
-  --muted:#96a6b6;
-  --line:#2b3744;
-  --accent:#9ed4cb;
-  --accent-soft:rgba(158,212,203,.14);
-  --accent-ink:#0e141a;
-  --in:#7ddec0;
-  --out:#ffb4ab;
-  --warn:#f6d48a;
-  --nav:rgba(22,29,37,.94);
-  --overlay:rgba(0,0,0,.62);
-  --input:#1d2630;
-  --shadow:0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.28);
-  --hero:#102832;
-  --hero-from:#102832;
-  --hero-to:#102832;
-}
-@media (prefers-color-scheme: dark){
-  html[data-theme="system"], html:not([data-theme]){
-    --bg:#0e141a; --bg-2:#182028; --card:#161d25; --elev:#1d2630; --ink:#e7eef5; --muted:#96a6b6; --line:#2b3744;
-    --accent:#9ed4cb; --accent-soft:rgba(158,212,203,.14); --accent-ink:#0e141a; --in:#7ddec0; --out:#ffb4ab; --warn:#f6d48a;
-    --nav:rgba(22,29,37,.94); --overlay:rgba(0,0,0,.62); --input:#1d2630;
-    --shadow:0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.28);
-    --hero:#102832; --hero-from:#102832; --hero-to:#102832;
-  }
-}
-@media (prefers-color-scheme: light){
-  html[data-theme="system"], html:not([data-theme]){
-    --bg:#f3f5f7; --bg-2:#e7edf2; --card:#ffffff; --elev:#ffffff; --ink:#14202b; --muted:#5d6d7c; --line:#e1e7ee;
-    --accent:#1c4e5a; --accent-soft:rgba(28,78,90,.10); --accent-ink:#f4fbfb; --in:#0e7a45; --out:#b42318; --warn:#946200;
-    --nav:rgba(255,255,255,.94); --overlay:rgba(16,28,38,.48); --input:#fbfcfd;
-    --shadow:0 1px 1px rgba(20,32,43,.04), 0 10px 28px rgba(20,32,43,.05);
-    --hero:#163244; --hero-from:#163244; --hero-to:#163244;
-  }
-}
+/* Layout only. Colour tokens above are the single source for light, dark and system. */
 html,body{font:15.5px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:-.011em}
 h1{font-size:12px;font-weight:650;letter-spacing:.04em;text-transform:uppercase}
 h2{font-size:20px;font-weight:650;letter-spacing:-.03em;color:var(--ink)}
@@ -518,8 +459,9 @@ button:focus-visible,.ver-link:focus-visible{outline:2px solid var(--accent);out
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.10.0";
+const APP_VERSION = "2.11.0";
 const RELEASES = [
+  {v:"2.11.0", d:"2026-11-22", notes:"Blue theme across the app. PDF reports for the main sections and one complete report. Mutual fund forecast now shows conservative, expected and optimistic paths without changing your records."},
   {v:"2.10.0", d:"2026-11-22", notes:"Visual redesign across Home, Money, Plan, Activity and More. Same calculations, exports, vault and navigation. Quieter surfaces, clearer amounts, and layouts that hold together on a phone and a laptop."},
   {v:"2.9.9", d:"2026-11-22", notes:"Lending reports omit future-dated repayments and keep an early repayment on its original date, with the effective interest date explained. PDF totals round only after adding each currency. Exports keep Hindi and emoji joiners. The integrity check warns about a posting currency or amount that does not match the account, and does not change your records."},
   {v:"2.9.8", d:"2026-11-22", notes:"Give & Take outstanding balances now stay in net worth (cash movement plus what is still owed). Contact matching collapses extra spaces. A failed Give & Take edit no longer sticks on screen. Offline shell cache stores the new page before the response is used. A transaction missing postings no longer blanks Home."},
@@ -1604,6 +1546,43 @@ function holdPos(h){
   if(c<0) c=0;
   return {u:Math.round(u*1e6)/1e6, c:Math.round(c*100)/100, v:Math.round(u*(h.price||0)*100)/100};
 }
+function annualToMonthlyRate(annualPct){
+  const R=Number(annualPct)/100;
+  if(!Number.isFinite(R) || R<=-1) return -1;
+  return Math.pow(1+R, 1/12)-1;
+}
+function holdingSipPlan(h){
+  return (S.sips||[]).filter(x=>x && x.hold===h.id && (x.status||"active")==="active").map(x=>{
+    const terms=sipTermsAt(x, today());
+    return {amt:Number(terms.amt)||0, freq:Math.max(1, Number(terms.freq)||1), cur:x.cur||h.cur};
+  }).filter(x=>x.amt>0 && String(x.cur||h.cur)===String(h.cur||""));
+}
+function projectHolding(opts){
+  const start=Number(opts.startValue)||0;
+  const months=Math.max(0, Math.round(Number(opts.months)||0));
+  const annual=Number(opts.annualPct)||0;
+  const extra=Math.max(0, Number(opts.monthlyExtra)||0);
+  const sips=opts.includeSips?(opts.sips||[]):[];
+  const r=annualToMonthlyRate(annual);
+  let value=start, contributed=0;
+  const rows=[];
+  for(let m=1;m<=months;m++){
+    const grown=r<=-1?0:value*(1+r);
+    let add=extra;
+    for(const sip of sips){ if(m % sip.freq===0) add+=Number(sip.amt)||0; }
+    value=grown+add;
+    contributed+=add;
+    rows.push({month:m, value, contributed, gain:value-start-contributed});
+  }
+  const end=rows.length?rows[rows.length-1]:{value:start, contributed:0, gain:0};
+  const base=start+end.contributed;
+  const years=[];
+  for(let y=1; y*12-11<=months; y++){
+    const idx=Math.min(months, y*12)-1;
+    years.push({year:y, value:rows[idx].value, contributed:rows[idx].contributed, gain:rows[idx].gain, partial:y*12>months});
+  }
+  return {start, monthlyRate:r, annual, months, rows, years, endValue:end.value, contributed:end.contributed, gain:end.gain, pct:base>0?(end.gain/base)*100:0};
+}
 function personPos(owner){
   // Informal IOUs from transfers only. Lending module uses loansReceivable/lendingPosition —
   // never mix loanId/lendingId/principalReduction/interestSettlement or lend/borrow types here
@@ -2070,6 +2049,9 @@ function setSortPref(section, key, dir){
 
 
 
+function pdfBtn(kind){
+  return `<button type="button" class="chip sort-export" data-pdf="${kind}" aria-label="Save PDF">PDF</button>`;
+}
 function sortBarHtml(section, options, extraHtml=""){
   const pref=getSortPref(section);
   const opts=[{key:"manual",label:"Manual"},...options];
@@ -2515,6 +2497,7 @@ function viewSettings(){
   <div class="card"><b>Maintenance</b>
   <button class="btn alt" data-check>Integrity check</button>
   <button class="btn alt" data-csv>Export CSV</button>
+  <button class="btn alt" data-pdf="all">Export all data as PDF</button>
   <button class="btn danger" data-wipe>Wipe local vault</button></div>`;
 }
 
@@ -2557,7 +2540,7 @@ function allocationHtml(owner){
   if(w.insuranceCash>0) parts.push(["Insurance value", w.insuranceCash]);
   if(w.owedToYou>0) parts.push(["Owed to you", w.owedToYou]);
   const total=parts.reduce((a,x)=>a+x[1],0); if(!total) return "";
-  const colors=["#2563eb","#16a34a","#f59e0b","#7c3aed","#db2777"];
+  const colors=["#2563EB","#1E40AF","#64748B","#B45309","#047857"];
   const seg=parts.map(([n,v],i)=>{const pct=v/total*100; return {n,v,pct,el:`<span style="display:block;height:12px;flex:${pct} 1 0;min-width:4px;background:${colors[i%colors.length]}" title="${esc(n)}"></span>`};});
   return `<h2>Asset mix</h2><div class="card"><div class="mix-bar" role="img" aria-label="Asset mix">${seg.map(x=>x.el).join("")}</div><div class="mix-legend">${seg.map((x,i)=>`<div class="mix-row"><span class="mix-name"><i class="dot" style="background:${colors[i%colors.length]}"></i>${esc(x.n)}</span><span class="mix-val"><b class="num">${fmtHide(x.v,S.display)}</b><span class="mix-pct">${Math.round(x.pct)}%</span></span></div>`).join("")}</div></div>`;
 }
@@ -2636,7 +2619,7 @@ function viewHome0(){
   ${hide?"":allocationHtml(owner)}
   ${hide?"":netWorthChartHtml(owner)}
   ${!hide&&top.length?`<h2>Spending</h2><div class="card">${top.map(([c,v])=>`<div style="margin:8px 0"><div class="row"><span>${esc(c)}</span><b class="num">${fmtHide(v,S.display)}</b></div><div class="bar"><i style="width:${Math.min(100,Math.round(v/max*100))}%"></i></div></div>`).join("")}</div>`:""}
-  <div class="section-hd"><h2>Recent</h2><button type="button" class="chip" data-tab="activity">All activity</button></div>
+  <div class="section-hd"><h2>Recent</h2><span class="chips"><button type="button" class="chip" data-pdf="home">Summary PDF</button><button type="button" class="chip" data-tab="activity">All activity</button></span></div>
   ${recent.length?`<div class="card">${hide?recent.map(t=>`<div class="row"><span class="muted">${esc(t.date||"")} · ${esc(t.type)}</span><b>••••••</b></div>`).join(""):recent.map(txnRow).join("")}</div>`:`<div class="empty"><div class="empty-title">No activity yet</div><p>Tap + to add a transaction.</p></div>`}`;
 }
 
@@ -2670,7 +2653,7 @@ function viewActivity(){
   <select id="ft" aria-label="Filter by type"><option value="">All types</option>${[["expense","Expense"],["income","Income"],["transfer","Transfer"],["givetake","Give & Take"],["buy","Buy"],["sell","Sell"],["lend","Lent"],["borrow","Borrowed"],["adjustment","Adjustment"],["open","Opening"],["refund","Refund"]].map(([t,l])=>`<option value="${t}" ${filterType===t?"selected":""}>${l}</option>`).join("")}</select>
   </div>
   <div class="row" style="margin-top:8px"><span class="muted">${list.length} match${list.length===1?"":"es"}</span>
-  ${(filterAcct||filterType||q)?`<button type="button" class="chip" data-clearfilters>Clear filters</button>`:""}</div>
+  <span class="chips">${(filterAcct||filterType||q)?`<button type="button" class="chip" data-clearfilters>Clear filters</button>`:""}<button type="button" class="chip" data-pdf="activity">PDF</button></span></div>
   ${shown.length?`<div class="ledger">${html}</div>`:`<div class="empty"><div class="empty-title">No transactions</div><p>Try clearing filters or add one with +.</p></div>`}
   ${list.length>limit?`<button class="btn alt" data-actmore style="margin-top:12px">Show more</button>`:""}`;
 }
@@ -2684,7 +2667,7 @@ function viewAccounts(){
   </div>`;
   if(seg==="contacts"){
     const list=applySectionSort(S.contacts||[],"contacts",{name:c=>c.name||"",recent:c=>c.created||c.id||""});
-    return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">People registry</h2>${sortBarHtml("contacts",[{key:"name",label:"Name"},{key:"recent",label:"Recently added"}])}</div>
+    return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">People registry</h2>${sortBarHtml("contacts",[{key:"name",label:"Name"},{key:"recent",label:"Recently added"}], pdfBtn("contacts"))}</div>
   <p class="muted">One person, many bank accounts or UPI IDs. Older friend accounts are restored from saved data when you unlock. Same names work for lending and external transfers. Not balances — reference only.</p>
   ${list.map(c=>{
     const n=(c.methods||[]).length;
@@ -2757,7 +2740,7 @@ function viewAccounts(){
       </div>`;
     }).join(""):"";
     return segBar+`<div class="section-title-actions"><h2 style="margin:0">Investments</h2>
-  ${f==="demat"?sortBarHtml("demat",[{key:"name",label:"Name"},{key:"value",label:"Portfolio value"}]):sortBarHtml("holdings",[{key:"name",label:"Name"},{key:"value",label:"Value"},{key:"cost",label:"Invested"},{key:"pl",label:"P/L"},{key:"pct",label:"% return"}])}</div>
+  ${f==="demat"?sortBarHtml("demat",[{key:"name",label:"Name"},{key:"value",label:"Portfolio value"}], pdfBtn("holdings")):sortBarHtml("holdings",[{key:"name",label:"Name"},{key:"value",label:"Value"},{key:"cost",label:"Invested"},{key:"pl",label:"P/L"},{key:"pct",label:"% return"}], pdfBtn("holdings"))}</div>
   <div class="mod-hero">
     <div class="muted">Current value</div>
     <div class="big num">${fmtHide(totals.value,S.display)}</div>
@@ -2821,7 +2804,7 @@ function viewAccounts(){
   const forexCards=forexList.map(forexCardHtml).join("");
   const forexBlock=forexList.length?`<div class="section-label">Forex cards</div>${forexCards}`:"";
   const creditLabel=af==="card"&&forexList.length?`<div class="section-label">Credit and debit cards</div>`:"";
-  return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Accounts</h2>${sortBarHtml("accounts",[{key:"name",label:"Name"},{key:"balance",label:"Balance"}])}</div>
+  return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Accounts</h2>${sortBarHtml("accounts",[{key:"name",label:"Name"},{key:"balance",label:"Balance"}], pdfBtn("accounts"))}</div>
   <div class="mod-hero">
     <div class="muted">${af==="card"?"Cards":"Bank + cash"}</div>
     <div class="big num">${fmtHide(af==="card"?sumCard:sumBank+sumCash,S.display)}</div>
@@ -3263,12 +3246,16 @@ ${h.notes?`<p class="muted">${esc(h.notes)}</p>`:""}
 <button class="btn" type="submit">Update price</button></form>
 <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
 <h2 style="margin:0 0 6px;font-size:16px">Future value forecast</h2>
-<p class="muted" style="margin:0 0 10px">Projects from today’s market value with optional monthly top-ups. Illustration only — not advice.</p>
+<p class="muted" style="margin:0 0 10px">Starts from today’s market value. Existing SIPs and any extra monthly amount are kept separate. This is an illustration, not a guaranteed return or financial advice.</p>
 <form id="ffv"><input type="hidden" id="fvid" value="${esc(h.id)}">
 <label>Expected annual return (%)</label><input id="fvr" inputmode="decimal" value="${h.type==="fund"?"12":"10"}">
-<label>Years to project</label><input id="fvy" inputmode="decimal" value="5">
-<label>Monthly SIP / top-up</label><input id="fvs" inputmode="decimal" value="${(S.sips||[]).filter(x=>x.hold===h.id&&(x.status||'active')==='active').reduce((s,x)=>s+(Number(x.amt)||0)/((x.freq||1)),0)||0}" placeholder="0">
-<div class="muted">Pre-filled from active SIPs on this fund. Edit as needed. Estimate only.</div>
+<label>Conservative annual return (%)</label><input id="fvc" inputmode="decimal" value="${h.type==="fund"?"8":"6"}">
+<label>Optimistic annual return (%)</label><input id="fvo" inputmode="decimal" value="${h.type==="fund"?"16":"14"}">
+<label>Duration (years)</label><input id="fvy" inputmode="decimal" value="5">
+<label class="row" style="align-items:center;gap:8px"><input type="checkbox" id="fvinc" checked> Include existing SIPs on this holding</label>
+<div class="muted">${(S.sips||[]).filter(x=>x.hold===h.id&&(x.status||"active")==="active"&&(!x.cur||x.cur===h.cur)).length? (S.sips||[]).filter(x=>x.hold===h.id&&(x.status||"active")==="active"&&(!x.cur||x.cur===h.cur)).map(x=>esc(fmt(x.amt,x.cur||h.cur))+" every "+(x.freq||1)+" month"+((x.freq||1)>1?"s":"")).join("; ") : "No active SIP in "+esc(h.cur)+"."}</div>
+<label>Extra monthly investment (${esc(h.cur)}, hypothetical)</label><input id="fvs" inputmode="decimal" value="0">
+<div class="muted">Changing these figures does not create a transaction or edit the SIP.</div>
 <button class="btn alt" type="submit">Show forecast</button></form>
 <div id="fvOut" style="display:none;margin-top:12px"></div>
 <button class="btn alt" data-close style="margin-top:12px">Close</button>`);}
@@ -4022,7 +4009,7 @@ function viewPlan(){
         
       </div>`;
     }).join("");
-    return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Salaries</h2>${sortBarHtml("salaries",[{key:"name",label:"Name"},{key:"amt",label:"Amount"},{key:"next",label:"Next credit"}])}</div>
+    return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Salaries</h2>${sortBarHtml("salaries",[{key:"name",label:"Name"},{key:"amt",label:"Amount"},{key:"next",label:"Next credit"}], pdfBtn("salaries"))}</div>
   <div class="mod-hero">
     <div class="muted">Expected monthly inflow</div>
     <div class="big num in">${fmtHide(monthly,S.display)}</div>
@@ -4059,7 +4046,7 @@ function viewPlan(){
         <details style="margin-top:8px"><summary class="muted">${r.txns.length} transaction${r.txns.length===1?"":"s"} · View history</summary>${history}</details>
       </div>`;
     }).join("") || `<div class="empty"><div class="empty-title">No Give & Take yet</div><p>Use the + button → Give & Take to record informal money exchanges.</p></div>`;
-    return segBar+`<h2 style="margin-top:4px">Give & Take</h2>
+    return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Give & Take</h2>${pdfBtn("givetake")}</div>
     <p class="muted">Informal balances with people. Separate from formal loans under Lending.</p>
     ${cards}`;
   }
@@ -4135,7 +4122,7 @@ function viewPlan(){
   }
   if(seg==="cover"){
     /* sort bar injected in return */
-    return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Insurance</h2>${sortBarHtml("policies",[{key:"name",label:"Name"},{key:"premium",label:"Premium"},{key:"next",label:"Next due"},{key:"maturity",label:"Maturity"},{key:"cover",label:"Coverage"}])}</div>
+    return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">Insurance</h2>${sortBarHtml("policies",[{key:"name",label:"Name"},{key:"premium",label:"Premium"},{key:"next",label:"Next due"},{key:"maturity",label:"Maturity"},{key:"cover",label:"Coverage"}], pdfBtn("policies"))}</div>
   ${applySectionSort(S.policies,"policies",{name:p=>p.name||"",premium:p=>Number(p.premium)||0,next:p=>policyNextUnpaidDue(p)||p.next||"",maturity:p=>p.maturity||"",cover:p=>Number(p.sum)||0}).map(p=>{
     const open=policyHasOpenPremium(p);
     const due=open?(policyPayableDate(p)||p.next||""):(p.next||"");
@@ -4177,7 +4164,7 @@ function viewPlan(){
       
     </div>`;
   }).join("");
-  return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">SIPs</h2>${sortBarHtml("sips",[{key:"name",label:"Name"},{key:"amt",label:"Monthly amount"},{key:"next",label:"Next due"}])}</div>
+  return segBar+`<div class="section-title-actions"><h2 style="margin-top:4px">SIPs</h2>${sortBarHtml("sips",[{key:"name",label:"Name"},{key:"amt",label:"Monthly amount"},{key:"next",label:"Next due"}], pdfBtn("sips"))}</div>
   <div class="mod-hero">
     <div class="muted">Monthly SIP commitment</div>
     <div class="big num">${fmtHide(sipMonthly,S.display)}</div>
@@ -4866,6 +4853,191 @@ function buildLendingPdfHtml(rows, kind, asOf, summaryRows, positions){
   @media print{body{margin:0}thead{display:table-header-group}tfoot{display:table-footer-group}tr{break-inside:avoid;page-break-inside:avoid}.totals,.closing{break-inside:avoid;page-break-inside:avoid}footer{position:static}}
   </style></head><body><header><div><h1>${title}</h1><p>Prepared from your Finance Tracker · ${isSummary?"Portfolio overview":"Transaction history and closing balances"}</p></div><div class="meta">Report date<br><strong>${escHtml(asOf)}</strong></div></header>${summaryHtml}${isSummary?"<h2>Individual lending records</h2>":"<h2>Transaction history</h2>"}${table}<footer>Private financial information · Generated locally in your browser · Amounts are not combined across currencies</footer></body></html>`;
 }
+function openPrintReport(html){
+  const win=window.open("","_blank");
+  if(!win){toast("Allow pop-ups to create the PDF");return;}
+  win.document.open();win.document.write(html);win.document.close();win.addEventListener("load",()=>setTimeout(()=>win.print(),250));
+}
+function balanceAsOf(a, asOf){
+  if(!a || a.type==="forex") return null;
+  let v=Number(a.opening)||0;
+  for(const t of (S.txns||[])){
+    if(t.status!=="posted" || !t.date || t.date>asOf || !Array.isArray(t.postings)) continue;
+    for(const p of t.postings){ if(p.acct===a.id) v+=Number(p.amt)||0; }
+  }
+  return v;
+}
+function forexWalletAsOf(a, w, asOf){
+  let expected=Number(w.openingBalance);
+  if(!Number.isFinite(expected)) return Number(w.balance)||0;
+  for(const t of (S.txns||[])){
+    if(t.status!=="posted"||t.forexAcct!==a.id||t.walletId!==w.id) continue;
+    if(t.date && t.date>asOf) continue;
+    expected+=forexTxnDelta(t);
+  }
+  return Math.round(expected*100)/100;
+}
+function pdfTable(headers, rows){
+  const escHtml=v=>esc(cleanShareText(v));
+  return `<table><thead><tr>${headers.map(h=>`<th>${escHtml(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td class="${typeof c==="string" && /^[A-Z]{3} /.test(c)?"num":"text"}">${escHtml(c==null?"":c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+function moneyLabel(amount, cur){ return formatMoney(amount, cur); }
+function reportSections(kind){
+  const asOf=today();
+  const want=kind==="all"?null:kind;
+  const take=(id)=>!want || want===id || (kind==="home" && (id==="summary"||id==="accounts"));
+  const sections=[];
+  const note="Figures are as of "+asOf+". Future-dated and voided transactions are left out. Different currencies are not added together.";
+  if(take("summary")){
+    const nw=netWorth(null), wb=wealthBreakdown(null);
+    sections.push({heading:"Financial summary", note:"Net worth is shown in "+(S.display||"INR")+" using your saved conversion rates. It is not a mix of raw currencies.", html:pdfTable(
+      ["Item","Amount"],
+      [
+        ["Net worth ("+(S.display||"")+")", moneyLabel(nw.total, S.display)],
+        ["Assets ("+(S.display||"")+")", moneyLabel(nw.assets, S.display)],
+        ["Liabilities ("+(S.display||"")+")", moneyLabel(nw.owed, S.display)],
+        ["Cash and bank ("+(S.display||"")+")", moneyLabel(wb.cash+wb.bank+wb.cardAsset, S.display)],
+        ["Investments ("+(S.display||"")+")", moneyLabel(wb.holdings+wb.demat, S.display)],
+        ["Owed to you ("+(S.display||"")+")", moneyLabel(wb.owedToYou, S.display)],
+        ["You owe ("+(S.display||"")+")", moneyLabel(wb.loansPayable+wb.iouOut, S.display)]
+      ]
+    )});
+  }
+  if(take("accounts") || kind==="forex"){
+    const rows=[];
+    const totals=new Map();
+    for(const a of (S.accounts||[])){
+      if(a.archived && a.type!=="forex") continue;
+      if(kind==="forex" && a.type!=="forex") continue;
+      if(a.type==="forex"){
+        if(!forexVisible() && kind!=="all" && kind!=="forex") continue;
+        for(const w of (a.wallets||[])){
+          const bal=forexWalletAsOf(a, w, asOf);
+          rows.push([a.name||"Forex card", "Forex wallet", a.owner||"Me", w.cur||"", moneyLabel(bal, w.cur)]);
+          totals.set(w.cur, (totals.get(w.cur)||0)+bal);
+        }
+      }else{
+        const bal=balanceAsOf(a, asOf);
+        rows.push([a.name||"Account", a.type||"", a.owner||"Me", a.cur||"", moneyLabel(bal, a.cur)]);
+        totals.set(a.cur, (totals.get(a.cur)||0)+bal);
+      }
+    }
+    if(rows.length){
+      const totalRows=[...totals.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0]))).map(([cur,amt])=>[cur||"Unknown", moneyLabel(amt, cur)]);
+      sections.push({heading:kind==="forex"?"Forex wallets":"Accounts and balances", note, html:pdfTable(["Name","Type","Owner","Currency","Balance"], rows)+`<h2>Totals by currency</h2>`+pdfTable(["Currency","Balance"], totalRows)});
+    }
+  }
+  if(take("activity")){
+    let list=(S.txns||[]).filter(t=>t.status==="posted" && t.date && t.date<=asOf);
+    if(kind==="activity"){
+      if(filterAcct) list=list.filter(t=>t.postings&&t.postings.some(p=>p.acct===filterAcct));
+      if(filterType) list=list.filter(t=>t.type===filterType);
+      if(q){ const s=q.toLowerCase(); list=list.filter(t=>((t.cat||"")+" "+(t.note||"")+" "+t.type+" "+(t.person||"")).toLowerCase().includes(s)); }
+    }
+    list=list.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+    if(list.length){
+      const rows=list.map(t=>{
+        const p=t.postings&&t.postings[0];
+        const name=p&&acct(p.acct)?acct(p.acct).name:"";
+        return [t.date, transactionTypeLabel(t.type), t.cat||"", cleanShareText(t.note||t.person||""), name, p?moneyLabel(p.amt, p.cur):""];
+      });
+      sections.push({heading:"Transactions", note:note+" Transfers are listed as transfers and are not counted again as income or spending.", html:pdfTable(["Date","Type","Category","Description","Account","Amount"], rows)});
+    }
+  }
+  if(take("givetake")){
+    const map=new Map();
+    for(const t of (S.txns||[])){
+      if(t.status!=="posted"||!t.giveTake||!t.person||(t.date&&t.date>asOf)) continue;
+      const cur=(t.postings&&t.postings[0]&&t.postings[0].cur)||S.display||"";
+      const amt=Number(t.pd);
+      if(!Number.isFinite(amt)) continue;
+      const key=normalizeContactName(t.person)+"\u0000"+cur;
+      if(!map.has(key)) map.set(key,{name:t.person, cur, balance:0});
+      map.get(key).balance+=amt;
+    }
+    const rows=[...map.values()].sort((a,b)=>a.name.localeCompare(b.name)||a.cur.localeCompare(b.cur)).map(x=>[x.name, x.cur, moneyLabel(x.balance, x.cur)]);
+    if(rows.length) sections.push({heading:"Give & Take", note:"Informal balances only. Formal loans are in the lending section. Each currency stays separate.", html:pdfTable(["Person","Currency","Balance"], rows)});
+  }
+  if(take("lending") || kind==="all"){
+    const data=buildLendingExportRows("all");
+    if(data.loanCount){
+      const summary=data.summary.slice(1).map(r=>[r[0], r[1], r[2], r[3], moneyLabel(r[6], r[2]), moneyLabel(r[11], r[2]), moneyLabel(r[12], r[2]), r[13]]);
+      const totals=new Map();
+      for(const p of data.positions){
+        const key=p.cur+"|"+p.direction;
+        if(!totals.has(key)) totals.set(key,{cur:p.cur, direction:p.direction, total:0});
+        totals.get(key).total+=Number(p.totalOutstanding)||0;
+      }
+      const totalRows=[...totals.values()].map(t=>[t.cur, t.direction, moneyLabel(t.total, t.cur)]);
+      sections.push({heading:"Lending and borrowing", note:"Balances come from the same lending position used on screen. Lent and borrowed are not combined.", html:pdfTable(["Person","Direction","Currency","Loan date","Principal left","Interest left","Total","Status"], summary)+`<h2>Totals</h2>`+pdfTable(["Currency","Direction","Total outstanding"], totalRows)});
+    }
+  }
+  if(take("holdings") || kind==="all"){
+    const rows=(S.holdings||[]).map(h=>{
+      const p=holdPos(h);
+      return [h.name||"", h.type==="stock"?"Stock":"Mutual fund", h.owner||"Me", h.cur||"", String(p.u), moneyLabel(p.c, h.cur), moneyLabel(p.v, h.cur)];
+    });
+    if(rows.length) sections.push({heading:"Investments", note:"Market value uses the price saved on the holding. Folio numbers are omitted.", html:pdfTable(["Name","Type","Owner","Currency","Units","Cost","Market value"], rows)});
+  }
+  if(take("sips") || kind==="all"){
+    const rows=(S.sips||[]).map(x=>{
+      const h=(S.holdings||[]).find(v=>v.id===x.hold)||{};
+      const freq={1:"Monthly",3:"Quarterly",6:"Half-yearly",12:"Yearly"}[x.freq||1]||("Every "+(x.freq||1)+" months");
+      return [h.name||"Fund", moneyLabel(x.amt, x.cur), x.cur||"", freq, x.next||"", x.status||"active"];
+    });
+    if(rows.length) sections.push({heading:"SIPs", note:"Schedule only. Past contributions already sit in the holding and are not listed again here.", html:pdfTable(["Holding","Amount","Currency","Frequency","Next","Status"], rows)});
+  }
+  if(take("salaries") || kind==="all"){
+    const rows=(S.salaries||[]).map(x=>[x.label||"Salary", x.person||"Me", moneyLabel(x.amt, x.cur), x.cur||"", x.next||"", x.status||"active"]);
+    if(rows.length) sections.push({heading:"Salaries", note:"Expected credits. Account numbers are omitted.", html:pdfTable(["Name","Person","Amount","Currency","Next","Status"], rows)});
+  }
+  if(take("policies") || kind==="all"){
+    const rows=(S.policies||[]).map(p=>[p.name||"", p.owner||"Me", p.provider||"", moneyLabel(p.premium, p.cur), moneyLabel(p.sum, p.cur), p.cur||"", p.next||"", p.maturity||""]);
+    if(rows.length) sections.push({heading:"Insurance", note:"Premium and cover are shown in the policy currency.", html:pdfTable(["Policy","Owner","Provider","Premium","Cover","Currency","Next due","Maturity"], rows)});
+  }
+  if((take("contacts") || kind==="all") && kind!=="home"){
+    const rows=(S.contacts||[]).map(c=>[c.name||"", cleanShareText(c.notes||"")]);
+    if(rows.length && (kind==="contacts" || kind==="all")) sections.push({heading:"Contacts", note:"Names and notes only. Bank accounts and UPI IDs are not included.", html:pdfTable(["Name","Notes"], rows)});
+  }
+  if(kind==="forex"){
+    return sections.filter(s=>s.heading==="Forex wallets" || s.heading==="Accounts and balances");
+  }
+  return sections;
+}
+function buildPdfDocument(title, sections, landscape){
+  const asOf=today();
+  const escHtml=v=>esc(cleanShareText(v));
+  const toc=sections.map((s,i)=>`<li>${escHtml(s.heading)}</li>`).join("");
+  const body=sections.map(s=>`<section class="block"><h2>${escHtml(s.heading)}</h2>${s.note?`<p class="section-note">${escHtml(s.note)}</p>`:""}${s.html}</section>`).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title><style>
+  *{box-sizing:border-box}body{font:10px/1.4 Arial,Helvetica,sans-serif;color:#172554;margin:0}
+  h1{font-size:22px;margin:0 0 4px}h2{font-size:13px;margin:16px 0 6px;color:#1E40AF}
+  p,li{color:#334155}.section-note{margin:0 0 8px;font-size:9px}
+  table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8px;margin:0 0 8px}
+  th,td{border:1px solid #D9E2F0;padding:4px;vertical-align:top;overflow-wrap:break-word;word-break:normal}
+  th{background:#EFF6FF;text-align:left}td.num{text-align:right;white-space:nowrap}
+  @page{size:${landscape?"A4 landscape":"A4 portrait"};margin:14mm 12mm 16mm;@bottom-center{content:"Page " counter(page);font-size:8px;color:#64748B}}
+  @media print{thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}.block{break-inside:auto}}
+  </style></head><body>
+  <header><h1>${escHtml(title)}</h1><p>My Finance · report date ${escHtml(asOf)} · generated on this device</p></header>
+  <section><h2>Contents</h2><ol>${toc}</ol></section>
+  ${body}
+  <p>Readable report only. This is not an encrypted backup. Account numbers, UPI IDs and internal record IDs are omitted.</p>
+  </body></html>`;
+}
+function buildReportPdf(kind){
+  const sections=reportSections(kind).filter(Boolean);
+  if(!sections.length) return "";
+  const titles={home:"Financial summary", accounts:"Accounts", activity:"Transactions", givetake:"Give & Take", holdings:"Investments", sips:"SIPs", salaries:"Salaries", policies:"Insurance", contacts:"Contacts", forex:"Forex wallets", all:"Complete financial report"};
+  const landscape=kind==="activity"||kind==="all"||kind==="lending";
+  return buildPdfDocument(titles[kind]||"Financial report", sections, landscape);
+}
+function exportReportPdf(kind){
+  if(kind==="all" && !confirm("This PDF is a readable copy of your finances, not an encrypted backup. Account numbers and UPI IDs are left out. Continue?")) return;
+  const html=buildReportPdf(kind);
+  if(!html){ toast("Nothing to include in this report"); return; }
+  openPrintReport(html);
+}
 function exportLendingPDF(kind){
   const selected=$("#lendExportScope")?.value||"all";
   let scope=selected;
@@ -4874,9 +5046,7 @@ function exportLendingPDF(kind){
   if(!data.loanCount){toast("No lending records match this selection");return;}
   const rows=kind==="summary"?data.summary:data.ledger;
   const html=buildLendingPdfHtml(rows,kind,data.asOf,data.summary,data.positions);
-  const win=window.open("","_blank");
-  if(!win){toast("Allow pop-ups to create the PDF statement");return;}
-  win.document.open();win.document.write(html);win.document.close();win.addEventListener("load",()=>setTimeout(()=>win.print(),250));
+  openPrintReport(html);
 }
 function lendingRowsToCsv(rows){
   return rows.map((r,ri)=>r.map((c,ci)=>{
@@ -4958,7 +5128,7 @@ document.addEventListener("keydown", e=>{
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e=>{
-  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-lendexport-open],[data-lendstatement],[data-lendexport],[data-lendpdf],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-toggleforex],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-paytoggle],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
+  const el=e.target.closest("[data-tab],[data-editpeople],[data-setowner],[data-delperson],[data-addperson],[data-savepeople],[data-moneyseg],[data-planseg],[data-moneyacctf],[data-moneyholdf],[data-homenwf],[data-actmore],[data-clearfilters],[data-movetofamily],[data-movetocontacts],[data-add],[data-type],[data-snapshot],[data-newlend],[data-lend],[data-lendrec],[data-lendadj],[data-lendexport-open],[data-lendstatement],[data-lendexport],[data-lendpdf],[data-pdf],[data-reconcile],[data-cat],[data-amtchip],[data-editcats],[data-xfermode],[data-catadd],[data-catdel],[data-toggle],[data-holds],[data-holdparse],[data-doholds],[data-csvimp],[data-csvtpl],[data-newacct],[data-newsip],[data-newsalary],[data-salary],[data-editsalary],[data-salarydel],[data-salaryrecv],[data-salarystop],[data-togglesip],[data-togglehide],[data-toggleforex],[data-nwpref],[data-nwprefreset],[data-sortopen],[data-sortkey],[data-dismissonboard],[data-togglesal],[data-sip],[data-newpol],[data-pol],[data-newpur],[data-sipfail],[data-sipstop],[data-editsip],[data-delpol],[data-delpur],[data-refund],[data-newhold],[data-hold],[data-txn],[data-acct],[data-void],[data-restore],[data-filter],[data-archive],[data-edit],[data-change-pass],[data-newbank],[data-newcontact],[data-contact],[data-addmethod],[data-delmethod],[data-delcontact],[data-copymethod],[data-editcontact],[data-editmethod],[data-newdemat],[data-delbank],[data-copybank],[data-copyownbank],[data-releases],[data-readme],[data-bio-enable],[data-bio-disable],[data-bio-unlock],[data-backup-folder],[data-backup-forget],[data-export],[data-csv],[data-import],[data-check],[data-wipe],[data-locknow],[data-paycard],[data-paypick],[data-paytoggle],[data-dematmode],[data-dematvalue],[data-forexdel],[data-fxaddrow],[data-fxdelrow],[data-close]");
   if(!el){ return; }
   const d=el.dataset;
   if(!S || !CK){
@@ -5724,6 +5894,7 @@ if(d.delmethod){
     if(!confirm("This CSV is not encrypted. Notes and amounts will be saved as plain text. Continue?")) return;
     exportCSV(); return;
   }
+  if(d.pdf){ exportReportPdf(d.pdf); return; }
   if("import" in d){ $("#file").click(); return; }
   if("check" in d){ runCheck(); return; }
   if("wipe" in d){
@@ -6331,53 +6502,59 @@ if(e.target.id==="f2"){
   }
   if(e.target.id==="ffv"){
     const h=S.holdings.find(x=>x.id===$("#fvid").value); if(!h)return;
-    const R=rejectAmt($("#fvr").value,{required:true,allowNegative:true,maxDecimals:4,positive:false});
-    const Y=rejectAmt($("#fvy").value,{required:true,positive:true,maxDecimals:2});
-    const Smt=rejectAmt($("#fvs").value||"",{required:false,allowNegative:false,maxDecimals:2});
-    if(R==null||Y==null||Smt==null) return;
+    const before=JSON.stringify(S);
+    const readRate=(id,label)=>{
+      const n=rejectAmt($("#"+id).value,{required:true,allowNegative:true,maxDecimals:4,positive:false});
+      if(n==null) return null;
+      if(n<-50||n>50){ alert(label+" must be between -50% and 50%."); return null; }
+      return n;
+    };
+    const expected=readRate("fvr","Expected return");
+    const conservative=readRate("fvc","Conservative return");
+    const optimistic=readRate("fvo","Optimistic return");
+    const years=rejectAmt($("#fvy").value,{required:true,positive:true,maxDecimals:2});
+    const extra=rejectAmt($("#fvs").value||"0",{required:false,allowNegative:false,maxDecimals:2});
+    if(expected==null||conservative==null||optimistic==null||years==null||extra==null) return;
+    const months=Math.round(years*12);
+    if(months<1||years>50){ alert("Enter a duration from one month up to 50 years."); return; }
     const p=holdPos(h);
-    if(!(Y>0) || Y>50){alert("Enter years between 1 and 50.");return;}
-    if(R<-50||R>50){alert("Enter a realistic annual return between -50% and 50%.");return;}
-    const r=R/100/12, n=Math.round(Y*12), V0=p.v;
-    const yearRows=[];
-    let v=V0, contrib=0;
-    for(let y=1;y<=Math.round(Y);y++){
-      for(let m=0;m<12;m++){
-        if(Math.abs(r)<1e-12){ v=v+Smt; }
-        else { v=v*(1+r)+Smt; }
-        contrib+=Smt;
-      }
-      yearRows.push({y, v:Math.round(v*100)/100, contrib:Math.round(contrib*100)/100, gain:Math.round((v-V0-contrib)*100)/100});
-    }
-    const fv=yearRows[yearRows.length-1].v;
-    const totalExtra=yearRows[yearRows.length-1].contrib;
-    const gain=yearRows[yearRows.length-1].gain;
-    const maxV=Math.max(V0, ...yearRows.map(x=>x.v), 1);
-    const bars=yearRows.map(x=>{
-      const hgt=Math.max(4, Math.round(x.v/maxV*90));
-      return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
-        <div class="muted" style="font-size:10px">${fmt(x.v,h.cur).replace(/[^0-9.,]/g,"").slice(0,6)}</div>
-        <div style="width:100%;max-width:28px;height:90px;display:flex;align-items:flex-end"><div style="width:100%;height:${hgt}px;background:var(--accent);border-radius:6px 6px 2px 2px"></div></div>
-        <div class="muted" style="font-size:11px">Y${x.y}</div>
-      </div>`;
-    }).join("");
+    const sips=holdingSipPlan(h);
+    const include=!!$("#fvinc")?.checked;
+    const run=(annual)=>projectHolding({startValue:p.v, annualPct:annual, months, monthlyExtra:extra||0, includeSips:include, sips});
+    const scenarios=[
+      {name:"Conservative", tone:"muted", result:run(conservative), rate:conservative},
+      {name:"Expected", tone:"in", result:run(expected), rate:expected},
+      {name:"Optimistic", tone:"in", result:run(optimistic), rate:optimistic}
+    ];
+    const focus=scenarios[1].result;
+    const maxV=Math.max(1, ...scenarios.flatMap(s=>s.result.rows.map(r=>r.value)), p.v);
+    const chart=focus.rows.length?`<svg class="chart" viewBox="0 0 320 128" role="img" aria-label="Forecast scenarios">${scenarios.map(s=>{
+      const n=Math.max(1,s.result.rows.length-1);
+      const color=s.name==="Expected"?"#2563EB":s.name==="Optimistic"?"#1E3A8A":"#93C5FD";
+      const pts=s.result.rows.map((r,i)=>`${16+i*(288/n)},${108-((r.value)/maxV)*88}`).join(" ");
+      return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>`;
+    }).join("")}</svg><div class="chart-legend"><span><i class="dot" style="background:#93C5FD"></i>Conservative</span><span><i class="dot" style="background:#2563EB"></i>Expected</span><span><i class="dot" style="background:#1E3A8A"></i>Optimistic</span></div>`:"";
+    const money=(n)=>fmt(n,h.cur);
     const out=$("#fvOut");
     if(out){
       out.style.display="block";
       out.innerHTML=`<div class="card">
-        <div class="row"><span>Starting value</span><b class="num">${fmt(V0,h.cur)}</b></div>
-        <div class="row"><span>Extra invested</span><b class="num">${fmt(totalExtra,h.cur)}</b></div>
-        <div class="row"><span>Projected value</span><b class="num in">${fmt(fv,h.cur)}</b></div>
-        <div class="row"><span>Projected gain</span><b class="num ${gain<0?"out":"in"}">${fmt(gain,h.cur)}</b></div>
-        <div class="muted" style="margin-top:8px">${Math.round(Y)} years · ${R}% p.a. · monthly compounding</div>
+        <div class="row"><span>Current market value</span><b class="num">${money(p.v)}</b></div>
+        <div class="row"><span>Amount already invested</span><b class="num">${money(p.c)}</b></div>
+        <div class="row"><span>Projected extra contributions</span><b class="num">${money(focus.contributed)}</b></div>
+        <div class="row"><span>Expected future value</span><b class="num">${money(focus.endValue)}</b></div>
+        <div class="row"><span>Expected gain or loss</span><b class="num ${focus.gain<0?"out":"in"}">${money(focus.gain)} · ${Math.round(focus.pct*10)/10}%</b></div>
+        <div class="muted" style="margin-top:8px">Monthly rate is (1 + annual return) ^ (1/12) − 1, so a year with no contributions grows by the annual rate. Contributions are added at the end of the month. ${include?"Existing SIPs are added on their frequency.":"Existing SIPs are excluded."} Actual records were not changed.</div>
       </div>
-      <h2 style="font-size:15px;margin:14px 0 8px">Year-by-year</h2>
-      <div class="card" style="overflow-x:auto">
-        <div style="display:flex;gap:6px;min-width:${Math.max(240, yearRows.length*40)}px;align-items:flex-end;padding-top:8px">${bars}</div>
-      </div>
-      <div class="card" style="margin-top:10px">${yearRows.map(x=>`<div class="row"><span>Year ${x.y}</span><b class="num">${fmt(x.v,h.cur)}</b></div>`).join("")}</div>
-      <div class="muted" style="margin-top:8px">This is a simple mathematical illustration. Markets do not return a fixed rate every year.</div>`;
+      <h2 style="font-size:15px;margin:14px 0 8px">Scenario comparison</h2>
+      <div class="card">${scenarios.map(s=>`<div class="row"><span>${s.name} · ${s.rate}%</span><b class="num ${s.result.gain<0?"out":""}">${money(s.result.endValue)}</b></div>`).join("")}</div>
+      ${chart?`<h2 style="font-size:15px;margin:14px 0 8px">Projected path</h2><div class="card">${chart}<div class="muted">Lines show future value, not a promise. Blue is expected. Lighter is conservative. Darker is optimistic.</div></div>`:""}
+      <h2 style="font-size:15px;margin:14px 0 8px">Expected, year by year</h2>
+      <div class="card">${focus.years.map(x=>`<div class="row"><span>Year ${x.year}${x.partial?" (partial)":""}</span><b class="num">${money(x.value)}</b></div>`).join("")||`<div class="muted">No months in this duration.</div>`}</div>
+      <details style="margin-top:10px"><summary class="muted">Month-by-month, expected scenario</summary><div class="card" style="margin-top:8px">${focus.rows.map(x=>`<div class="row"><span>Month ${x.month}</span><b class="num">${money(x.value)}</b></div>`).join("")}</div></details>
+      <div class="muted" style="margin-top:8px">Projections are illustrations based on the returns you entered. They are not guaranteed returns or financial advice. Market value today is the starting point. Invested amount is the cost basis and is not grown on its own.</div>`;
     }
+    if(JSON.stringify(S)!==before) console.warn("forecast mutated state");
     return;
   }
   if(e.target.id==="fcats"){
@@ -7025,7 +7202,7 @@ if(globalThis.__MF_TEST){
     save, store, seal, unseal, deriveKey, inspectEncryptedEnvelope, csvSafeText, exportCSV, transactionTypeLabel, transactionStatusLabel, buildLendingExportRows, lendingRowsToCsv, filterLendingForExport, cleanShareText, buildLendingPdfHtml, formatMoney, roundMoney, blank, migrate,
     processDueAutomations, salaryTermsAt, advanceSalaryNext, sipTermsAt, advanceSipNext, addM, addDays, calendarDays,
     lendingPosition, policyScheduleDates, policyPremiumsPaidToDate, policyNextUnpaidDue, policyPptEnd, policyStopDate, policyHasOpenPremium,
-    wealthBreakdown, netWorth, valuationNotes, holdPos, balance, addTxn,
+    wealthBreakdown, netWorth, valuationNotes, holdPos, balance, balanceAsOf, projectHolding, holdingSipPlan, buildReportPdf, addTxn,
     applyForexMovement, forexWalletNetMovement, forexTxnDelta, forexTxnMovement, forexWalletLedgerBalance, forexWalletReferenced, validateForexWalletChanges, applyForexWallets, syncLinkedPurchaseForTxn, setLinkedPurchaseTxnVoided, commitForexAware, voidTxn, unvoid, runCheck,
     dematPosition, investmentTotals, dematClaims, paymentAccounts, payAccountAllowed, preferredPayId, paySelectHtml, sortMenuHtml,
     maskCardLast4, collectForexWallets, applyForexWallets, forexDisplayValue, fmt, viewAccounts, viewSettings, forexVisible,

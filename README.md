@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.10.0
+**Current version:** 2.11.0
 
 ---
 
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Replace **only** `index.html` and `sw.js` at the **same HTTPS path** as before. Keep `manifest.webmanifest`, `icon.svg`, the site origin, and the existing vault data unchanged.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.10.0**).
+5. Confirm the unlock screen shows the expected version (**v2.11.0**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -131,6 +131,11 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.11.0 — 2026-11-22
+- **UI:** Royal blue and navy replace the teal accent in light, dark and system themes. Income stays green and spending stays red.
+- **PDF:** Summary, accounts, transactions, Give & Take, investments, SIPs, salaries, insurance, contacts and a confirmed complete report. Lending PDF is unchanged. Currencies are not added together. Account numbers and UPI IDs are left out.
+- **Forecast:** Mutual fund and holding projections start from market value, show conservative, expected and optimistic paths, and can include or exclude the real SIP. Nothing is written to the vault.
 
 ### 2.10.0 — 2026-11-22
 - **UI:** Shared design system across Home, Money, Plan, Activity, More and the lock screen. Quieter net-worth surface, clearer amounts, ledger rows, and a wider layout on a laptop. Sheets stay bottom sheets on a phone and become centred dialogs on a wide screen.

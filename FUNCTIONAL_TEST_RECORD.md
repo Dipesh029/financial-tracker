@@ -1,6 +1,6 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.10.0  
+**App version at last update:** 2.11.0  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
 **Last audit date:** 2026-11-22  
 
@@ -192,3 +192,12 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 - PASS: wide-screen CSS bounds the app and centres sheets. Reduced motion and visible focus remain.
 - PASS: `node regression.mjs` — ALL_REGRESSION_PASS.
 - Not run: a visual pass in a real browser at phone, tablet and desktop widths. No personal vault was opened.
+
+
+## 2.11.0 — Blue theme, PDF reports and forecast (2026-11-22)
+- PASS: zero, positive and negative annual returns; quarterly SIP included and excluded; a six-month duration.
+- PASS: complete PDF keeps INR and EUR apart, drops a future expense and a voided expense, and omits an account number and a UPI id.
+- PASS: building the PDF and reading the SIP plan does not change stored records.
+- PASS: accent colour in the source is blue, not teal. CSV export remains.
+- PASS: `node regression.mjs` — ALL_REGRESSION_PASS.
+- Not run: a real browser print of the PDF, phone/tablet/desktop layout, and a personal encrypted vault.
