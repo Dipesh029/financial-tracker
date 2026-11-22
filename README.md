@@ -3,7 +3,7 @@
 Local-first, encrypted family finance **Progressive Web App** (PWA).  
 Designed for Android (and desktop browsers): accounts, cards, transfers, investments, SIPs, salaries, and lending — all stored on the device.
 
-**Current version:** 2.9.8
+**Current version:** 2.9.9
 
 ---
 
@@ -66,7 +66,7 @@ Vault storage key: `myfinance.v1` (do not change origin or this key when updatin
 2. Replace **only** `index.html` and `sw.js` at the **same HTTPS path** as before. Keep `manifest.webmanifest`, `icon.svg`, the site origin, and the existing vault data unchanged.
 3. Hard-refresh or clear **cache** for the site (not necessarily all site data if you want to keep the vault).
 4. Fully close and reopen the installed PWA.
-5. Confirm the unlock screen shows the expected version (**v2.9.8**).
+5. Confirm the unlock screen shows the expected version (**v2.9.9**).
 6. Unlock with your existing passphrase.
 
 ### Recommended hosting response headers
@@ -131,6 +131,12 @@ Tap the small **v…** control on unlock or Home for in-app release notes.
 
 
 ## Changelog
+
+### 2.9.9 — 2026-11-22
+- **Fix:** Lending PDF and CSV ledgers leave out repayments dated after today, matching the balance on screen. A repayment dated before the loan explains that interest still starts on the loan date.
+- **Fix:** Currency totals add the unrounded balances, then round once. INR, EUR and USD each use their own grouping. Currencies are not added together.
+- **Fix:** The check under More reports duplicate transaction ids, missing loans, unbalanced transfers, currency mismatches and contact names that no longer match. It does not change or delete records.
+- **UI:** Plan and Money tabs wrap on a narrow screen. Wider layout on tablet. Lending summary states that exports keep currencies separate.
 
 ### 2.9.8 — 2026-11-22
 - **Fix:** Give & Take outstanding amounts stay in net worth. Giving money no longer looks like spending, and receiving money you owe no longer looks like income.
