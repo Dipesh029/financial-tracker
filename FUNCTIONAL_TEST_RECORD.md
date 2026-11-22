@@ -1,6 +1,6 @@
 # Functional test record — My Finance
 
-**App version at last update:** 2.9.9  
+**App version at last update:** 2.10.0  
 **Storage:** encrypted localStorage key `myfinance.v1` (no remote API)  
 **Last audit date:** 2026-11-22  
 
@@ -182,3 +182,13 @@ Replace `index.html` and `sw.js` on the existing HTTPS origin. Keep the manifest
 - PASS: Give & Take remains separate from formal lending.
 - Automated coverage: `node regression.mjs` and `node --check` on `regression.mjs` and `sw.js`.
 - Not run: a real browser print preview, a device screen, and a personal encrypted vault.
+
+
+## 2.10.0 — Design system (2026-11-22)
+- PASS: Home still shows net worth, the wealth breakdown and quick actions.
+- PASS: Activity still has search, account and type filters, and groups rows in a ledger.
+- PASS: More still exposes backup, integrity check, wipe, theme and Forex visibility.
+- PASS: Lending still exposes export. Give & Take does not show the lending export.
+- PASS: wide-screen CSS bounds the app and centres sheets. Reduced motion and visible focus remain.
+- PASS: `node regression.mjs` — ALL_REGRESSION_PASS.
+- Not run: a visual pass in a real browser at phone, tablet and desktop widths. No personal vault was opened.

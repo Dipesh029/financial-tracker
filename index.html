@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f4fd8">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-tNMQvDmafg07LjmWhRdLoGQc1JgkWu+UOehbsur9rzo='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZBFpvz5DvZYoDiWM11Llb3Ms3B9m66cE6XlhIGMX5W4=' 'sha256-uKUE1DzrWTabtdz0KBixHx+V5GYTw00Jite8ENkSlq4='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -391,6 +391,122 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 .seg.wrap button{flex:1 1 calc(33% - 4px);white-space:normal}
 .filter-row{align-items:stretch}
 .empty{padding:28px 16px}
+
+/* Product design system. Shared by every screen. Tokens stay semantic so calculations and markup keep working. */
+:root, html[data-theme="light"]{
+  --bg:#f3f5f7;
+  --bg-2:#e7edf2;
+  --card:#ffffff;
+  --elev:#ffffff;
+  --ink:#14202b;
+  --muted:#5d6d7c;
+  --line:#e1e7ee;
+  --accent:#1c4e5a;
+  --accent-soft:rgba(28,78,90,.10);
+  --accent-ink:#f4fbfb;
+  --in:#0e7a45;
+  --out:#b42318;
+  --warn:#946200;
+  --nav:rgba(255,255,255,.94);
+  --overlay:rgba(16,28,38,.48);
+  --input:#fbfcfd;
+  --radius:16px;
+  --shadow:0 1px 1px rgba(20,32,43,.04), 0 10px 28px rgba(20,32,43,.05);
+  --hero:#163244;
+  --hero-from:#163244;
+  --hero-to:#163244;
+}
+html[data-theme="dark"]{
+  --bg:#0e141a;
+  --bg-2:#182028;
+  --card:#161d25;
+  --elev:#1d2630;
+  --ink:#e7eef5;
+  --muted:#96a6b6;
+  --line:#2b3744;
+  --accent:#9ed4cb;
+  --accent-soft:rgba(158,212,203,.14);
+  --accent-ink:#0e141a;
+  --in:#7ddec0;
+  --out:#ffb4ab;
+  --warn:#f6d48a;
+  --nav:rgba(22,29,37,.94);
+  --overlay:rgba(0,0,0,.62);
+  --input:#1d2630;
+  --shadow:0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.28);
+  --hero:#102832;
+  --hero-from:#102832;
+  --hero-to:#102832;
+}
+@media (prefers-color-scheme: dark){
+  html[data-theme="system"], html:not([data-theme]){
+    --bg:#0e141a; --bg-2:#182028; --card:#161d25; --elev:#1d2630; --ink:#e7eef5; --muted:#96a6b6; --line:#2b3744;
+    --accent:#9ed4cb; --accent-soft:rgba(158,212,203,.14); --accent-ink:#0e141a; --in:#7ddec0; --out:#ffb4ab; --warn:#f6d48a;
+    --nav:rgba(22,29,37,.94); --overlay:rgba(0,0,0,.62); --input:#1d2630;
+    --shadow:0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.28);
+    --hero:#102832; --hero-from:#102832; --hero-to:#102832;
+  }
+}
+@media (prefers-color-scheme: light){
+  html[data-theme="system"], html:not([data-theme]){
+    --bg:#f3f5f7; --bg-2:#e7edf2; --card:#ffffff; --elev:#ffffff; --ink:#14202b; --muted:#5d6d7c; --line:#e1e7ee;
+    --accent:#1c4e5a; --accent-soft:rgba(28,78,90,.10); --accent-ink:#f4fbfb; --in:#0e7a45; --out:#b42318; --warn:#946200;
+    --nav:rgba(255,255,255,.94); --overlay:rgba(16,28,38,.48); --input:#fbfcfd;
+    --shadow:0 1px 1px rgba(20,32,43,.04), 0 10px 28px rgba(20,32,43,.05);
+    --hero:#163244; --hero-from:#163244; --hero-to:#163244;
+  }
+}
+html,body{font:15.5px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:-.011em}
+h1{font-size:12px;font-weight:650;letter-spacing:.04em;text-transform:uppercase}
+h2{font-size:20px;font-weight:650;letter-spacing:-.03em;color:var(--ink)}
+.card,.mod-hero,.lend-hero,.metric,.wealth-pill{border-radius:16px;box-shadow:var(--shadow)}
+.card > b:first-child{display:block;font-size:15px;font-weight:650;letter-spacing:-.02em;margin:0 0 4px}
+.hero-nw{background:var(--hero);color:#f7fbfc;border-radius:18px;box-shadow:none}
+.hero-nw .label{font-size:12px;letter-spacing:.04em;text-transform:uppercase;font-weight:650}
+.hero-nw .value{letter-spacing:-.04em}
+.hero-nw .split div{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08)}
+.row{align-items:flex-start;padding:2px 0}
+.row > b,.row > .num{padding-top:1px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.in{color:var(--in)} .out{color:var(--out)}
+.ledger{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:2px 14px 6px;box-shadow:var(--shadow);margin-top:10px}
+.ledger .row{padding:11px 0}
+.ledger .row + .row{margin-top:0}
+.ledger .month-sep{margin:14px 0 0}
+nav{background:var(--nav);box-shadow:0 -8px 24px rgba(20,32,43,.04)}
+nav button{min-height:44px;border-radius:12px}
+nav button.on{font-weight:700}
+nav .add{box-shadow:none;border-radius:16px}
+.sheet{border:1px solid var(--line)}
+.btn{border-radius:12px;box-shadow:none;letter-spacing:-.01em}
+.btn.alt,.btn.danger{background:transparent}
+.btn:disabled,button:disabled{opacity:.55;cursor:not-allowed}
+.chip{background:transparent}
+.seg{background:var(--bg-2)}
+.empty{background:var(--card);border:1px dashed var(--line);border-radius:16px}
+.form-section{background:var(--bg);box-shadow:none}
+input,select,textarea{background:var(--input)}
+button:focus-visible,.ver-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lock-screen{position:relative;max-width:420px;margin:0 auto;padding-top:48px}
+.lock-brand{font-size:28px;font-weight:680;letter-spacing:-.035em;line-height:1.15}
+.lock-ver{position:absolute;top:8px;right:0}
+.page-note{margin:0 0 10px}
+@media (max-width:420px){
+  h2,.section-title-actions h2{font-size:18px}
+  .hero-nw .value{font-size:28px}
+}
+@media (min-width:900px){
+  main,#app{max-width:840px}
+  nav{width:min(840px,100%)}
+  .sheet-bg{align-items:center;padding:28px 16px}
+  .sheet{max-width:640px;border-radius:20px;max-height:min(86vh,880px)}
+  .sheet::before{display:none}
+  .hero-nw{padding:22px 24px}
+  .hero-nw .value{font-size:42px}
+  .quick-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
 </style>
 </head>
 <body>
@@ -402,8 +518,9 @@ textarea{width:100%;min-height:88px;padding:10px 12px;border:1px solid var(--lin
 "use strict";
 /* ---------- storage (stays on this phone; nothing is sent anywhere) ---------- */
 const KEY = "myfinance.v1";
-const APP_VERSION = "2.9.9";
+const APP_VERSION = "2.10.0";
 const RELEASES = [
+  {v:"2.10.0", d:"2026-11-22", notes:"Visual redesign across Home, Money, Plan, Activity and More. Same calculations, exports, vault and navigation. Quieter surfaces, clearer amounts, and layouts that hold together on a phone and a laptop."},
   {v:"2.9.9", d:"2026-11-22", notes:"Lending reports omit future-dated repayments and keep an early repayment on its original date, with the effective interest date explained. PDF totals round only after adding each currency. Exports keep Hindi and emoji joiners. The integrity check warns about a posting currency or amount that does not match the account, and does not change your records."},
   {v:"2.9.8", d:"2026-11-22", notes:"Give & Take outstanding balances now stay in net worth (cash movement plus what is still owed). Contact matching collapses extra spaces. A failed Give & Take edit no longer sticks on screen. Offline shell cache stores the new page before the response is used. A transaction missing postings no longer blanks Home."},
   {v:"2.9.7", d:"2026-11-22", notes:"Redesigned lending PDFs: compact A4 portrait summary, A4 landscape detailed statement, currency- and direction-separated principal/interest totals, loan closing balances, fixed-width readable tables and safer word wrapping. Lending calculations remain sourced from lendingPosition()."},
@@ -2322,7 +2439,7 @@ function versionLinkHtml(){
 function viewHome(){ const b=onboardingHtml()+viewHome0(); const o=homeOwner==="All family"?null:homeOwner; return S.accounts.length?b+dueHtml()+investSummaryHtml(o)+portfolioGrowthHtml()+historyHtml(o):b; }
 function viewSettings(){
   const bioOn=!!BIO;
-  return `<h2 style="margin-top:4px">More</h2>
+  return `<div class="page-head"><h2 style="margin-top:4px">More</h2><p class="muted page-note">Preferences, backup and security. Nothing here changes a balance by itself.</p></div>
   <div class="card"><b>Version</b>
   <div class="muted">App v${esc(APP_VERSION)} · vault key myfinance.v1</div>
   <button class="btn alt" data-releases style="margin-top:8px">Release notes</button>
@@ -2546,15 +2663,15 @@ function viewActivity(){
     if(mk && mk!==lastM){ lastM=mk; html+=`<div class="month-sep">${esc(mk)}</div>`; }
     html+=txnRow(t);
   }
-  return `<h2 style="margin-top:4px">Activity</h2>
-  <input id="q" type="search" placeholder="Search note, category, person" value="${esc(q)}">
+  return `<div class="page-head"><h2 style="margin-top:4px">Activity</h2><p class="muted page-note">Search and filter the full ledger. Amounts stay in the account currency.</p></div>
+  <input id="q" type="search" placeholder="Search note, category, person" aria-label="Search transactions" value="${esc(q)}">
   <div class="filter-row">
-  <select id="fa" class="filter-select"><option value="">All accounts</option>${S.accounts.map(a=>`<option value="${esc(a.id)}" ${filterAcct===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
-  <select id="ft"><option value="">All types</option>${[["expense","Expense"],["income","Income"],["transfer","Transfer"],["givetake","Give & Take"],["buy","Buy"],["sell","Sell"],["lend","Lent"],["borrow","Borrowed"],["adjustment","Adjustment"],["open","Opening"],["refund","Refund"]].map(([t,l])=>`<option value="${t}" ${filterType===t?"selected":""}>${l}</option>`).join("")}</select>
+  <select id="fa" class="filter-select" aria-label="Filter by account"><option value="">All accounts</option>${S.accounts.map(a=>`<option value="${esc(a.id)}" ${filterAcct===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
+  <select id="ft" aria-label="Filter by type"><option value="">All types</option>${[["expense","Expense"],["income","Income"],["transfer","Transfer"],["givetake","Give & Take"],["buy","Buy"],["sell","Sell"],["lend","Lent"],["borrow","Borrowed"],["adjustment","Adjustment"],["open","Opening"],["refund","Refund"]].map(([t,l])=>`<option value="${t}" ${filterType===t?"selected":""}>${l}</option>`).join("")}</select>
   </div>
   <div class="row" style="margin-top:8px"><span class="muted">${list.length} match${list.length===1?"":"es"}</span>
   ${(filterAcct||filterType||q)?`<button type="button" class="chip" data-clearfilters>Clear filters</button>`:""}</div>
-  ${shown.length?html:`<div class="empty"><div class="empty-title">No transactions</div><p>Try clearing filters or add one with +.</p></div>`}
+  ${shown.length?`<div class="ledger">${html}</div>`:`<div class="empty"><div class="empty-title">No transactions</div><p>Try clearing filters or add one with +.</p></div>`}
   ${list.length>limit?`<button class="btn alt" data-actmore style="margin-top:12px">Show more</button>`:""}`;
 }
 
@@ -6789,11 +6906,11 @@ function boot(){
   const bootEnvelopeCheck=env?inspectEncryptedEnvelope(env):null;
   BIO=env?.bio||null;KDF_ITER=bootEnvelopeCheck?.ok?bootEnvelopeCheck.iterations:(env?.iterations||250000);
   $("#nav").innerHTML="";$("#layer").innerHTML="";
-  $("#app").innerHTML=`<div style="padding-top:42px;position:relative">
-  <button type="button" data-releases title="Release notes" style="position:absolute;top:8px;right:0;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:4px 2px;opacity:.85">v${esc(APP_VERSION)}</button>
-  <div class="big" style="font-size:28px">My Finance</div>
+  $("#app").innerHTML=`<div class="lock-screen">
+  <button type="button" class="ver-link lock-ver" data-releases title="Release notes">v${esc(APP_VERSION)}</button>
+  <div class="lock-brand">My Finance</div>
   <p class="muted">${env?"Your encrypted finance vault is locked.":"Create a strong passphrase. It encrypts your data on this phone and in backup files."}</p>
-  <form id="pf"><input id="pp" type="password" autocomplete="current-password" placeholder="Passphrase" required>${env?"":`<input id="pp2" type="password" autocomplete="new-password" placeholder="Repeat passphrase" style="margin-top:8px">`}<div id="pe" class="out" style="margin-top:8px"></div><button class="btn" type="submit">${env?"Unlock with passphrase":"Create secure vault"}</button></form>
+  <form id="pf"><input id="pp" type="password" autocomplete="current-password" placeholder="Passphrase" aria-label="Passphrase" required>${env?"":`<input id="pp2" type="password" autocomplete="new-password" placeholder="Repeat passphrase" aria-label="Repeat passphrase" style="margin-top:8px">`}<div id="pe" class="out" style="margin-top:8px"></div><button class="btn" type="submit">${env?"Unlock with passphrase":"Create secure vault"}</button></form>
   ${env?.bio?`<button class="btn alt" data-bio-unlock>Use fingerprint / device passkey</button>`:""}
   <div class="security-note" style="margin-top:18px">Encryption: AES-256-GCM. Passphrase key derivation: PBKDF2-HMAC-SHA-256. Never share your passphrase. If you lose it and have no working biometric unlock, encrypted data cannot be recovered.</div>
   </div>`;
@@ -6913,7 +7030,7 @@ if(globalThis.__MF_TEST){
     dematPosition, investmentTotals, dematClaims, paymentAccounts, payAccountAllowed, preferredPayId, paySelectHtml, sortMenuHtml,
     maskCardLast4, collectForexWallets, applyForexWallets, forexDisplayValue, fmt, viewAccounts, viewSettings, forexVisible,
     openBackupPayload, commitRestore, vaultShapeOk, buildHoldPlanRow, applySectionSort,
-    getNwPrefs, forgetBackupFolder, viewPlan, viewHome,
+    getNwPrefs, forgetBackupFolder, viewPlan, viewHome, viewActivity,
     setPlanSeg(v){ planSeg=v; },
     setMoneySeg(v){ moneySeg=v; },
     setTab(v){ tab=v; },
